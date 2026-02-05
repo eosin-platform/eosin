@@ -138,12 +138,7 @@
 
     // Compute the ideal mip level for current zoom
     const dpi = window.devicePixelRatio * 96;
-    let idealLevel = computeIdealLevel(viewport.zoom, image.levels, dpi);
-
-    // If a number key is held, force that mip level (clamped to valid range)
-    if (forcedMipLevel !== null) {
-      idealLevel = Math.min(forcedMipLevel, image.levels - 1);
-    }
+    const idealLevel = computeIdealLevel(viewport.zoom, image.levels, dpi);
 
     // Compute finer level for 2x screen DPI (one level below ideal, clamped to 0)
     const finerLevel = Math.max(0, idealLevel - 1);
@@ -166,12 +161,7 @@
     // Strategy: For each tile position at the ideal level,
     // find the best available tile (finest resolution first, then fallback to coarser)
     for (const coord of idealTiles) {
-      if (forcedMipLevel !== null) {
-        // When forcing a mip level, only show tiles at exactly that level (no fallback)
-        renderTileExactLevel(coord);
-      } else {
-        renderTileWithFallback(coord, idealLevel, finerLevel);
-      }
+      renderTileWithFallback(coord, idealLevel, finerLevel, forcedMipLevel);
     }
 
     // Debug overlay when shift is held or mip level is forced
@@ -260,11 +250,12 @@
     }
   }
 
-  /**
-   * Render a tile at exactly the specified level - no fallback.
-   * Used when a number key is held to debug a specific mip level.
-   */
-  function renderTileExactLevel(targetCoord: TileCoord) {
+  function renderTileWithFallback(
+    targetCoord: TileCoord,
+    idealLevel: number,
+    finerLevel: number,
+    forcedLevel: number | null = null
+  ) {
     if (!ctx) return;
 
     const rect = tileScreenRect(targetCoord, viewport);
@@ -279,31 +270,64 @@
       return;
     }
 
-    // Only render if we have the tile at exactly this level
-    const cachedTile = cache.get(targetCoord.x, targetCoord.y, targetCoord.level);
-    if (cachedTile) {
-      renderTile(cachedTile, rect);
-    } else {
-      // Show placeholder if tile not available at this exact level
-      renderPlaceholder(rect);
-    }
-  }
-
-  function renderTileWithFallback(targetCoord: TileCoord, idealLevel: number, finerLevel: number) {
-    if (!ctx) return;
-
-    const rect = tileScreenRect(targetCoord, viewport);
-
-    // Skip tiles completely outside the viewport
-    if (
-      rect.x + rect.width < 0 ||
-      rect.y + rect.height < 0 ||
-      rect.x > viewport.width ||
-      rect.y > viewport.height
-    ) {
+    // If forcing a specific mip level, only use that level (render as fallback)
+    if (forcedLevel !== null) {
+      const clampedLevel = Math.min(forcedLevel, image.levels - 1);
+      
+      if (clampedLevel === idealLevel) {
+        // Forced level matches ideal - render directly if available
+        const cachedTile = cache.get(targetCoord.x, targetCoord.y, targetCoord.level);
+        if (cachedTile) {
+          renderTile(cachedTile, rect);
+        } else {
+          renderPlaceholder(rect);
+        }
+      } else if (clampedLevel > idealLevel) {
+        // Forced level is coarser - render as fallback (sub-portion of coarser tile)
+        const scale = Math.pow(2, clampedLevel - idealLevel);
+        const coarseX = Math.floor(targetCoord.x / scale);
+        const coarseY = Math.floor(targetCoord.y / scale);
+        const coarse = cache.get(coarseX, coarseY, clampedLevel);
+        if (coarse) {
+          renderFallbackTile(targetCoord, coarse, clampedLevel, idealLevel, rect);
+        } else {
+          renderPlaceholder(rect);
+        }
+      } else {
+        // Forced level is finer than ideal - compute which finer tiles cover this area
+        const scale = Math.pow(2, idealLevel - clampedLevel);
+        let anyRendered = false;
+        
+        for (let dy = 0; dy < scale; dy++) {
+          for (let dx = 0; dx < scale; dx++) {
+            const finerX = targetCoord.x * scale + dx;
+            const finerY = targetCoord.y * scale + dy;
+            const finerTile = cache.get(finerX, finerY, clampedLevel);
+            
+            if (finerTile) {
+              // Compute the sub-rect for this finer tile within the target rect
+              const subWidth = rect.width / scale;
+              const subHeight = rect.height / scale;
+              const subRect = {
+                x: rect.x + dx * subWidth,
+                y: rect.y + dy * subHeight,
+                width: subWidth,
+                height: subHeight,
+              };
+              renderTile(finerTile, subRect);
+              anyRendered = true;
+            }
+          }
+        }
+        
+        if (!anyRendered) {
+          renderPlaceholder(rect);
+        }
+      }
       return;
     }
 
+    // Normal rendering with fallback...
     // Try to find the best available tile
     // First check the ideal level
     let cachedTile = cache.get(targetCoord.x, targetCoord.y, targetCoord.level);
