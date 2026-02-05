@@ -7,7 +7,7 @@ use crate::viewport::{RetrieveTileWork, Tile};
 
 pub async fn worker_main(
     cancel: CancellationToken,
-    storage: StorageClient,
+    mut storage: StorageClient,
     rx: Receiver<RetrieveTileWork>,
 ) -> Result<()> {
     loop {
@@ -25,7 +25,7 @@ pub async fn worker_main(
                         continue;
                     }
                     data = storage.get_tile(
-                        work.id,
+                        work.slide_id,
                         work.meta.x,
                         work.meta.y,
                         work.meta.level,

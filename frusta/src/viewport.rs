@@ -1,3 +1,4 @@
+use futures_util::SinkExt;
 use rustc_hash::FxHashMap;
 
 use anyhow::{Context, Result, ensure};
@@ -11,26 +12,33 @@ const LEVEL_BITS: u64 = 20;
 const X_MASK: u64 = (1 << X_BITS) - 1;
 const Y_MASK: u64 = (1 << Y_BITS) - 1;
 const LEVEL_MASK: u64 = (1 << LEVEL_BITS) - 1;
+const TILE_SIZE: f32 = 512.0;
+const MAX_TILES_PER_UPDATE: usize = 64; // tune this
 
+#[derive(Debug, Clone, Copy)]
 pub struct ImageDesc {
+    pub id: Uuid,
     pub width: u32,
     pub height: u32,
     pub levels: u32,
 }
 
+#[derive(Debug, Clone, Copy)]
 pub struct TileMeta {
     pub x: u32,
     pub y: u32,
     pub level: u32,
 }
 
+#[derive(Debug, Clone)]
 pub struct Tile {
     pub meta: TileMeta,
     pub data: Vec<u8>,
 }
 
-pub struct SentTile {
-    pub send_count: u32,
+#[derive(Debug, Clone, Copy)]
+pub struct RequestedTile {
+    pub count: u32,
     pub last_sent: i64, // ms since epoch
 }
 
@@ -61,12 +69,13 @@ impl TileMeta {
 }
 
 pub struct ViewManager {
-    sent: FxHashMap<TileKey, SentTile>,
+    sent: FxHashMap<TileKey, RequestedTile>,
     image: ImageDesc,
     tx: Sender<Tile>,
     cancel_update: Option<CancellationToken>,
     worker_tx: Sender<RetrieveTileWork>,
     dpi: f32,
+    candidates: Vec<TileMeta>,
 }
 
 pub struct Viewport {
@@ -78,7 +87,7 @@ pub struct Viewport {
 }
 
 pub struct RetrieveTileWork {
-    pub id: Uuid,
+    pub slide_id: Uuid,
     pub cancel: CancellationToken,
     pub tx: Sender<Tile>,
     pub meta: TileMeta,
@@ -99,13 +108,17 @@ impl ViewManager {
                 tx,
                 worker_tx,
                 cancel_update: None,
+                candidates: Vec::with_capacity(MAX_TILES_PER_UPDATE),
             },
             rx,
         )
     }
 
-    pub async fn clear_cache(&mut self) {
+    pub fn clear_cache(&mut self) {
         self.sent.clear();
+        if let Some(cancel) = self.cancel_update.take() {
+            cancel.cancel();
+        }
     }
 
     pub async fn update(&mut self, viewport: &Viewport) -> Result<()> {
@@ -114,10 +127,7 @@ impl ViewManager {
             old_cancel.cancel();
         }
 
-        const MAX_TILES_PER_UPDATE: usize = 64; // tune this
         let now = chrono::Utc::now().timestamp_millis();
-
-        let mut candidates: Vec<TileMeta> = Vec::new();
 
         // Compute the minimum mip level worth fetching based on zoom and DPI.
         // When zoomed out, there's no point fetching tiles at resolutions higher
@@ -127,25 +137,48 @@ impl ViewManager {
         // Each mip level is 2x downsampled, so min_level = -log2(effective_scale).
         let min_level = self.compute_min_level(viewport);
 
+        let candidates: &mut Vec<TileMeta> = &mut self.candidates;
+        candidates.clear();
+
         // Decide which mip levels to consider, coarse → fine or vice versa.
         // For "higher mips first" meaning *more downsampled*, we iterate
         // from coarse (high level index) down to fine (min_level).
         //
         // ASSUMPTION: level 0 = highest resolution, image.levels-1 = coarsest.
         for level in (min_level..self.image.levels).rev() {
-            let mut tiles = self.visible_tiles_for_level(viewport, level);
+            let mut tiles = visible_tiles_for_level(viewport, &self.image, level);
             // Optional: sort center-out so we prioritize tiles near the viewport center.
             let center_x = viewport.x + (viewport.width as f32 / 2.0);
             let center_y = viewport.y + (viewport.height as f32 / 2.0);
-            tiles.sort_by(|a, b| {
-                let ax = a.x as f32 * 512.0; // TODO: TILE_SIZE
-                let ay = a.y as f32 * 512.0;
-                let bx = b.x as f32 * 512.0;
-                let by = b.y as f32 * 512.0;
-                let da = (ax - center_x).hypot(ay - center_y);
-                let db = (bx - center_x).hypot(by - center_y);
-                da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
-            });
+            let downsample = 2f32.powi(level as i32);
+            let px_per_tile = downsample * TILE_SIZE;
+
+            let cmp = |a: &TileMeta, b: &TileMeta| {
+                let ax = a.x as f32 * px_per_tile;
+                let ay = a.y as f32 * px_per_tile;
+                let bx = b.x as f32 * px_per_tile;
+                let by = b.y as f32 * px_per_tile;
+
+                let dax = ax - center_x;
+                let day = ay - center_y;
+                let dbx = bx - center_x;
+                let dby = by - center_y;
+
+                let da2 = dax * dax + day * day;
+                let db2 = dbx * dbx + dby * dby;
+
+                da2.partial_cmp(&db2).unwrap_or(std::cmp::Ordering::Equal)
+            };
+
+            if tiles.len() > MAX_TILES_PER_UPDATE {
+                let nth = MAX_TILES_PER_UPDATE - 1;
+                tiles.select_nth_unstable_by(nth, cmp);
+                tiles[..MAX_TILES_PER_UPDATE].sort_by(cmp);
+                tiles.truncate(MAX_TILES_PER_UPDATE);
+            } else {
+                tiles.sort_by(cmp);
+            }
+
             for meta in tiles {
                 let key = meta.index_unchecked();
                 // Skip tiles we've already sent recently (simple de-dupe).
@@ -161,33 +194,30 @@ impl ViewManager {
                 break;
             }
         }
-        for meta in candidates {
-            self.mark_tile_sent_at(&meta, now);
+        for meta in candidates.iter() {
             let work = RetrieveTileWork {
+                slide_id: self.image.id,
                 cancel: cancel.clone(),
                 tx: self.tx.clone(),
-                meta,
+                meta: *meta,
             };
             self.worker_tx
                 .send(work)
                 .await
                 .context("failed to send tile retrieval work")?;
+            let key = meta.index_unchecked();
+            self.sent
+                .entry(key)
+                .and_modify(|existing| {
+                    existing.count += 1;
+                    existing.last_sent = now;
+                })
+                .or_insert_with(|| RequestedTile {
+                    count: 1,
+                    last_sent: now,
+                });
         }
         Ok(())
-    }
-
-    fn mark_tile_sent_at(&mut self, tile: &TileMeta, timestamp: i64) {
-        let key = tile.index_unchecked();
-        self.sent
-            .entry(key)
-            .and_modify(|existing| {
-                existing.send_count += 1;
-                existing.last_sent = timestamp;
-            })
-            .or_insert_with(|| SentTile {
-                send_count: 1,
-                last_sent: timestamp,
-            });
     }
 
     /// Compute the minimum mip level worth fetching for the current viewport.
@@ -202,70 +232,63 @@ impl ViewManager {
     fn compute_min_level(&self, viewport: &Viewport) -> u32 {
         const BASE_DPI: f32 = 96.0;
 
-        // Effective scale combines zoom with DPI normalization.
-        // A higher DPI display can make use of finer detail at the same zoom level.
+        if self.image.levels == 0 {
+            return 0;
+        }
+
         let dpi_scale = self.dpi / BASE_DPI;
         let effective_scale = viewport.zoom * dpi_scale;
 
-        // Each mip level is 2x downsampled, so we want the level where
-        // 2^level >= 1 / effective_scale, i.e., level >= -log2(effective_scale).
-        // When effective_scale >= 1.0, min_level = 0 (use full resolution).
-        // When effective_scale = 0.5, min_level = 1 (skip level 0).
-        // When effective_scale = 0.25, min_level = 2 (skip levels 0 and 1).
         let min_level = if effective_scale >= 1.0 {
             0
         } else {
-            (-effective_scale.log2()).ceil() as u32
+            let raw = -effective_scale.log2();
+            raw.max(0.0).ceil() as u32
         };
 
-        // Clamp to valid range: can't exceed the coarsest level available.
-        min_level.min(self.image.levels.saturating_sub(1))
+        min_level.min(self.image.levels - 1)
+    }
+}
+
+/// Compute which tiles (x, y) at a given level intersect the viewport.
+fn visible_tiles_for_level(viewport: &Viewport, image: &ImageDesc, level: u32) -> Vec<TileMeta> {
+    const TILE_SIZE: f32 = 512.0; // TODO: configurable
+
+    let downsample = 2f32.powi(level as i32);
+    let px_per_tile = downsample * TILE_SIZE;
+
+    // viewport.x / viewport.y assumed to be level-0 pixels
+    let view_x0 = viewport.x / px_per_tile;
+    let view_y0 = viewport.y / px_per_tile;
+    let view_x1 = (viewport.x + viewport.width as f32 / viewport.zoom) / px_per_tile;
+    let view_y1 = (viewport.y + viewport.height as f32 / viewport.zoom) / px_per_tile;
+
+    let tiles_x = (image.width as f32 / px_per_tile).ceil().max(0.0);
+    let tiles_y = (image.height as f32 / px_per_tile).ceil().max(0.0);
+
+    // these are tile indices, [min, max)
+    let min_tx = view_x0.floor().max(0.0) as u32;
+    let min_ty = view_y0.floor().max(0.0) as u32;
+    let max_tx = view_x1.ceil().max(0.0).min(tiles_x) as u32;
+    let max_ty = view_y1.ceil().max(0.0).min(tiles_y) as u32;
+
+    let tile_range_x = max_tx.saturating_sub(min_tx);
+    let tile_range_y = max_ty.saturating_sub(min_ty);
+
+    if tile_range_x == 0 || tile_range_y == 0 {
+        return Vec::new();
     }
 
-    /// Compute which tiles (x, y) at a given level intersect the viewport.
-    fn visible_tiles_for_level(&self, viewport: &Viewport, level: u32) -> Vec<TileMeta> {
-        const TILE_SIZE: f32 = 512.0; // TODO: make this configurable
-
-        // ASSUMPTION:
-        // - viewport.x, viewport.y are in *base-level* pixel coordinates (level 0 = highest res).
-        // - Each level is downsampled by approximately 2^level in each dimension.
-        //
-        // Adjust this if your pyramid uses a different scheme.
-        let downsample = 2f32.powi(level as i32);
-
-        let inv_tile_size = 1.0 / TILE_SIZE;
-
-        let view_x0 = viewport.x / (downsample * TILE_SIZE);
-        let view_y0 = viewport.y / (downsample * TILE_SIZE);
-        let view_x1 =
-            (viewport.x + viewport.width as f32 / viewport.zoom) / (downsample * TILE_SIZE);
-        let view_y1 =
-            (viewport.y + viewport.height as f32 / viewport.zoom) / (downsample * TILE_SIZE);
-
-        // Clamp to image bounds (in tiles)
-        let max_tiles_x = (self.image.width as f32 / (downsample * TILE_SIZE))
-            .ceil()
-            .max(0.0);
-        let max_tiles_y = (self.image.height as f32 / (downsample * TILE_SIZE))
-            .ceil()
-            .max(0.0);
-
-        let min_tx = view_x0.floor().max(0.0) as u32;
-        let min_ty = view_y0.floor().max(0.0) as u32;
-        let max_tx = view_x1.ceil().min(max_tiles_x) as u32;
-        let max_ty = view_y1.ceil().min(max_tiles_y) as u32;
-
-        let mut tiles = Vec::new();
-        for ty in min_ty..max_ty {
-            for tx in min_tx..max_tx {
-                tiles.push(TileMeta {
-                    x: tx,
-                    y: ty,
-                    level,
-                });
-            }
+    let mut tiles = Vec::with_capacity((tile_range_x * tile_range_y) as usize);
+    for ty in min_ty..max_ty {
+        for tx in min_tx..max_tx {
+            tiles.push(TileMeta {
+                x: tx,
+                y: ty,
+                level,
+            });
         }
-
-        tiles
     }
+
+    tiles
 }
