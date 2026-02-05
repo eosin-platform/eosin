@@ -167,7 +167,7 @@ async fn handle_socket(socket: WebSocket, state: AppState) -> Result<()> {
             _ = cancel.cancelled() => bail!("Context cancelled"),
             msg = receiver.next() => msg, // msg: Option<Message>
             _ = prune_ticker.tick() => {
-                session.maybe_soft_prune();
+                session.tick_soft_prune();
                 continue;
             }
         };
@@ -220,7 +220,11 @@ async fn handle_message(
             ensure!(data.len() >= 1 + VIEWPORT_SIZE, "Update message too short");
             let slot = data[0];
             let viewport = Viewport::from_slice(&data[1..1 + VIEWPORT_SIZE])?;
-            session.get_viewport_mut(slot)?.update(&viewport).await
+            session
+                .get_viewport_mut(slot)?
+                .update(&viewport)
+                .await
+                .context("failed to update viewport")
         }
         MessageType::Open => {
             tracing::debug!("handling Open message");
@@ -232,14 +236,17 @@ async fn handle_message(
             let image = ImageDesc::from_slice(&data[DPI_SIZE..DPI_SIZE + IMAGE_DESC_SIZE])?;
             let slot = session.open_slide(dpi, image)?;
             let payload = MessageBuilder::open_response(slot, image.id);
-            send_tx.send(Message::Binary(payload)).await?;
+            send_tx
+                .send(Message::Binary(payload))
+                .await
+                .context("failed to send Open response")?;
             Ok(())
         }
         MessageType::Close => {
             tracing::debug!("handling Close message");
             ensure!(data.len() >= UUID_SIZE, "Close message too short");
             let id = Uuid::from_slice(&data[..UUID_SIZE])?;
-            session.close_slide(id)
+            session.close_slide(id).context("failed to close slide")
         }
     }
 }
@@ -266,7 +273,7 @@ impl Session {
         }
     }
 
-    pub fn maybe_soft_prune(&mut self) {
+    pub fn tick_soft_prune(&mut self) {
         for vp in self.viewports.iter_mut().flatten() {
             vp.maybe_soft_prune_cache();
         }
@@ -311,10 +318,5 @@ impl Session {
         self.viewports[slot as usize] = None;
         self.free.push(slot);
         Ok(())
-    }
-
-    /// Fast lookup: slot → slide UUID
-    pub fn get(&self, slot: u8) -> Option<Uuid> {
-        self.slides[slot as usize]
     }
 }
