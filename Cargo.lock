@@ -1782,6 +1782,8 @@ dependencies = [
 name = "histion-intake"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "async-nats",
  "aws-config",
  "aws-credential-types",
  "aws-sdk-s3",
@@ -1789,6 +1791,13 @@ dependencies = [
  "aws-smithy-runtime-api",
  "aws-smithy-types",
  "aws-types",
+ "clap",
+ "futures",
+ "histion-common",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
