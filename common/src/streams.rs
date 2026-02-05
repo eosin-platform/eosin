@@ -10,6 +10,10 @@ pub mod topics {
     pub fn tile_data(id: Uuid) -> String {
         format!("histion.tile.{}", id)
     }
+
+    pub fn slide_progress(id: Uuid) -> String {
+        format!("histion.slide.progress.{}", id)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
