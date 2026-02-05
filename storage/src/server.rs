@@ -15,7 +15,7 @@ pub async fn run_server(args: ServerArgs) -> Result<()> {
     tracing::info!(%api_addr, "starting API server");
 
     // Build the API server
-    let api_service = ApiService::new();
+    let api_service = ApiService::new(&args.data_root);
     let api_server = Server::builder()
         .add_service(StorageApiServer::new(api_service))
         .serve(api_addr);
