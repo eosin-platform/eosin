@@ -31,6 +31,8 @@ storage:
   imagePullPolicy: Always
   replicas: 1
   logLevel: debug
+  cluster:
+    enabled: false
 
 frusta:
   image: docker.io/thavlik/histion-frusta:latest

@@ -28,12 +28,21 @@ spec:
         command:
           - histion-storage
           - server
-          - --port
+          - --api-port
           - "80"
+{{- if .Values.storage.cluster.enabled }}
+          - --cluster-port
+          - "7000"
+{{- end }}
         ports:
         - containerPort: 80
           protocol: TCP
           name: grpc
+{{- if .Values.storage.cluster.enabled }}
+        - containerPort: 7000
+          protocol: TCP
+          name: cluster
+{{- end }}
 {{- if .Values.prometheus.enabled }}
         - containerPort: 2112
           protocol: TCP
