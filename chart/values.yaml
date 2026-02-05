@@ -1,11 +1,25 @@
+nats:
+  url: "nats://nats.nats.svc.cluster.local:4222"
+  user: {}
+  password: {}
+
 storage:
-  image: thavlik/histion-storage:latest
+  image: docker.io/thavlik/histion-storage:latest
   imagePullPolicy: Always
   replicas: 1
   logLevel: debug
 
 frusta:
-  image: thavlik/histion-frusta:latest
+  image: docker.io/thavlik/histion-frusta:latest
   imagePullPolicy: Always
   replicas: 1
   logLevel: debug
+
+browser:
+  image: docker.io/thavlik/histion-browser:latest
+  imagePullPolicy: Always
+  replicas: 1
+  logLevel: warning
+  resources:
+    limits:
+      memory: "256Mi"

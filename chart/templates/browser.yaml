@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-browser
+spec:
+  replicas: {{ .Values.browser.replicas}}
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-browser
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}-browser
+    spec:
+      restartPolicy: Always
+      containers:
+      - name: browser
+        imagePullPolicy: {{ .Values.browser.imagePullPolicy }}
+        image: {{ .Values.browser.image }}
+    {{- if .Values.browser.resources }}
+        resources:
+{{ toYaml .Values.browser.resources | indent 10 }}
+    {{- end }}
+        ports:
+        - containerPort: 3000
+          name: http
+        env:
+        - name: FRUSTA_ENDPOINT
+          value: http://{{ .Release.Name }}-frusta
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-browser
+spec:
+  selector:
+    app: {{ .Release.Name }}-browser
+  ports:
+    - port: 80
+      targetPort: 3000

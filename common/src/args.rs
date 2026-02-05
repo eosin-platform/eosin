@@ -33,10 +33,10 @@ pub struct NatsArgs {
     #[arg(long, env = "NATS_URL", required = true)]
     pub nats_url: String,
 
-    #[arg(long, env = "NATS_USER", default_value = "app")]
+    #[arg(long, env = "NATS_USER", required = true)]
     pub nats_user: String,
 
-    #[arg(long, env = "NATS_PASSWORD", default_value = "devpass")]
+    #[arg(long, env = "NATS_PASSWORD", required = true)]
     pub nats_password: String,
 }
 

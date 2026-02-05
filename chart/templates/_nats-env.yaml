@@ -1,0 +1,11 @@
+{{/*
+Redis environment variables template
+*/}}
+{{- define "histion.nats-env" -}}
+- name: NATS_URL
+  value: {{ .Values.nats.url | quote }}
+- name: NATS_USER
+{{ tpl (toYaml .Values.nats.user) . | indent 2 }}
+- name: NATS_PASSWORD
+{{ tpl (toYaml .Values.nats.password) . | indent 2 }}
+{{- end -}}

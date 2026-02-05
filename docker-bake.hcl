@@ -5,7 +5,9 @@ variable "REGISTRY" {
 group "default" {
   targets = [
     "storage",
-    "frusta"
+    "frusta",
+    "meta",
+    "browser"
   ]
 }
 
@@ -43,4 +45,15 @@ target "frusta" {
   push       = true
   cache-from = ["type=local,src=.buildx-cache/histion-frusta"]
   cache-to   = ["type=local,dest=.buildx-cache/histion-frusta,mode=min"]
+}
+
+target "meta" {
+  contexts   = { base_context = "target:base" }
+  context    = "./"
+  dockerfile = "meta/Dockerfile"
+  args       = { BASE_IMAGE = "base_context" }
+  tags       = ["${REGISTRY}thavlik/histion-meta:latest"]
+  push       = true
+  cache-from = ["type=local,src=.buildx-cache/histion-meta"]
+  cache-to   = ["type=local,dest=.buildx-cache/histion-meta,mode=min"]
 }
