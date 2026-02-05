@@ -1,9 +1,10 @@
 {{- $image := printf "%s%s" .Values.registry .Values.storage.image -}}
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: {{ .Release.Name }}-storage
 spec:
+  serviceName: {{ .Release.Name }}-storage
   replicas: {{ .Values.storage.replicas }}
   selector:
     matchLabels:
@@ -56,9 +57,14 @@ spec:
           httpGet:
             path: /healthz
             port: 8080
+        volumeMounts:
+        - name: data
+          mountPath: /data
         env:
         - name: SERVICE_NAME
           value: storage
+        - name: DATA_ROOT
+          value: /data
         - name: RUST_LOG
           value: info,aws_smithy_runtime=debug,aws_smithy_http_tower=debug,hyper=info
         - name: LOG_LEVEL
@@ -81,6 +87,17 @@ spec:
         - containerPort: 8080
           protocol: TCP
           name: health
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes: ["ReadWriteOnce"]
+    {{- if .Values.storage.storageClassName }}
+      storageClassName: {{ .Values.storage.storageClassName }}
+    {{- end }}
+      resources:
+        requests:
+          storage: {{ .Values.storage.storageSize }}
 ---
 {{- if .Values.prometheus.enabled }}
 apiVersion: monitoring.coreos.com/v1

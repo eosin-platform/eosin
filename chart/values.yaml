@@ -41,6 +41,15 @@ storage:
   imagePullPolicy: Always
   replicas: 1
   logLevel: debug
+  storageSize: 128Gi
+  resources:
+    limits:
+      memory: "256Mi"
+      cpu: "1000m"
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+  # storageClassName: ""
   cluster:
     enabled: false
 
