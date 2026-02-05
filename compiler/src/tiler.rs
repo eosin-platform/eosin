@@ -1,14 +1,14 @@
 use anyhow::{Context, Result, bail};
 use async_nats::Client as NatsClient;
 use deadpool_postgres::Pool;
-use histion_common::streams::topics;
+use histion_common::streams::{SlideProgressEvent, topics};
 use histion_storage::StorageClient;
 use image::{ImageBuffer, Rgba, RgbaImage};
 use openslide_rs::{OpenSlide, Size};
 use rayon::prelude::*;
 use std::path::Path;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
@@ -16,6 +16,7 @@ use crate::db::{
     CHECKPOINT_INTERVAL, CHECKPOINT_MIN_TILES, clear_all_tile_checkpoints, clear_tile_checkpoint,
     get_tile_checkpoint, update_tile_checkpoint,
 };
+use crate::meta_client::MetaClient;
 
 /// Tile size in pixels (width and height)
 pub const TILE_SIZE: u32 = 512;
@@ -68,11 +69,14 @@ pub fn get_slide_metadata(path: &Path) -> Result<SlideMetadata> {
 ///
 /// If `pg_pool` is provided, checkpointing is enabled for levels with more than 128 tiles.
 /// This allows resuming near where we left off on restart.
+///
+/// Progress is reported to the meta service every 10,000 tiles and published to NATS.
 pub async fn process_slide(
     path: &Path,
     slide_id: Uuid,
     storage_client: &mut StorageClient,
     nats_client: &NatsClient,
+    meta_client: &MetaClient,
     pg_pool: Option<&Pool>,
     cancel: CancellationToken,
 ) -> Result<SlideMetadata> {
@@ -90,11 +94,41 @@ pub async fn process_slide(
     // Calculate maximum mip level needed (until dimensions < TILE_SIZE)
     let max_mip_level = calculate_max_mip_level(metadata.width, metadata.height);
 
+    // Calculate total tiles across all levels
+    let total_tiles = calculate_total_tiles(metadata.width, metadata.height, max_mip_level);
+
     tracing::info!(
         native_levels = metadata.level_count,
         max_mip_level = max_mip_level,
+        total_tiles = total_tiles,
         "mip level configuration"
     );
+
+    // Initialize progress: set total and report to meta
+    let progress_total = total_tiles as i32;
+    if let Err(e) = meta_client
+        .update_progress(slide_id, 0, progress_total)
+        .await
+    {
+        tracing::warn!(error = ?e, "failed to set initial progress");
+    }
+
+    // Publish initial progress to NATS
+    let topic = topics::slide_progress(slide_id);
+    let event = SlideProgressEvent {
+        progress_steps: 0,
+        progress_total,
+    };
+    if let Err(e) = nats_client
+        .publish(topic, bytes::Bytes::from(event.to_bytes().to_vec()))
+        .await
+    {
+        tracing::warn!(error = %e, "failed to publish initial progress");
+    }
+
+    // Track global progress across all levels
+    let global_tiles_done = Arc::new(AtomicUsize::new(0));
+    let last_reported_step = Arc::new(AtomicUsize::new(0));
 
     // Process each mip level from highest (lowest resolution) to 0 (full resolution)
     // This allows the slide to be viewable at low resolution while still processing
@@ -111,9 +145,13 @@ pub async fn process_slide(
             level,
             storage_client,
             nats_client,
+            meta_client,
             pg_pool,
             path,
             &cancel,
+            progress_total,
+            global_tiles_done.clone(),
+            last_reported_step.clone(),
         )
         .await?;
     }
@@ -125,7 +163,43 @@ pub async fn process_slide(
         }
     }
 
+    // Report final progress: progress_steps = progress_total to signal 100%
+    if let Err(e) = meta_client
+        .update_progress(slide_id, progress_total, progress_total)
+        .await
+    {
+        tracing::warn!(error = ?e, "failed to report final progress");
+    }
+
+    // Publish final progress to NATS
+    let topic = topics::slide_progress(slide_id);
+    let event = SlideProgressEvent {
+        progress_steps: progress_total,
+        progress_total,
+    };
+    if let Err(e) = nats_client
+        .publish(topic, bytes::Bytes::from(event.to_bytes().to_vec()))
+        .await
+    {
+        tracing::warn!(error = %e, "failed to publish final progress");
+    }
+
     Ok(metadata)
+}
+
+/// Calculate total tiles across all mip levels
+#[allow(clippy::cast_possible_truncation)]
+fn calculate_total_tiles(width: u32, height: u32, max_mip_level: u32) -> usize {
+    let mut total = 0usize;
+    for level in 0..=max_mip_level {
+        let scale = 1u32 << level;
+        let level_width = width.div_ceil(scale);
+        let level_height = height.div_ceil(scale);
+        let tiles_x = level_width.div_ceil(TILE_SIZE);
+        let tiles_y = level_height.div_ceil(TILE_SIZE);
+        total += (tiles_x as usize) * (tiles_y as usize);
+    }
+    total
 }
 
 /// Calculate the maximum MIP level needed
@@ -147,9 +221,13 @@ async fn process_level(
     level: u32,
     storage_client: &mut StorageClient,
     nats_client: &NatsClient,
+    meta_client: &MetaClient,
     pg_pool: Option<&Pool>,
     slide_path: &Path,
     cancel: &CancellationToken,
+    progress_total: i32,
+    global_tiles_done: Arc<AtomicUsize>,
+    last_reported_step: Arc<AtomicUsize>,
 ) -> Result<()> {
     // Calculate dimensions at this MIP level
     let scale = 1u32 << level; // 2^level
@@ -258,7 +336,7 @@ async fn process_level(
 
                 // Extract and encode the tile
                 let tile = extract_tile(slide, &metadata_clone, level, tx, ty, native_level)?;
-                let webp_data = encode_tile_webp(&tile);
+                let webp_data = encode_tile_webp(&tile, level);
 
                 // Send the encoded tile to the upload channel
                 tx_channel
@@ -333,6 +411,40 @@ async fn process_level(
                         }
 
                         uploaded += 1;
+
+                        // Update global progress counter
+                        let new_global = global_tiles_done.fetch_add(1, Ordering::Relaxed) + 1;
+
+                        // Report progress every 10,000 tiles
+                        const PROGRESS_INTERVAL: usize = 10_000;
+                        let current_step = new_global / PROGRESS_INTERVAL;
+                        let prev_step = last_reported_step.load(Ordering::Relaxed);
+                        if current_step > prev_step {
+                            last_reported_step.store(current_step, Ordering::Relaxed);
+                            let progress_steps = (current_step * PROGRESS_INTERVAL) as i32;
+
+                            // Update meta service
+                            if let Err(e) = meta_client.update_progress(slide_id, progress_steps, progress_total).await {
+                                tracing::warn!(error = ?e, "failed to update progress");
+                            }
+
+                            // Publish progress to NATS
+                            let progress_topic = topics::slide_progress(slide_id);
+                            let event = SlideProgressEvent {
+                                progress_steps,
+                                progress_total,
+                            };
+                            if let Err(e) = nats_client.publish(progress_topic, bytes::Bytes::from(event.to_bytes().to_vec())).await {
+                                tracing::warn!(error = %e, "failed to publish progress event");
+                            }
+
+                            tracing::info!(
+                                progress_steps = progress_steps,
+                                progress_total = progress_total,
+                                pct = format!("{:.1}%", (progress_steps as f64 / progress_total as f64) * 100.0),
+                                "reported progress"
+                            );
+                        }
 
                         // Update checkpoint every CHECKPOINT_INTERVAL tiles
                         if use_checkpoint && uploaded - last_checkpoint >= CHECKPOINT_INTERVAL {
@@ -564,9 +676,11 @@ fn resize_image(img: &RgbaImage, new_width: u32, new_height: u32) -> RgbaImage {
 }
 
 /// Encode a tile as WebP
-fn encode_tile_webp(img: &RgbaImage) -> Vec<u8> {
+fn encode_tile_webp(img: &RgbaImage, level: u32) -> Vec<u8> {
     let encoder = webp::Encoder::from_rgba(img.as_raw(), img.width(), img.height());
-    let webp = encoder.encode(85.0); // Quality 85
+    // Use quality 100 for level 0 (full resolution), 85 for other levels
+    let quality = if level == 0 { 100.0 } else { 85.0 };
+    let webp = encoder.encode(quality);
     webp.to_vec()
 }
 

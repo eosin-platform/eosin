@@ -12,6 +12,8 @@ pub const UUID_SIZE: usize = 16;
 pub const VIEWPORT_SIZE: usize = 20;
 /// Tile payload header: 1 byte slot + 4 bytes x + 4 bytes y + 4 bytes level
 pub const TILE_HEADER_SIZE: usize = 13;
+/// Progress message size: 1 byte type + 1 byte slot + 4 bytes progress_steps + 4 bytes progress_total
+pub const PROGRESS_SIZE: usize = 10;
 
 /// WebSocket message types for the frusta protocol.
 #[repr(u8)]
@@ -21,6 +23,7 @@ pub enum MessageType {
     Open = 1,
     Close = 2,
     ClearCache = 3,
+    Progress = 4,
 }
 
 impl TryFrom<u8> for MessageType {
@@ -32,6 +35,7 @@ impl TryFrom<u8> for MessageType {
             1 => Ok(MessageType::Open),
             2 => Ok(MessageType::Close),
             3 => Ok(MessageType::ClearCache),
+            4 => Ok(MessageType::Progress),
             _ => Err(()),
         }
     }
@@ -69,6 +73,17 @@ impl MessageBuilder {
         builder.buf.extend_from_slice(&meta.y.to_le_bytes());
         builder.buf.extend_from_slice(&meta.level.to_le_bytes());
         builder.buf.extend_from_slice(data);
+        builder.into_bytes()
+    }
+
+    /// Build a progress message.
+    /// Format: [type: u8][slot: u8][progress_steps: i32 le][progress_total: i32 le]
+    pub fn progress(slot: u8, progress_steps: i32, progress_total: i32) -> Bytes {
+        let mut builder = Self::with_capacity(PROGRESS_SIZE);
+        builder.buf.push(MessageType::Progress as u8);
+        builder.buf.push(slot);
+        builder.buf.extend_from_slice(&progress_steps.to_le_bytes());
+        builder.buf.extend_from_slice(&progress_total.to_le_bytes());
         builder.into_bytes()
     }
 

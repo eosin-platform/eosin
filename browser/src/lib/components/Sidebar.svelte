@@ -9,6 +9,10 @@
     height: number;
     /** Full size of the original slide file in bytes */
     full_size: number;
+    /** Current processing progress in steps of 10,000 tiles */
+    progress_steps: number;
+    /** Total tiles to process */
+    progress_total: number;
   }
 
   interface Props {
@@ -115,6 +119,17 @@
     return slide.id.slice(0, 8);
   }
 
+  function formatProgress(slide: SlideListItem): string | null {
+    if (slide.progress_total === 0) {
+      return null; // Not yet started
+    }
+    if (slide.progress_steps >= slide.progress_total) {
+      return null; // Complete - don't show percentage
+    }
+    const pct = (slide.progress_steps / slide.progress_total) * 100;
+    return `${pct.toFixed(0)}%`;
+  }
+
   function handleToggle() {
     if (onToggle) {
       onToggle();
@@ -143,16 +158,22 @@
 
   <nav class="slide-list">
     {#each slides as slide (slide.id)}
+      {@const progress = formatProgress(slide)}
       <a 
         href="/?id={slide.id}" 
         class="slide-item"
         class:active={currentSlideId === slide.id}
-        title={collapsed ? `${getSlideLabel(slide)} - ${formatDimensions(slide.width, slide.height)} - ${formatSize(slide.full_size)}` : undefined}
+        title={collapsed ? `${getSlideLabel(slide)} - ${formatDimensions(slide.width, slide.height)} - ${formatSize(slide.full_size)}${progress ? ` - ${progress}` : ''}` : undefined}
       >
         {#if collapsed}
           <span class="slide-icon">{slide.id.slice(0, 2).toUpperCase()}</span>
         {:else}
-          <span class="slide-name">{getSlideLabel(slide)}</span>
+          <div class="slide-row">
+            <span class="slide-name">{getSlideLabel(slide)}</span>
+            {#if progress}
+              <span class="slide-progress">{progress}</span>
+            {/if}
+          </div>
           <span class="slide-meta">
             <span class="slide-dimensions">{formatDimensions(slide.width, slide.height)}</span>
             <span class="slide-size">{formatSize(slide.full_size)}</span>
@@ -324,6 +345,25 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .slide-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    gap: 0.5rem;
+  }
+
+  .slide-progress {
+    font-size: 0.75rem;
+    color: #f59e0b;
+    font-weight: 500;
+    flex-shrink: 0;
+  }
+
+  .slide-item.active .slide-progress {
+    color: rgba(255, 255, 255, 0.9);
   }
 
   .slide-dimensions {

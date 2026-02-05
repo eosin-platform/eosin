@@ -7,13 +7,16 @@ import {
   type Viewport,
   type TileData,
   type OpenResponse,
+  type ProgressEvent,
   buildOpenMessage,
   buildUpdateMessage,
   buildCloseMessage,
   buildClearCacheMessage,
   parseOpenResponse,
   parseTileData,
+  parseProgressEvent,
   isOpenResponse,
+  isProgressEvent,
 } from './protocol';
 
 export type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'error';
@@ -31,6 +34,8 @@ export interface FrustaClientOptions {
   onTile?: (tile: TileData) => void;
   /** Called when an open response is received */
   onOpenResponse?: (response: OpenResponse) => void;
+  /** Called when a progress event is received */
+  onProgress?: (event: ProgressEvent) => void;
   /** Called on error */
   onError?: (error: Event | Error) => void;
 }
@@ -50,6 +55,7 @@ export class FrustaClient {
       onStateChange: () => {},
       onTile: () => {},
       onOpenResponse: () => {},
+      onProgress: () => {},
       onError: () => {},
       ...options,
     };
@@ -146,6 +152,15 @@ export class FrustaClient {
       const response = parseOpenResponse(data);
       if (response) {
         this.options.onOpenResponse(response);
+        return;
+      }
+    }
+
+    // Check if this is a Progress event
+    if (isProgressEvent(data)) {
+      const event = parseProgressEvent(data);
+      if (event) {
+        this.options.onProgress(event);
         return;
       }
     }

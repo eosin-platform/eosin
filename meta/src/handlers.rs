@@ -8,7 +8,9 @@ use uuid::Uuid;
 
 use crate::{
     db,
-    models::{CreateSlideRequest, ListSlidesRequest, UpdateSlideRequest},
+    models::{
+        CreateSlideRequest, ListSlidesRequest, UpdateSlideProgressRequest, UpdateSlideRequest,
+    },
     server::AppState,
 };
 
@@ -143,4 +145,28 @@ pub async fn list_slides(
         })?;
 
     Ok(Json(response))
+}
+
+/// Update slide progress by ID
+pub async fn update_slide_progress(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Json(req): Json<UpdateSlideProgressRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let updated =
+        db::update_slide_progress(&state.pool, id, req.progress_steps, req.progress_total)
+            .await
+            .map_err(|e| {
+                tracing::error!("failed to update slide progress: {:?}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("failed to update slide progress: {}", e),
+                )
+            })?;
+
+    if updated {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err((StatusCode::NOT_FOUND, format!("slide {} not found", id)))
+    }
 }

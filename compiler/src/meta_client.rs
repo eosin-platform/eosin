@@ -11,6 +11,10 @@ pub struct Slide {
     pub url: String,
     /// Full size of the original slide file in bytes
     pub full_size: i64,
+    /// Current processing progress in steps of 10,000 tiles
+    pub progress_steps: i32,
+    /// Total tiles to process
+    pub progress_total: i32,
 }
 
 /// Request to create a new slide
@@ -22,6 +26,13 @@ pub struct CreateSlideRequest {
     pub url: String,
     /// Full size of the original slide file in bytes
     pub full_size: i64,
+}
+
+/// Request to update slide progress
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateSlideProgressRequest {
+    pub progress_steps: i32,
+    pub progress_total: i32,
 }
 
 /// Client for the meta HTTP API
@@ -103,5 +114,34 @@ impl MetaClient {
                 .await
                 .context("failed to parse get slide response")?,
         ))
+    }
+
+    /// Update slide progress
+    pub async fn update_progress(
+        &self,
+        id: Uuid,
+        progress_steps: i32,
+        progress_total: i32,
+    ) -> Result<()> {
+        let request = UpdateSlideProgressRequest {
+            progress_steps,
+            progress_total,
+        };
+
+        let response = self
+            .client
+            .put(format!("{}/slides/{id}/progress", &self.base_url))
+            .json(&request)
+            .send()
+            .await
+            .context("failed to send update progress request")?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            anyhow::bail!("failed to update progress: {status} - {body}");
+        }
+
+        Ok(())
     }
 }

@@ -8,6 +8,7 @@
     type TileData,
     type ImageDesc,
     type ViewportState,
+    type ProgressEvent,
     TileCache,
     TileRenderer,
     toProtocolViewport,
@@ -26,6 +27,10 @@
   let tilesReceived = $state(0);
   let cacheSize = $state(0);
   let lastError = $state<string | null>(null);
+  
+  // Progress state
+  let progressSteps = $state(0);
+  let progressTotal = $state(0);
 
   // Toast notification state
   let toastMessage = $state<string | null>(null);
@@ -155,6 +160,10 @@
     lastLoadedSlideId = slide.id;
     loadError = null;
 
+    // Reset progress state for new slide
+    progressSteps = 0;
+    progressTotal = 0;
+
     // Clear tile cache for new image
     if (cache) {
       cache.clear();
@@ -213,6 +222,10 @@
         console.log(`Slide opened: slot=${response.slot}, id=${formatUuid(response.id)}`);
         // Send initial viewport update
         sendViewportUpdate();
+      },
+      onProgress: (event: ProgressEvent) => {
+        progressSteps = event.progressSteps;
+        progressTotal = event.progressTotal;
       },
       onError: (error) => {
         const msg = error instanceof Error ? error.message : 'Connection error';
@@ -456,6 +469,9 @@
       {#if imageDesc}
         <span>Image: {imageDesc.width}×{imageDesc.height} ({imageDesc.levels} levels)</span>
       {/if}
+      {#if progressTotal > 0 && progressSteps < progressTotal}
+        <span class="progress-indicator">Processing: {((progressSteps / progressTotal) * 100).toFixed(0)}%</span>
+      {/if}
     </div>
 
     {#if loadError}
@@ -589,6 +605,11 @@
     gap: 1rem;
     font-size: 0.875rem;
     color: #aaa;
+  }
+
+  .progress-indicator {
+    color: #f59e0b;
+    font-weight: 500;
   }
 
   .spinner {

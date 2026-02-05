@@ -6,6 +6,10 @@ export interface SlideListItem {
   height: number;
   /** Full size of the original slide file in bytes */
   full_size: number;
+  /** Current processing progress in steps of 10,000 tiles */
+  progress_steps: number;
+  /** Total tiles to process */
+  progress_total: number;
 }
 
 export interface SlidesResponse {

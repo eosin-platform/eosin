@@ -267,6 +267,11 @@ async fn handle_message(
             session.get_viewport_mut(slot)?.clear_cache();
             Ok(())
         }
+        MessageType::Progress => {
+            // Progress messages are server-to-client only, not expected from client
+            tracing::warn!("received unexpected Progress message from client");
+            Ok(())
+        }
     }
 }
 

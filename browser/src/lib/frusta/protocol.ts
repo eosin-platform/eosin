@@ -9,6 +9,8 @@ export const IMAGE_DESC_SIZE = 28;
 export const UUID_SIZE = 16;
 export const VIEWPORT_SIZE = 20;
 export const TILE_HEADER_SIZE = 13;
+/** Progress message size: 1 byte type + 1 byte slot + 4 bytes progress_steps + 4 bytes progress_total */
+export const PROGRESS_SIZE = 10;
 
 /** WebSocket message types for the frusta protocol */
 export enum MessageType {
@@ -16,6 +18,7 @@ export enum MessageType {
   Open = 1,
   Close = 2,
   ClearCache = 3,
+  Progress = 4,
 }
 
 /** Image descriptor sent when opening a slide */
@@ -53,6 +56,13 @@ export interface TileData {
 export interface OpenResponse {
   slot: number;
   id: Uint8Array;
+}
+
+/** Progress event from the server */
+export interface ProgressEvent {
+  slot: number;
+  progressSteps: number;
+  progressTotal: number;
 }
 
 /**
@@ -163,4 +173,30 @@ export function parseTileData(data: ArrayBuffer): TileData | null {
 export function isOpenResponse(data: ArrayBuffer): boolean {
   const bytes = new Uint8Array(data);
   return bytes.length > 0 && bytes[0] === MessageType.Open;
+}
+
+/**
+ * Check if a binary message is a Progress event (starts with MessageType.Progress)
+ */
+export function isProgressEvent(data: ArrayBuffer): boolean {
+  const bytes = new Uint8Array(data);
+  return bytes.length >= PROGRESS_SIZE && bytes[0] === MessageType.Progress;
+}
+
+/**
+ * Parse a Progress event message.
+ * Format: [type: u8][slot: u8][progress_steps: i32 le][progress_total: i32 le]
+ */
+export function parseProgressEvent(data: ArrayBuffer): ProgressEvent | null {
+  if (data.byteLength < PROGRESS_SIZE) return null;
+  
+  const bytes = new Uint8Array(data);
+  if (bytes[0] !== MessageType.Progress) return null;
+  
+  const view = new DataView(data);
+  return {
+    slot: bytes[1],
+    progressSteps: view.getInt32(2, true),
+    progressTotal: view.getInt32(6, true),
+  };
 }

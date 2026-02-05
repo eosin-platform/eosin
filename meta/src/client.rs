@@ -40,13 +40,14 @@ impl MetaClient {
     }
 
     /// Create a new slide.
-    pub async fn create_slide(&self, id: Uuid, width: i32, height: i32, url: &str) -> Result<Slide> {
+    pub async fn create_slide(&self, id: Uuid, width: i32, height: i32, url: &str, full_size: i64) -> Result<Slide> {
         let api_url = format!("{}/slides", self.base_url);
         let req = CreateSlideRequest {
             id,
             width,
             height,
             url: url.to_string(),
+            full_size,
         };
 
         let resp = self
@@ -104,9 +105,10 @@ impl MetaClient {
         width: Option<i32>,
         height: Option<i32>,
         url: Option<String>,
+        full_size: Option<i64>,
     ) -> Result<Option<Slide>> {
         let api_url = format!("{}/slides/{}", self.base_url, id);
-        let req = UpdateSlideRequest { width, height, url };
+        let req = UpdateSlideRequest { width, height, url, full_size };
 
         let resp = self
             .client

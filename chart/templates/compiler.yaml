@@ -85,6 +85,7 @@ spec:
         {{- end }}
 {{ include "histion.metrics-env" . | indent 8 }}
 {{ include "histion.nats-env" . | indent 8 }}
+{{ include "histion.postgres-env" . | indent 8 }}
         volumeMounts:
         - name: download-volume
           mountPath: {{ .Values.compiler.downloadDir }}

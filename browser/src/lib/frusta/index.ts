@@ -4,7 +4,7 @@
 
 export { FrustaClient, createFrustaClient } from './client';
 export type { FrustaClientOptions, ConnectionState } from './client';
-export type { ImageDesc, Viewport, TileData, TileMeta, OpenResponse } from './protocol';
+export type { ImageDesc, Viewport, TileData, TileMeta, OpenResponse, ProgressEvent } from './protocol';
 export {
   MessageType,
   UUID_SIZE,
@@ -14,6 +14,8 @@ export {
   buildClearCacheMessage,
   parseOpenResponse,
   parseTileData,
+  parseProgressEvent,
+  isProgressEvent,
 } from './protocol';
 
 export { TileCache, TILE_SIZE, tileKey, tileKeyFromMeta } from './cache';

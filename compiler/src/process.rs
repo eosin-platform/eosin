@@ -277,7 +277,7 @@ async fn process_downloaded_slide(
     // Process the slide: extract tiles and upload to storage
     // Tiles are processed from highest mip level (lowest resolution) to full resolution
     // pg_pool is used for checkpointing to allow resuming on restart
-    tiler::process_slide(path, slide_id, storage_client, nats_client, Some(pg_pool), cancel)
+    tiler::process_slide(path, slide_id, storage_client, nats_client, meta_client, Some(pg_pool), cancel)
         .await
         .context("failed to process slide tiles")?;
 

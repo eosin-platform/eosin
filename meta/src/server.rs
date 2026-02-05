@@ -37,6 +37,10 @@ pub async fn run_server(args: ServerArgs) -> Result<()> {
                 .patch(handlers::update_slide)
                 .delete(handlers::delete_slide),
         )
+        .route(
+            "/slides/{id}/progress",
+            axum::routing::put(handlers::update_slide_progress),
+        )
         .layer(cors)
         .with_state(state);
     let addr: SocketAddr = format!("0.0.0.0:{}", args.port).parse()?;
