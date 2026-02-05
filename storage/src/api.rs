@@ -126,8 +126,6 @@ impl StorageApi for ApiService {
         &self,
         _request: Request<HealthCheckRequest>,
     ) -> Result<Response<HealthCheckResponse>, Status> {
-        tracing::debug!("health_check request");
-
         Ok(Response::new(HealthCheckResponse { healthy: true }))
     }
 }
