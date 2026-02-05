@@ -507,6 +507,8 @@
       <Minimap
         image={imageDesc}
         {viewport}
+        {cache}
+        {renderTrigger}
         onViewportChange={handleMinimapViewportChange}
       />
     {:else}

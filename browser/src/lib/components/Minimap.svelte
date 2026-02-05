@@ -1,22 +1,31 @@
 <script lang="ts">
+  import { onMount, onDestroy } from 'svelte';
   import type { ViewportState } from '$lib/frusta/viewport';
   import type { ImageDesc } from '$lib/frusta/protocol';
+  import { TileCache, TILE_SIZE } from '$lib/frusta/cache';
 
   interface Props {
     /** Image dimensions and metadata */
     image: ImageDesc;
     /** Current viewport state */
     viewport: ViewportState;
+    /** Tile cache containing the image tiles */
+    cache: TileCache;
+    /** Trigger to re-render when new tiles arrive */
+    renderTrigger?: number;
     /** Callback when viewport position changes via drag */
     onViewportChange?: (viewport: ViewportState) => void;
     /** Minimap size in pixels */
     size?: number;
   }
 
-  let { image, viewport, onViewportChange, size = 200 }: Props = $props();
+  let { image, viewport, cache, renderTrigger = 0, onViewportChange, size = 200 }: Props = $props();
 
   let isDragging = $state(false);
   let minimapElement: HTMLDivElement;
+  let canvas: HTMLCanvasElement;
+  let ctx: CanvasRenderingContext2D | null = null;
+  let imageCache = new Map<string, HTMLImageElement>();
 
   // Calculate the scale to fit the image in the minimap
   const scale = $derived(() => {
@@ -45,6 +54,91 @@
       height: visibleHeight * s,
     };
   });
+
+  onMount(() => {
+    ctx = canvas.getContext('2d');
+    renderThumbnail();
+  });
+
+  onDestroy(() => {
+    imageCache.clear();
+  });
+
+  // Re-render when cache updates or image changes
+  $effect(() => {
+    void renderTrigger;
+    void image;
+    void minimapWidth;
+    void minimapHeight;
+    renderThumbnail();
+  });
+
+  function renderThumbnail() {
+    if (!ctx || !canvas) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    const displayWidth = minimapWidth;
+    const displayHeight = minimapHeight;
+
+    // Set canvas size if needed
+    if (canvas.width !== displayWidth * dpr || canvas.height !== displayHeight * dpr) {
+      canvas.width = displayWidth * dpr;
+      canvas.height = displayHeight * dpr;
+      canvas.style.width = `${displayWidth}px`;
+      canvas.style.height = `${displayHeight}px`;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+
+    // Clear canvas with background color
+    ctx.fillStyle = '#2a2a2a';
+    ctx.fillRect(0, 0, displayWidth, displayHeight);
+
+    // Find the coarsest level that has tiles (highest level number)
+    const coarsestLevel = image.levels - 1;
+    
+    // Try to render from the coarsest level available
+    for (let level = coarsestLevel; level >= 0; level--) {
+      const tiles = cache.getTilesForLevel(level);
+      if (tiles.length > 0) {
+        renderTilesAtLevel(level, tiles);
+        break; // Use the coarsest level with tiles
+      }
+    }
+  }
+
+  function renderTilesAtLevel(level: number, tiles: ReturnType<typeof cache.getTilesForLevel>) {
+    if (!ctx) return;
+
+    const s = scale();
+    const downsample = Math.pow(2, level);
+    const pxPerTile = downsample * TILE_SIZE;
+
+    for (const tile of tiles) {
+      const key = `${tile.meta.x}-${tile.meta.y}-${tile.meta.level}`;
+      
+      // Calculate tile position in minimap coordinates
+      const tileX = tile.meta.x * pxPerTile * s;
+      const tileY = tile.meta.y * pxPerTile * s;
+      const tileSize = pxPerTile * s;
+
+      // Check if we have this image cached
+      let img = imageCache.get(key);
+      
+      if (img && img.complete) {
+        ctx.drawImage(img, tileX, tileY, tileSize, tileSize);
+      } else if (!img) {
+        // Load the image
+        img = new Image();
+        img.src = tile.blobUrl;
+        imageCache.set(key, img);
+        
+        img.onload = () => {
+          // Re-render when image loads
+          renderThumbnail();
+        };
+      }
+    }
+  }
 
   function handleMouseDown(e: MouseEvent) {
     e.preventDefault();
@@ -158,8 +252,8 @@
   ontouchmove={handleTouchMove}
   ontouchend={handleTouchEnd}
 >
-  <!-- Background representing the full image -->
-  <div class="image-area"></div>
+  <!-- Thumbnail canvas showing the whole slide -->
+  <canvas bind:this={canvas} class="thumbnail-canvas"></canvas>
   
   <!-- Viewport rectangle -->
   <div
@@ -189,10 +283,11 @@
     touch-action: none;
   }
 
-  .image-area {
+  .thumbnail-canvas {
     position: absolute;
     inset: 0;
-    background: rgba(80, 80, 80, 0.5);
+    width: 100%;
+    height: 100%;
   }
 
   .viewport-rect {
