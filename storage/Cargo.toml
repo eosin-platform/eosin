@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+histion-common = { path = "../common" }
 # For loading from cold storage
 aws-config = { version = "1.8", features = ["rt-tokio", "rustls"] }
 aws-sdk-s3 = { version = "1.106", features = ["rustls"] }

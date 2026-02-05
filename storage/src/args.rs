@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand};
+use histion_common::args::NatsArgs;
 use std::net::SocketAddr;
 
 #[derive(Parser, Debug, Clone)]
@@ -30,6 +31,9 @@ pub struct ServerArgs {
 
     #[arg(long, env = "SHARD")]
     pub shard: Option<u32>,
+
+    #[command(flatten)]
+    pub nats: NatsArgs,
 }
 
 #[derive(Parser, Debug, Clone)]
