@@ -159,6 +159,28 @@ impl ViewManager {
         }
     }
 
+    pub fn maybe_soft_prune_cache(&mut self) {
+        let len = self.sent.len();
+        if len <= SOFT_MAX_CACHE_SIZE {
+            return;
+        }
+
+        // Collect timestamps only.
+        let mut times: Vec<i64> = self
+            .sent
+            .values()
+            .map(|info| info.last_requested_at)
+            .collect();
+
+        use std::cmp::min;
+        let nth = min(PRUNE_BATCH_SIZE, times.len() - 1);
+        times.select_nth_unstable(nth);
+        let cutoff = times[nth];
+
+        // Keep entries with timestamp >= cutoff.
+        self.sent.retain(|_, info| info.last_requested_at >= cutoff);
+    }
+
     fn maybe_hard_prune_cache(&mut self) {
         let len = self.sent.len();
         if len <= HARD_MAX_CACHE_SIZE {

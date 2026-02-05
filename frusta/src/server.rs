@@ -12,7 +12,7 @@ use axum::{
 use bytes::Bytes;
 use futures_util::{stream::SplitSink, SinkExt, StreamExt};
 use histion_storage::client::StorageClient;
-use std::net::SocketAddr;
+use std::{net::SocketAddr, time::Duration};
 use tokio_util::sync::CancellationToken;
 use tower_http::cors::{Any, CorsLayer};
 use uuid::Uuid;
@@ -159,11 +159,17 @@ async fn handle_socket(socket: WebSocket, state: AppState) -> Result<()> {
         "new WebSocket connection established"
     );
 
+    let mut prune_ticker = tokio::time::interval(Duration::from_secs(30));
+
     // Process incoming messages
     loop {
         let msg = tokio::select! {
             _ = cancel.cancelled() => bail!("Context cancelled"),
             msg = receiver.next() => msg, // msg: Option<Message>
+            _ = prune_ticker.tick() => {
+                session.maybe_soft_prune();
+                continue;
+            }
         };
         let Some(msg) = msg else {
             break;
@@ -257,6 +263,12 @@ impl Session {
             free: (0..=255u8).rev().collect(),
             send_tx,
             uuid_to_slot: FxHashMap::default(),
+        }
+    }
+
+    pub fn maybe_soft_prune(&mut self) {
+        for vp in self.viewports.iter_mut().flatten() {
+            vp.maybe_soft_prune_cache();
         }
     }
 
