@@ -12,6 +12,7 @@ import {
   buildUpdateMessage,
   buildCloseMessage,
   buildClearCacheMessage,
+  buildRequestTileMessage,
   parseOpenResponse,
   parseTileData,
   parseProgressEvent,
@@ -213,6 +214,18 @@ export class FrustaClient {
    */
   clearCache(slot: number): boolean {
     return this.send(buildClearCacheMessage(slot));
+  }
+
+  /**
+   * Request a specific tile from the server.
+   * Used for retrying tiles that weren't received in time.
+   * @param slot The slot number
+   * @param x Tile X coordinate
+   * @param y Tile Y coordinate
+   * @param level Mip level
+   */
+  requestTile(slot: number, x: number, y: number, level: number): boolean {
+    return this.send(buildRequestTileMessage(slot, x, y, level));
   }
 }
 

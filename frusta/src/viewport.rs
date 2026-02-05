@@ -397,6 +397,56 @@ impl ViewManager {
 
         min_level.min(self.image.levels - 1)
     }
+
+    /// Request a specific tile from the client.
+    /// This is used for retry requests when a tile wasn't received in time.
+    /// If the tile doesn't exist, the request is silently discarded.
+    pub async fn request_tile(&mut self, meta: TileMeta) -> Result<()> {
+        let now = chrono::Utc::now().timestamp_millis();
+        let key = meta.index_unchecked();
+
+        // Update or insert the request tracking
+        {
+            let mut sent = self.sent.write();
+            sent.entry(key)
+                .and_modify(|existing| {
+                    existing.count += 1;
+                    existing.last_requested_at = now;
+                })
+                .or_insert_with(|| RequestedTile {
+                    count: 1,
+                    last_requested_at: now,
+                });
+        }
+
+        // Create a cancellation token for this specific request
+        let cancel = self
+            .cancel_update
+            .clone()
+            .unwrap_or_else(CancellationToken::new);
+
+        let work = RetrieveTileWork {
+            slot: self.slot,
+            slide_id: self.image.id,
+            cancel,
+            tx: self.send_tx.clone(),
+            meta,
+        };
+
+        self.worker_tx
+            .send(work)
+            .await
+            .context("failed to send tile retrieval work")?;
+
+        tracing::debug!(
+            x = meta.x,
+            y = meta.y,
+            level = meta.level,
+            "dispatched individual tile request"
+        );
+
+        Ok(())
+    }
 }
 
 impl Drop for ViewManager {

@@ -9,22 +9,45 @@
     visibleTilesForLevel,
     tileScreenRect,
   } from './viewport';
+  import { TileRetryManager } from './retryManager';
+  import type { FrustaClient } from './client';
 
   interface Props {
     image: ImageDesc;
     viewport: ViewportState;
     cache: TileCache;
+    /** Frusta client for requesting tiles */
+    client?: FrustaClient;
+    /** Slot number for this slide */
+    slot?: number;
     /** Force re-render trigger */
     renderTrigger?: number;
   }
 
-  let { image, viewport, cache, renderTrigger = 0 }: Props = $props();
+  let { image, viewport, cache, client, slot, renderTrigger = 0 }: Props = $props();
 
   let canvas: HTMLCanvasElement;
   let ctx: CanvasRenderingContext2D | null = null;
   let imageCache = new Map<string, HTMLImageElement>();
   let pendingImages = new Set<string>();
   let animationFrameId: number | null = null;
+  let retryManager: TileRetryManager | null = null;
+
+  // Initialize retry manager when client and slot are available
+  $effect(() => {
+    if (client && slot !== undefined) {
+      retryManager = new TileRetryManager({
+        onRequestTile: (coord: TileCoord) => {
+          if (client && slot !== undefined) {
+            client.requestTile(slot, coord.x, coord.y, coord.level);
+          }
+        },
+      });
+    } else {
+      retryManager?.clear();
+      retryManager = null;
+    }
+  });
 
   onMount(() => {
     ctx = canvas.getContext('2d');
@@ -37,6 +60,8 @@
     }
     // Clear image cache
     imageCache.clear();
+    // Clear retry manager
+    retryManager?.clear();
   });
 
   // Re-render when viewport or renderTrigger changes
@@ -72,8 +97,13 @@
     const dpi = window.devicePixelRatio * 96;
     const idealLevel = computeIdealLevel(viewport.zoom, image.levels, dpi);
 
-    // Get visible tiles at the ideal level
+    // Get visible tiles at the ideal level only (for retries, we only request at screen resolution)
     const idealTiles = visibleTilesForLevel(viewport, image, idealLevel);
+
+    // Cancel retry tracking for tiles no longer visible at ideal level
+    if (retryManager) {
+      retryManager.cancelTilesNotIn(idealTiles);
+    }
 
     // Render tiles with mip fallback
     // Strategy: For each tile position at the ideal level,
@@ -103,29 +133,38 @@
     let cachedTile = cache.get(targetCoord.x, targetCoord.y, targetCoord.level);
     let tileLevel = targetCoord.level;
 
-    // If not found at ideal level, look for coarser fallbacks
-    if (!cachedTile) {
-      for (let level = idealLevel + 1; level < image.levels; level++) {
-        // At coarser levels, multiple fine tiles map to one coarse tile
-        const scale = Math.pow(2, level - idealLevel);
-        const coarseX = Math.floor(targetCoord.x / scale);
-        const coarseY = Math.floor(targetCoord.y / scale);
-
-        const coarse = cache.get(coarseX, coarseY, level);
-        if (coarse) {
-          // Found a fallback - render the appropriate portion
-          renderFallbackTile(targetCoord, coarse, level, idealLevel, rect);
-          return;
-        }
+    // If found at ideal level, mark as received in retry manager and render
+    if (cachedTile) {
+      if (retryManager) {
+        retryManager.tileReceived(targetCoord.x, targetCoord.y, targetCoord.level);
       }
-
-      // No tile available - show placeholder
-      renderPlaceholder(rect);
+      renderTile(cachedTile, rect);
       return;
     }
 
-    // Render the exact tile
-    renderTile(cachedTile, rect);
+    // Tile not found at ideal level - start tracking for retry
+    // Only track tiles at the ideal level (screen resolution)
+    if (retryManager && targetCoord.level === idealLevel) {
+      retryManager.trackTile(targetCoord);
+    }
+
+    // If not found at ideal level, look for coarser fallbacks
+    for (let level = idealLevel + 1; level < image.levels; level++) {
+      // At coarser levels, multiple fine tiles map to one coarse tile
+      const scale = Math.pow(2, level - idealLevel);
+      const coarseX = Math.floor(targetCoord.x / scale);
+      const coarseY = Math.floor(targetCoord.y / scale);
+
+      const coarse = cache.get(coarseX, coarseY, level);
+      if (coarse) {
+        // Found a fallback - render the appropriate portion
+        renderFallbackTile(targetCoord, coarse, level, idealLevel, rect);
+        return;
+      }
+    }
+
+    // No tile available - show placeholder
+    renderPlaceholder(rect);
   }
 
   function renderTile(tile: CachedTile, rect: { x: number; y: number; width: number; height: number }) {

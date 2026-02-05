@@ -12,6 +12,7 @@ export {
   buildUpdateMessage,
   buildCloseMessage,
   buildClearCacheMessage,
+  buildRequestTileMessage,
   parseOpenResponse,
   parseTileData,
   parseProgressEvent,
@@ -20,6 +21,15 @@ export {
 
 export { TileCache, TILE_SIZE, tileKey, tileKeyFromMeta } from './cache';
 export type { CachedTile, TileCacheOptions } from './cache';
+
+export {
+  TileRetryManager,
+  INITIAL_TIMEOUT,
+  BASE_RETRY_DELAY,
+  MAX_JITTER,
+  MAX_RETRIES,
+} from './retryManager';
+export type { PendingTile, TileRetryManagerOptions } from './retryManager';
 
 export {
   computeIdealLevel,

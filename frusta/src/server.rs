@@ -21,8 +21,11 @@ use uuid::Uuid;
 
 use crate::{
     args::ServerArgs,
-    protocol::{MessageBuilder, MessageType, DPI_SIZE, IMAGE_DESC_SIZE, UUID_SIZE, VIEWPORT_SIZE},
-    viewport::{ImageDesc, RetrieveTileWork, ViewManager, Viewport},
+    protocol::{
+        MessageBuilder, MessageType, DPI_SIZE, IMAGE_DESC_SIZE, TILE_REQUEST_SIZE, UUID_SIZE,
+        VIEWPORT_SIZE,
+    },
+    viewport::{ImageDesc, RetrieveTileWork, TileMeta, ViewManager, Viewport},
     worker::worker_main,
 };
 use rustc_hash::FxHashMap;
@@ -40,7 +43,7 @@ pub async fn run_server(args: ServerArgs) -> Result<()> {
     let storage = StorageClient::connect(&args.storage_endpoint)
         .await
         .context("failed to connect to storage endpoint")?;
-    
+
     // Connect to NATS
     let nats_client = args.nats.connect().await?;
     tracing::info!(url = %args.nats.nats_url, "connected to NATS");
@@ -272,6 +275,23 @@ async fn handle_message(
             tracing::warn!("received unexpected Progress message from client");
             Ok(())
         }
+        MessageType::RequestTile => {
+            tracing::debug!("handling RequestTile message");
+            ensure!(
+                data.len() >= TILE_REQUEST_SIZE,
+                "RequestTile message too short"
+            );
+            let slot = data[0];
+            let x = u32::from_le_bytes(data[1..5].try_into().unwrap());
+            let y = u32::from_le_bytes(data[5..9].try_into().unwrap());
+            let level = u32::from_le_bytes(data[9..13].try_into().unwrap());
+            let meta = TileMeta { x, y, level };
+            session
+                .get_viewport_mut(slot)?
+                .request_tile(meta)
+                .await
+                .context("failed to request tile")
+        }
     }
 }
 
@@ -287,7 +307,11 @@ pub struct Session {
 }
 
 impl Session {
-    pub fn new(worker_tx: Sender<RetrieveTileWork>, send_tx: Sender<Bytes>, nats_client: NatsClient) -> Self {
+    pub fn new(
+        worker_tx: Sender<RetrieveTileWork>,
+        send_tx: Sender<Bytes>,
+        nats_client: NatsClient,
+    ) -> Self {
         Self {
             worker_tx,
             slides: [None; 256],

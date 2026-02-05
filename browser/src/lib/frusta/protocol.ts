@@ -11,6 +11,8 @@ export const VIEWPORT_SIZE = 20;
 export const TILE_HEADER_SIZE = 13;
 /** Progress message size: 1 byte type + 1 byte slot + 4 bytes progress_steps + 4 bytes progress_total */
 export const PROGRESS_SIZE = 10;
+/** Tile request size: 1 byte type + 1 byte slot + 4 bytes x + 4 bytes y + 4 bytes level */
+export const TILE_REQUEST_SIZE = 14;
 
 /** WebSocket message types for the frusta protocol */
 export enum MessageType {
@@ -19,6 +21,7 @@ export enum MessageType {
   Close = 2,
   ClearCache = 3,
   Progress = 4,
+  RequestTile = 5,
 }
 
 /** Image descriptor sent when opening a slide */
@@ -127,6 +130,23 @@ export function buildClearCacheMessage(slot: number): ArrayBuffer {
 
   view.setUint8(0, MessageType.ClearCache);
   view.setUint8(1, slot);
+
+  return buffer;
+}
+
+/**
+ * Create a RequestTile message for requesting a specific tile.
+ * Format: [type: u8][slot: u8][x: u32 le][y: u32 le][level: u32 le]
+ */
+export function buildRequestTileMessage(slot: number, x: number, y: number, level: number): ArrayBuffer {
+  const buffer = new ArrayBuffer(TILE_REQUEST_SIZE);
+  const view = new DataView(buffer);
+
+  view.setUint8(0, MessageType.RequestTile);
+  view.setUint8(1, slot);
+  view.setUint32(2, x, true);
+  view.setUint32(6, y, true);
+  view.setUint32(10, level, true);
 
   return buffer;
 }

@@ -14,6 +14,8 @@ pub const VIEWPORT_SIZE: usize = 20;
 pub const TILE_HEADER_SIZE: usize = 13;
 /// Progress message size: 1 byte type + 1 byte slot + 4 bytes progress_steps + 4 bytes progress_total
 pub const PROGRESS_SIZE: usize = 10;
+/// Tile request size (after message type): 1 byte slot + 4 bytes x + 4 bytes y + 4 bytes level
+pub const TILE_REQUEST_SIZE: usize = 13;
 
 /// WebSocket message types for the frusta protocol.
 #[repr(u8)]
@@ -24,6 +26,7 @@ pub enum MessageType {
     Close = 2,
     ClearCache = 3,
     Progress = 4,
+    RequestTile = 5,
 }
 
 impl TryFrom<u8> for MessageType {
@@ -36,6 +39,7 @@ impl TryFrom<u8> for MessageType {
             2 => Ok(MessageType::Close),
             3 => Ok(MessageType::ClearCache),
             4 => Ok(MessageType::Progress),
+            5 => Ok(MessageType::RequestTile),
             _ => Err(()),
         }
     }
