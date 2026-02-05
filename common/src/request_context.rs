@@ -14,8 +14,6 @@ use std::{
 };
 use uuid::Uuid;
 
-use crate::response;
-
 /// Stored per-request in `request.extensions()`.
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct RequestContext {
@@ -58,6 +56,8 @@ where
 }
 
 pub mod middleware {
+    use crate::response;
+
     use super::*;
 
     pub async fn extract_context(req: Request<Body>, next: Next) -> Response {
