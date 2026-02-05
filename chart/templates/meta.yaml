@@ -1,39 +1,39 @@
-{{- $image := printf "%s%s" .Values.registry .Values.storage.image -}}
+{{- $image := printf "%s%s" .Values.registry .Values.meta.image -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ .Release.Name }}-storage
+  name: {{ .Release.Name }}-meta
 spec:
-  replicas: {{ .Values.storage.replicas }}
+  replicas: {{ .Values.meta.replicas }}
   selector:
     matchLabels:
-      app: {{ .Release.Name }}-storage
+      app: {{ .Release.Name }}-meta
   template:
     metadata:
       labels:
-        app: {{ .Release.Name }}-storage
+        app: {{ .Release.Name }}-meta
     spec:
     {{- if .Values.imagePullSecrets }}
       imagePullSecrets:
 {{ toYaml .Values.imagePullSecrets | indent 10 }}
     {{- end }}
       containers:
-      - name: storage
-        imagePullPolicy: {{ .Values.storage.imagePullPolicy }}
+      - name: meta
+        imagePullPolicy: {{ .Values.meta.imagePullPolicy }}
         image: {{ $image }}
-    {{- if .Values.storage.resources }}
+    {{- if .Values.meta.resources }}
         resources:
-{{ toYaml .Values.storage.resources | indent 10 }}
+{{ toYaml .Values.meta.resources | indent 10 }}
     {{- end }}
         command:
-          - histion-storage
+          - histion-meta
           - server
           - --port
           - "80"
         ports:
         - containerPort: 80
           protocol: TCP
-          name: grpc
+          name: http
 {{- if .Values.prometheus.enabled }}
         - containerPort: 2112
           protocol: TCP
@@ -49,26 +49,25 @@ spec:
             port: 80
         env:
         - name: SERVICE_NAME
-          value: storage
+          value: meta
         - name: RUST_LOG
           value: info,aws_smithy_runtime=debug,aws_smithy_http_tower=debug,hyper=info
         - name: LOG_LEVEL
-          value: {{ .Values.storage.logLevel }}
-        - name: STORAGE_ENDPOINT
-          value: http://{{ .Release.Name }}-storage:80
+          value: {{ .Values.meta.logLevel }}
 {{ include "histion.metrics-env" . | indent 8 }}
+{{ include "histion.postgres-env" . | indent 8 }}
 ---
 {{- if .Values.prometheus.enabled }}
 apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor
 metadata:
-  name: {{ .Release.Name }}-storage
+  name: {{ .Release.Name }}-meta
   labels:
     chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
 spec:
   selector:
     matchLabels:
-      app: {{ .Release.Name }}-storage
+      app: {{ .Release.Name }}-meta
   podMetricsEndpoints:
   - port: metrics
 {{- end }}
@@ -76,13 +75,13 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ .Release.Name }}-storage
+  name: {{ .Release.Name }}-meta
   labels:
-    app: {{ .Release.Name }}-storage
+    app: {{ .Release.Name }}-meta
 spec:
   type: ClusterIP
   selector:
-    app: {{ .Release.Name }}-storage
+    app: {{ .Release.Name }}-meta
   ports:
-  - name: grpc
+  - name: http
     port: 80

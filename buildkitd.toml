@@ -1,0 +1,8 @@
+[worker.oci]
+max-parallelism = 1
+gc = true
+snapshotter = "overlayfs"
+
+[registry."registry:5000"]
+http = true
+insecure = true

@@ -1,7 +1,30 @@
+imagePullSecrets: []
+
 nats:
   url: "nats://nats.nats.svc.cluster.local:4222"
   user: {}
   password: {}
+
+registry: "" # empty string is the same as "docker.io/"
+
+prometheus:
+  enabled: false
+
+postgres:
+  host:
+    value: ""
+  port:
+    value: ""
+  database:
+    value: ""
+  username:
+    value: ""
+  password:
+    value: ""
+  sslmode:
+    value: ""
+  ca:
+    value: ""
 
 storage:
   image: docker.io/thavlik/histion-storage:latest
@@ -11,6 +34,12 @@ storage:
 
 frusta:
   image: docker.io/thavlik/histion-frusta:latest
+  imagePullPolicy: Always
+  replicas: 1
+  logLevel: debug
+
+meta:
+  image: docker.io/thavlik/histion-meta:latest
   imagePullPolicy: Always
   replicas: 1
   logLevel: debug

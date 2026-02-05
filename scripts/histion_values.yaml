@@ -1,0 +1,49 @@
+
+s3:
+  accessKeyId:
+    valueFrom:
+      secretKeyRef:
+        name: spaces-cred
+        key: access_key_id
+  secretAccessKey:
+    valueFrom:
+      secretKeyRef:
+        name: spaces-cred
+        key: secret_access_key
+
+postgres:
+  host:
+    valueFrom:
+      secretKeyRef:
+        name: postgres-cred
+        key: host
+  port:
+    valueFrom:
+      secretKeyRef:
+        name: postgres-cred
+        key: port
+  database:
+    valueFrom:
+      secretKeyRef:
+        name: postgres-cred
+        key: database
+  username:
+    valueFrom:
+      secretKeyRef:
+        name: postgres-cred
+        key: username
+  password:
+    valueFrom:
+      secretKeyRef:
+        name: postgres-cred
+        key: password
+  sslmode:
+    valueFrom:
+      secretKeyRef:
+        name: postgres-cred
+        key: sslmode
+  ca:
+    valueFrom:
+      secretKeyRef:
+        name: postgres-cred
+        key: ca

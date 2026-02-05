@@ -1,0 +1,19 @@
+{{/*
+PostgreSQL environment variables template
+*/}}
+{{- define "histion.postgres-env" -}}
+- name: POSTGRES_DATABASE
+{{ tpl (toYaml .Values.postgres.database) . | indent 2 }}
+- name: POSTGRES_HOST
+{{ tpl (toYaml .Values.postgres.host) . | indent 2 }}
+- name: POSTGRES_PORT
+{{ tpl (toYaml .Values.postgres.port) . | indent 2 }}
+- name: POSTGRES_USERNAME
+{{ tpl (toYaml .Values.postgres.username) . | indent 2 }}
+- name: POSTGRES_PASSWORD
+{{ tpl (toYaml .Values.postgres.password) . | indent 2 }}
+- name: POSTGRES_CA_CERT
+{{ tpl (toYaml .Values.postgres.ca) . | indent 2 }}
+- name: POSTGRES_SSL_MODE
+{{ tpl (toYaml .Values.postgres.sslmode) . | indent 2 }}
+{{- end -}}

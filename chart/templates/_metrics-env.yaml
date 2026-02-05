@@ -1,0 +1,12 @@
+{{- define "histion.metrics-env" -}}
+- name: NODE_ID
+  valueFrom:
+    fieldRef:
+      fieldPath: metadata.name
+- name: TERM
+  value: xterm-256color
+{{- if .Values.prometheus.enabled }}
+- name: METRICS_PORT
+  value: "2112"
+{{- end }}
+{{- end -}}
