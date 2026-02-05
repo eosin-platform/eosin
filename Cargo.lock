@@ -1804,12 +1804,22 @@ dependencies = [
 name = "histion-meta"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "axum",
+ "clap",
  "deadpool-postgres",
+ "histion-common",
  "postgres",
  "postgres-types",
+ "serde",
+ "serde_json",
+ "tokio",
  "tokio-postgres",
  "tokio-postgres-rustls",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]
