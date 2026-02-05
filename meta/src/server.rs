@@ -1,8 +1,5 @@
 use anyhow::{Context, Result};
-use axum::{
-    Router,
-    routing::{delete, get, patch, post},
-};
+use axum::{Router, routing::get};
 use deadpool_postgres::Pool;
 use std::net::SocketAddr;
 use tower_http::cors::{Any, CorsLayer};
