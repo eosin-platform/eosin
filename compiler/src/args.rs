@@ -64,6 +64,9 @@ pub struct ProcessArgs {
     #[command(flatten)]
     pub nats: NatsArgs,
 
+    #[command(flatten)]
+    pub postgres: PostgresArgs,
+
     /// Name of the `JetStream` stream to consume from
     #[arg(long, env = "STREAM_NAME", default_value = "histion")]
     pub stream_name: String,

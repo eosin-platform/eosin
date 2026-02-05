@@ -1,6 +1,8 @@
 use anyhow::{Context, Result};
 use async_nats::jetstream::{self, consumer::PullConsumer};
+use deadpool_postgres::Pool;
 use futures::StreamExt;
+use histion_common::postgres::create_pool;
 use histion_common::shutdown::shutdown_signal;
 use histion_common::streams::{ProcessSlideEvent, topics::PROCESS_SLIDE};
 use histion_storage::StorageClient;
@@ -15,6 +17,7 @@ const SLIDE_NAMESPACE: Uuid = Uuid::from_bytes([
 ]);
 
 use crate::args::ProcessArgs;
+use crate::db;
 use crate::meta_client::MetaClient;
 use crate::s3;
 use crate::tiler;
@@ -43,6 +46,11 @@ pub async fn run_process(args: ProcessArgs) -> Result<()> {
         storage_endpoint = %args.storage_endpoint,
         "starting process worker"
     );
+
+    // Create postgres pool for checkpointing
+    let pg_pool = create_pool(args.postgres.clone()).await;
+    db::init_schema(&pg_pool).await?;
+    tracing::info!("connected to postgres");
 
     // Create S3 client
     let s3_client = s3::create_s3_client(&args.s3).await?;
@@ -143,6 +151,7 @@ pub async fn run_process(args: ProcessArgs) -> Result<()> {
                             &meta_client,
                             &mut storage,
                             &nats_for_tiles,
+                            &pg_pool,
                             cancel.clone(),
                         ).await {
                             tracing::error!(?e, "failed to process slide");
@@ -180,6 +189,7 @@ async fn handle_process_slide(
     meta_client: &MetaClient,
     storage_client: &mut StorageClient,
     nats_client: &async_nats::Client,
+    pg_pool: &Pool,
     cancel: CancellationToken,
 ) -> Result<()> {
     let event: ProcessSlideEvent =
@@ -198,6 +208,7 @@ async fn handle_process_slide(
         meta_client,
         storage_client,
         nats_client,
+        pg_pool,
         cancel,
     )
     .await;
@@ -223,6 +234,7 @@ async fn process_downloaded_slide(
     meta_client: &MetaClient,
     storage_client: &mut StorageClient,
     nats_client: &async_nats::Client,
+    pg_pool: &Pool,
     cancel: CancellationToken,
 ) -> Result<()> {
     let path = Path::new(local_path);
@@ -257,7 +269,8 @@ async fn process_downloaded_slide(
 
     // Process the slide: extract tiles and upload to storage
     // Tiles are processed from highest mip level (lowest resolution) to full resolution
-    tiler::process_slide(path, slide_id, storage_client, nats_client, cancel)
+    // pg_pool is used for checkpointing to allow resuming on restart
+    tiler::process_slide(path, slide_id, storage_client, nats_client, Some(pg_pool), cancel)
         .await
         .context("failed to process slide tiles")?;
 

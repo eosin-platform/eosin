@@ -1,5 +1,6 @@
 use anyhow::{Context, Result, bail};
 use async_nats::Client as NatsClient;
+use deadpool_postgres::Pool;
 use histion_common::streams::topics;
 use histion_storage::StorageClient;
 use image::{ImageBuffer, Rgba, RgbaImage};
@@ -10,6 +11,11 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
+
+use crate::db::{
+    CHECKPOINT_INTERVAL, CHECKPOINT_MIN_TILES, clear_all_tile_checkpoints, clear_tile_checkpoint,
+    get_tile_checkpoint, update_tile_checkpoint,
+};
 
 /// Tile size in pixels (width and height)
 pub const TILE_SIZE: u32 = 512;
@@ -59,11 +65,15 @@ pub fn get_slide_metadata(path: &Path) -> Result<SlideMetadata> {
 ///
 /// The `cancel` token allows for graceful shutdown - processing will stop at the next
 /// opportunity when cancellation is requested.
+///
+/// If `pg_pool` is provided, checkpointing is enabled for levels with more than 128 tiles.
+/// This allows resuming near where we left off on restart.
 pub async fn process_slide(
     path: &Path,
     slide_id: Uuid,
     storage_client: &mut StorageClient,
     nats_client: &NatsClient,
+    pg_pool: Option<&Pool>,
     cancel: CancellationToken,
 ) -> Result<SlideMetadata> {
     let slide = OpenSlide::new(path).context("failed to open slide")?;
@@ -101,10 +111,18 @@ pub async fn process_slide(
             level,
             storage_client,
             nats_client,
+            pg_pool,
             path,
             &cancel,
         )
         .await?;
+    }
+
+    // Clear all checkpoints for this slide since processing is complete
+    if let Some(pool) = pg_pool {
+        if let Err(e) = clear_all_tile_checkpoints(pool, slide_id).await {
+            tracing::warn!(error = ?e, "failed to clear tile checkpoints after completion");
+        }
     }
 
     Ok(metadata)
@@ -129,6 +147,7 @@ async fn process_level(
     level: u32,
     storage_client: &mut StorageClient,
     nats_client: &NatsClient,
+    pg_pool: Option<&Pool>,
     slide_path: &Path,
     cancel: &CancellationToken,
 ) -> Result<()> {
@@ -142,21 +161,63 @@ async fn process_level(
     let tiles_y = level_height.div_ceil(TILE_SIZE);
     let total_tiles = tiles_x as usize * tiles_y as usize;
 
+    // Check if checkpointing is enabled for this level
+    let use_checkpoint = pg_pool.is_some() && total_tiles > CHECKPOINT_MIN_TILES;
+
+    // Get checkpoint (number of tiles already completed) if checkpointing is enabled
+    let start_index = if use_checkpoint {
+        match get_tile_checkpoint(pg_pool.unwrap(), slide_id, level).await {
+            Ok(checkpoint) => {
+                if checkpoint > 0 {
+                    tracing::info!(
+                        level = level,
+                        checkpoint = checkpoint,
+                        total_tiles = total_tiles,
+                        "resuming from checkpoint"
+                    );
+                }
+                checkpoint
+            }
+            Err(e) => {
+                tracing::warn!(error = ?e, "failed to get checkpoint, starting from beginning");
+                0
+            }
+        }
+    } else {
+        0
+    };
+
+    // If we've already completed all tiles, skip this level
+    if start_index >= total_tiles {
+        tracing::info!(
+            level = level,
+            total_tiles = total_tiles,
+            "level already complete, skipping"
+        );
+        return Ok(());
+    }
+
     tracing::info!(
         level = level,
         dimensions = format!("{level_width}x{level_height}"),
         tiles = format!("{tiles_x}x{tiles_y}"),
         total_tiles = total_tiles,
+        start_index = start_index,
+        checkpoint_enabled = use_checkpoint,
         "processing level"
     );
 
     // Check if this level exists natively in the slide
     let native_level = find_best_native_level(slide, metadata, level);
 
-    // Collect all tile coordinates
+    // Collect all tile coordinates, skipping already-completed tiles
     let tile_coords: Vec<(u32, u32)> = (0..tiles_y)
         .flat_map(|ty| (0..tiles_x).map(move |tx| (tx, ty)))
+        .skip(start_index)
         .collect();
+
+    // Count remaining tiles before moving tile_coords
+    let tiles_remaining = tile_coords.len();
 
     // Clone metadata and path for parallel processing
     let metadata_clone = metadata.clone();
@@ -212,6 +273,7 @@ async fn process_level(
     // Receive and upload tiles as they are processed
     let mut uploaded = 0usize;
     let mut last_progress = 0usize;
+    let mut last_checkpoint = 0usize;
 
     loop {
         tokio::select! {
@@ -219,6 +281,27 @@ async fn process_level(
 
             () = cancel.cancelled() => {
                 tracing::info!(level = level, "cancellation requested, stopping tile upload");
+                // Save checkpoint before stopping (if checkpointing is enabled)
+                if use_checkpoint && uploaded > 0 {
+                    let absolute_progress = start_index + uploaded;
+                    if let Err(e) = update_tile_checkpoint(
+                        pg_pool.unwrap(),
+                        slide_id,
+                        level,
+                        absolute_progress,
+                        total_tiles,
+                    )
+                    .await
+                    {
+                        tracing::warn!(error = ?e, "failed to save checkpoint on cancellation");
+                    } else {
+                        tracing::info!(
+                            level = level,
+                            checkpoint = absolute_progress,
+                            "saved checkpoint on cancellation"
+                        );
+                    }
+                }
                 // Signal rayon threads to stop
                 cancelled.store(true, Ordering::Relaxed);
                 // Close the channel to unblock any waiting senders
@@ -251,12 +334,36 @@ async fn process_level(
 
                         uploaded += 1;
 
+                        // Update checkpoint every CHECKPOINT_INTERVAL tiles
+                        if use_checkpoint && uploaded - last_checkpoint >= CHECKPOINT_INTERVAL {
+                            let absolute_progress = start_index + uploaded;
+                            if let Err(e) = update_tile_checkpoint(
+                                pg_pool.unwrap(),
+                                slide_id,
+                                level,
+                                absolute_progress,
+                                total_tiles,
+                            )
+                            .await
+                            {
+                                tracing::warn!(error = ?e, "failed to update checkpoint");
+                            } else {
+                                tracing::debug!(
+                                    level = level,
+                                    checkpoint = absolute_progress,
+                                    "updated checkpoint"
+                                );
+                            }
+                            last_checkpoint = uploaded;
+                        }
+
                         // Log progress every 10%
-                        let progress_pct = (uploaded * 100) / total_tiles;
-                        if progress_pct >= last_progress + 10 || uploaded == total_tiles {
+                        let total_done = start_index + uploaded;
+                        let progress_pct = (total_done * 100) / total_tiles;
+                        if progress_pct >= last_progress + 10 || uploaded == tiles_remaining {
                             tracing::info!(
                                 level = level,
-                                progress = format!("{uploaded}/{total_tiles} ({progress_pct}%)"),
+                                progress = format!("{total_done}/{total_tiles} ({progress_pct}%)"),
                                 "tiles uploaded"
                             );
                             last_progress = progress_pct;
@@ -276,6 +383,13 @@ async fn process_level(
         .await
         .context("tile extraction task panicked")?
         .context("tile extraction failed")?;
+
+    // Clear checkpoint for this level since it's now complete
+    if use_checkpoint {
+        if let Err(e) = clear_tile_checkpoint(pg_pool.unwrap(), slide_id, level).await {
+            tracing::warn!(error = ?e, "failed to clear checkpoint for completed level");
+        }
+    }
 
     Ok(())
 }

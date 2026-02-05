@@ -1,5 +1,13 @@
 use anyhow::{Context, Result};
 use deadpool_postgres::Pool;
+use uuid::Uuid;
+
+/// Minimum number of tiles at a mip level to enable checkpoint tracking.
+/// Levels with fewer tiles will not use checkpointing.
+pub const CHECKPOINT_MIN_TILES: usize = 128;
+
+/// How often to update the checkpoint (every N tiles).
+pub const CHECKPOINT_INTERVAL: usize = 1024;
 
 /// Initialize the database schema for dispatch tracking.
 pub async fn init_schema(pool: &Pool) -> Result<()> {
@@ -18,6 +26,24 @@ pub async fn init_schema(pool: &Pool) -> Result<()> {
         )
         .await
         .context("failed to create compiler_dispatch table")?;
+
+    // Create table for tile progress checkpointing (sparse range representation)
+    client
+        .execute(
+            r"
+            CREATE TABLE IF NOT EXISTS compiler_tile_progress (
+                slide_id UUID NOT NULL,
+                level INTEGER NOT NULL,
+                completed_up_to INTEGER NOT NULL,
+                total_tiles INTEGER NOT NULL,
+                updated_at BIGINT NOT NULL,
+                PRIMARY KEY (slide_id, level)
+            )
+            ",
+            &[],
+        )
+        .await
+        .context("failed to create compiler_tile_progress table")?;
 
     tracing::info!("database schema initialized");
     Ok(())
@@ -84,14 +110,18 @@ where
 
     if dispatched_at.is_some() {
         // Already dispatched, rollback and return
-        tx.rollback().await.context("failed to rollback transaction")?;
+        tx.rollback()
+            .await
+            .context("failed to rollback transaction")?;
         return Ok(DispatchResult::AlreadyDispatched);
     }
 
     // Call the publish function while holding the lock
     if let Err(e) = publish_fn().await {
         tracing::error!(error = ?e, "publish failed, rolling back");
-        tx.rollback().await.context("failed to rollback transaction")?;
+        tx.rollback()
+            .await
+            .context("failed to rollback transaction")?;
         return Ok(DispatchResult::PublishFailed);
     }
 
@@ -111,4 +141,106 @@ where
     tx.commit().await.context("failed to commit transaction")?;
 
     Ok(DispatchResult::Dispatched)
+}
+
+/// Get the checkpoint (number of tiles completed) for a slide level.
+/// Returns 0 if no checkpoint exists.
+pub async fn get_tile_checkpoint(pool: &Pool, slide_id: Uuid, level: u32) -> Result<usize> {
+    let client = pool.get().await.context("failed to get db connection")?;
+
+    let row = client
+        .query_opt(
+            r"
+            SELECT completed_up_to FROM compiler_tile_progress
+            WHERE slide_id = $1 AND level = $2
+            ",
+            &[&slide_id, &(level as i32)],
+        )
+        .await
+        .context("failed to query tile checkpoint")?;
+
+    match row {
+        Some(r) => {
+            let completed: i32 = r.get(0);
+            Ok(completed as usize)
+        }
+        None => Ok(0),
+    }
+}
+
+/// Update the checkpoint for a slide level.
+/// Uses upsert to handle both insert and update cases.
+pub async fn update_tile_checkpoint(
+    pool: &Pool,
+    slide_id: Uuid,
+    level: u32,
+    completed_up_to: usize,
+    total_tiles: usize,
+) -> Result<()> {
+    let client = pool.get().await.context("failed to get db connection")?;
+
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
+
+    client
+        .execute(
+            r"
+            INSERT INTO compiler_tile_progress (slide_id, level, completed_up_to, total_tiles, updated_at)
+            VALUES ($1, $2, $3, $4, $5)
+            ON CONFLICT (slide_id, level) DO UPDATE
+            SET completed_up_to = EXCLUDED.completed_up_to,
+                total_tiles = EXCLUDED.total_tiles,
+                updated_at = EXCLUDED.updated_at
+            ",
+            &[
+                &slide_id,
+                &(level as i32),
+                &(completed_up_to as i32),
+                &(total_tiles as i32),
+                &now_ms,
+            ],
+        )
+        .await
+        .context("failed to update tile checkpoint")?;
+
+    Ok(())
+}
+
+/// Mark a slide level as complete by removing its checkpoint entry.
+/// This indicates the level is fully processed.
+pub async fn clear_tile_checkpoint(pool: &Pool, slide_id: Uuid, level: u32) -> Result<()> {
+    let client = pool.get().await.context("failed to get db connection")?;
+
+    client
+        .execute(
+            r"
+            DELETE FROM compiler_tile_progress
+            WHERE slide_id = $1 AND level = $2
+            ",
+            &[&slide_id, &(level as i32)],
+        )
+        .await
+        .context("failed to clear tile checkpoint")?;
+
+    Ok(())
+}
+
+/// Clear all checkpoints for a slide (e.g., when fully complete).
+pub async fn clear_all_tile_checkpoints(pool: &Pool, slide_id: Uuid) -> Result<()> {
+    let client = pool.get().await.context("failed to get db connection")?;
+
+    client
+        .execute(
+            r"
+            DELETE FROM compiler_tile_progress
+            WHERE slide_id = $1
+            ",
+            &[&slide_id],
+        )
+        .await
+        .context("failed to clear all tile checkpoints")?;
+
+    Ok(())
 }
