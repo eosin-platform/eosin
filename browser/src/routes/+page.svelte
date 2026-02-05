@@ -1,7 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { browser } from '$app/environment';
-  import { page } from '$app/stores';
   import { env } from '$env/dynamic/public';
   import {
     createFrustaClient,
@@ -15,8 +14,11 @@
     zoomAround,
     pan,
     clampViewport,
-    UUID_SIZE,
   } from '$lib/frusta';
+  import type { SlideInfo } from './+page.server';
+
+  // Server-provided data
+  let { data } = $props<{ data: { slide: SlideInfo | null; error: string | null } }>();
 
   // Connection state
   let connectionState = $state<ConnectionState>('disconnected');
@@ -27,9 +29,10 @@
   // WebSocket endpoint from environment (required)
   const wsUrl = env.PUBLIC_FRUSTA_ENDPOINT!;
 
-  // Image state from URL params
+  // Image state from server data
   let imageDesc = $state<ImageDesc | null>(null);
   let currentSlot = $state<number | null>(null);
+  let loadError = $state<string | null>(null);
 
   // Viewport state
   let viewport = $state<ViewportState>({
@@ -60,34 +63,20 @@
   let lastMouseY = 0;
 
   /**
-   * Parse ImageDesc from URL query parameters.
-   * Format: ?id=<uuid>&w=<width>&h=<height>&levels=<levels>
+   * Convert server SlideInfo to ImageDesc for the frusta protocol.
    */
-  function parseImageDescFromUrl(): ImageDesc | null {
-    if (!browser) return null;
-
-    const params = new URLSearchParams(window.location.search);
-    const id = params.get('id');
-    const w = params.get('w');
-    const h = params.get('h');
-    const levels = params.get('levels');
-
-    if (!id || !w || !h || !levels) {
-      return null;
-    }
-
-    // Parse UUID string to bytes
-    const uuidBytes = parseUuid(id);
+  function slideInfoToImageDesc(slide: SlideInfo): ImageDesc | null {
+    const uuidBytes = parseUuid(slide.id);
     if (!uuidBytes) {
-      console.error('Invalid UUID format:', id);
+      console.error('Invalid UUID format:', slide.id);
       return null;
     }
 
     return {
       id: uuidBytes,
-      width: parseInt(w, 10),
-      height: parseInt(h, 10),
-      levels: parseInt(levels, 10),
+      width: slide.width,
+      height: slide.height,
+      levels: slide.levels,
     };
   }
 
@@ -328,8 +317,12 @@
     });
     cache = tileCache;
 
-    // Parse image from URL
-    imageDesc = parseImageDescFromUrl();
+    // Load image from server-provided data
+    if (data.error) {
+      loadError = data.error;
+    } else if (data.slide) {
+      imageDesc = slideInfoToImageDesc(data.slide);
+    }
 
     // Set initial viewport size
     if (container) {
@@ -390,7 +383,9 @@
       {/if}
     </div>
 
-    {#if lastError}
+    {#if loadError}
+      <p class="error">{loadError}</p>
+    {:else if lastError}
       <p class="error">{lastError}</p>
     {/if}
   </header>
@@ -415,10 +410,10 @@
     {:else}
       <div class="no-image">
         <h2>No Image Loaded</h2>
-        <p>Add query parameters to load an image:</p>
-        <code>?id=&lt;uuid&gt;&w=&lt;width&gt;&h=&lt;height&gt;&levels=&lt;levels&gt;</code>
+        <p>Add a slide ID to the URL:</p>
+        <code>?id=&lt;uuid&gt;</code>
         <p style="margin-top: 1rem;">Example:</p>
-        <code>?id=550e8400-e29b-41d4-a716-446655440000&w=65536&h=65536&levels=8</code>
+        <code>?id=550e8400-e29b-41d4-a716-446655440000</code>
       </div>
     {/if}
   </div>
