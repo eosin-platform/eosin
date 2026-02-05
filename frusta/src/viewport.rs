@@ -1,4 +1,3 @@
-use futures_util::SinkExt;
 use rustc_hash::FxHashMap;
 
 use anyhow::{Context, Result, ensure};
@@ -39,7 +38,7 @@ pub struct Tile {
 #[derive(Debug, Clone, Copy)]
 pub struct RequestedTile {
     pub count: u32,
-    pub last_sent: i64, // ms since epoch
+    pub last_requested_at: i64, // ms since epoch
 }
 
 type TileKey = u64;
@@ -84,6 +83,12 @@ pub struct Viewport {
     pub width: u32,
     pub height: u32,
     pub zoom: f32,
+}
+
+impl Viewport {
+    pub fn safe_zoom(&self) -> f32 {
+        self.zoom.max(1e-6)
+    }
 }
 
 pub struct RetrieveTileWork {
@@ -137,7 +142,7 @@ impl ViewManager {
         // Each mip level is 2x downsampled, so min_level = -log2(effective_scale).
         let min_level = self.compute_min_level(viewport);
 
-        let candidates: &mut Vec<TileMeta> = &mut self.candidates;
+        let candidates = &mut self.candidates;
         candidates.clear();
 
         // Decide which mip levels to consider, coarse → fine or vice versa.
@@ -210,11 +215,11 @@ impl ViewManager {
                 .entry(key)
                 .and_modify(|existing| {
                     existing.count += 1;
-                    existing.last_sent = now;
+                    existing.last_requested_at = now;
                 })
                 .or_insert_with(|| RequestedTile {
                     count: 1,
-                    last_sent: now,
+                    last_requested_at: now,
                 });
         }
         Ok(())
@@ -237,7 +242,7 @@ impl ViewManager {
         }
 
         let dpi_scale = self.dpi / BASE_DPI;
-        let effective_scale = viewport.zoom * dpi_scale;
+        let effective_scale = viewport.safe_zoom() * dpi_scale;
 
         let min_level = if effective_scale >= 1.0 {
             0
@@ -258,11 +263,11 @@ fn visible_tiles_for_level(viewport: &Viewport, image: &ImageDesc, level: u32) -
     let px_per_tile = downsample * TILE_SIZE;
 
     // viewport.x / viewport.y assumed to be level-0 pixels
+    let zoom = viewport.safe_zoom();
     let view_x0 = viewport.x / px_per_tile;
     let view_y0 = viewport.y / px_per_tile;
-    let view_x1 = (viewport.x + viewport.width as f32 / viewport.zoom) / px_per_tile;
-    let view_y1 = (viewport.y + viewport.height as f32 / viewport.zoom) / px_per_tile;
-
+    let view_x1 = (viewport.x + viewport.width as f32 / zoom) / px_per_tile;
+    let view_y1 = (viewport.y + viewport.height as f32 / zoom) / px_per_tile;
     let tiles_x = (image.width as f32 / px_per_tile).ceil().max(0.0);
     let tiles_y = (image.height as f32 / px_per_tile).ceil().max(0.0);
 
