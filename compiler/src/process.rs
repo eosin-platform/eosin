@@ -171,7 +171,11 @@ async fn handle_process_slide(
     result
 }
 
-/// Process a downloaded slide file: extract metadata, insert into meta service, tile and upload.
+/// Process a downloaded slide file: extract metadata, tile and upload, then insert into meta.
+///
+/// Tiles are uploaded to storage first. Only after all tiles are successfully stored
+/// do we insert the slide metadata into the meta service. This ensures we never have
+/// metadata pointing to missing tiles.
 async fn process_downloaded_slide(
     local_path: &str,
     key: &str,
@@ -195,7 +199,19 @@ async fn process_downloaded_slide(
         "extracted slide metadata"
     );
 
-    // Insert metadata into meta service
+    // Process the slide: extract tiles and upload to storage FIRST
+    // This ensures all tiles exist before we create the metadata entry
+    tiler::process_slide(path, slide_id, storage_client)
+        .await
+        .context("failed to process slide tiles")?;
+
+    tracing::info!(
+        key = %key,
+        slide_id = %slide_id,
+        "all tiles uploaded to storage"
+    );
+
+    // Only after all tiles are successfully stored, insert metadata into meta service
     let slide = meta_client
         .create_slide(slide_id, metadata.width, metadata.height, key)
         .await
@@ -204,18 +220,7 @@ async fn process_downloaded_slide(
     tracing::info!(
         key = %key,
         slide_id = %slide.id,
-        "slide metadata inserted"
-    );
-
-    // Process the slide: extract tiles and upload to storage
-    tiler::process_slide(path, slide.id, storage_client)
-        .await
-        .context("failed to process slide tiles")?;
-
-    tracing::info!(
-        key = %key,
-        slide_id = %slide.id,
-        "slide processing complete"
+        "slide metadata inserted, processing complete"
     );
 
     Ok(())

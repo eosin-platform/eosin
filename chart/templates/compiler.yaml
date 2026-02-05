@@ -11,12 +11,6 @@ metadata:
 spec:
   serviceName: {{ .Release.Name }}-compiler
   replicas: {{ .Values.compiler.replicas }}
-  tolerations:
-  - key: histion
-    operator: Exists
-    effect: NoSchedule
-  nodeSelector:
-    histion: "true"
   selector:
     matchLabels:
       app: {{ .Release.Name }}-compiler
@@ -29,6 +23,13 @@ spec:
       imagePullSecrets:
 {{ toYaml .Values.imagePullSecrets | indent 10 }}
     {{- end }}
+      tolerations:
+        - key: histion
+          operator: Equal
+          value: "true"
+          effect: NoSchedule
+      nodeSelector:
+        histion: "true"
       containers:
       - name: compiler
         imagePullPolicy: {{ .Values.compiler.imagePullPolicy }}
