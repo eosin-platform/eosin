@@ -13,6 +13,9 @@ const Y_MASK: u64 = (1 << Y_BITS) - 1;
 const LEVEL_MASK: u64 = (1 << LEVEL_BITS) - 1;
 const TILE_SIZE: f32 = 512.0;
 const MAX_TILES_PER_UPDATE: usize = 64; // tune this
+const SOFT_MAX_CACHE_SIZE: usize = 5_000; // tune this
+const HARD_MAX_CACHE_SIZE: usize = 10_000; // tune this
+const PRUNE_BATCH_SIZE: usize = 256; // max removals per update
 
 #[derive(Debug, Clone, Copy)]
 pub struct ImageDesc {
@@ -126,11 +129,43 @@ impl ViewManager {
         }
     }
 
+    fn maybe_hard_prune_cache(&mut self) {
+        let len = self.sent.len();
+        if len <= HARD_MAX_CACHE_SIZE {
+            return;
+        }
+
+        // Drop us down to a size suitable for soft pruning.
+        let keep = SOFT_MAX_CACHE_SIZE;
+        let drop = len.saturating_sub(keep);
+
+        if drop == 0 {
+            return;
+        }
+
+        // Collect timestamps only.
+        let mut times: Vec<i64> = self
+            .sent
+            .values()
+            .map(|info| info.last_requested_at)
+            .collect();
+
+        use std::cmp::min;
+        let nth = min(drop, times.len() - 1);
+        times.select_nth_unstable(nth);
+        let cutoff = times[nth];
+
+        // Keep entries with timestamp >= cutoff (the newer half).
+        self.sent.retain(|_, info| info.last_requested_at >= cutoff);
+    }
+
     pub async fn update(&mut self, viewport: &Viewport) -> Result<()> {
         let cancel = CancellationToken::new();
         if let Some(old_cancel) = self.cancel_update.replace(cancel.clone()) {
             old_cancel.cancel();
         }
+
+        self.maybe_hard_prune_cache();
 
         let now = chrono::Utc::now().timestamp_millis();
 
@@ -145,6 +180,9 @@ impl ViewManager {
         let candidates = &mut self.candidates;
         candidates.clear();
 
+        let center_x = viewport.x + (viewport.width as f32 / 2.0);
+        let center_y = viewport.y + (viewport.height as f32 / 2.0);
+
         // Decide which mip levels to consider, coarse → fine or vice versa.
         // For "higher mips first" meaning *more downsampled*, we iterate
         // from coarse (high level index) down to fine (min_level).
@@ -153,8 +191,6 @@ impl ViewManager {
         for level in (min_level..self.image.levels).rev() {
             let mut tiles = visible_tiles_for_level(viewport, &self.image, level);
             // Optional: sort center-out so we prioritize tiles near the viewport center.
-            let center_x = viewport.x + (viewport.width as f32 / 2.0);
-            let center_y = viewport.y + (viewport.height as f32 / 2.0);
             let downsample = 2f32.powi(level as i32);
             let px_per_tile = downsample * TILE_SIZE;
 
@@ -257,8 +293,6 @@ impl ViewManager {
 
 /// Compute which tiles (x, y) at a given level intersect the viewport.
 fn visible_tiles_for_level(viewport: &Viewport, image: &ImageDesc, level: u32) -> Vec<TileMeta> {
-    const TILE_SIZE: f32 = 512.0; // TODO: configurable
-
     let downsample = 2f32.powi(level as i32);
     let px_per_tile = downsample * TILE_SIZE;
 
