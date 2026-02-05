@@ -5,6 +5,16 @@ nats:
   user: {}
   password: {}
 
+s3:
+  bucket:
+    value: camelyon17
+  region:
+    value: nyc3
+  endpoint:
+    value: https://nyc3.digitaloceanspaces.com
+  accessKeyId: {}
+  secretAccessKey: {}
+
 registry: "" # empty string is the same as "docker.io/"
 
 prometheus:
@@ -54,3 +64,23 @@ browser:
   resources:
     limits:
       memory: "256Mi"
+
+compiler:
+  enabled: true
+  image: docker.io/thavlik/histion-compiler:latest
+  imagePullPolicy: Always
+  replicas: 1
+  logLevel: debug
+  streamName: histion
+  consumerName: compiler
+  downloadDir: /tmp/histion/full
+  storageSize: 12Gi
+  # storageClassName: ""
+  s3:
+    bucket:
+      value: ""
+    pathPrefix:
+      value: ""
+    endpoint: {}
+    region:
+      value: "us-east-1"

@@ -1,0 +1,113 @@
+{{- if .Values.compiler.enabled }}
+{{- $image := printf "%s%s" .Values.registry .Values.compiler.image -}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Release.Name }}-compiler
+spec:
+  serviceName: {{ .Release.Name }}-compiler
+  replicas: {{ .Values.compiler.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-compiler
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}-compiler
+    spec:
+    {{- if .Values.imagePullSecrets }}
+      imagePullSecrets:
+{{ toYaml .Values.imagePullSecrets | indent 10 }}
+    {{- end }}
+      containers:
+      - name: compiler
+        imagePullPolicy: {{ .Values.compiler.imagePullPolicy }}
+        image: {{ $image }}
+    {{- if .Values.compiler.resources }}
+        resources:
+{{ toYaml .Values.compiler.resources | indent 10 }}
+    {{- end }}
+        command:
+          - histion-compiler
+          - process
+        readinessProbe:
+          exec:
+            command:
+              - cat
+              - /etc/ready
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        env:
+        - name: SERVICE_NAME
+          value: compiler
+        - name: RUST_LOG
+          value: info,aws_smithy_runtime=debug,aws_smithy_http_tower=debug,hyper=info
+        - name: LOG_LEVEL
+          value: {{ .Values.compiler.logLevel }}
+        - name: S3_BUCKET
+{{ tpl (toYaml .Values.compiler.s3.bucket) . | indent 10 }}
+        - name: S3_PATH_PREFIX
+{{ tpl (toYaml .Values.compiler.s3.pathPrefix) . | indent 10 }}
+        {{- if .Values.compiler.s3.endpoint }}
+        - name: S3_ENDPOINT
+{{ tpl (toYaml .Values.compiler.s3.endpoint) . | indent 10 }}
+        {{- end }}
+        - name: S3_REGION
+{{ tpl (toYaml .Values.compiler.s3.region) . | indent 10 }}
+        - name: STREAM_NAME
+          value: {{ .Values.compiler.streamName | quote }}
+        - name: CONSUMER_NAME
+          value: {{ .Values.compiler.consumerName | quote }}
+        - name: DOWNLOAD_DIR
+          value: {{ .Values.compiler.downloadDir | quote }}
+        {{- if .Values.s3.accessKeyId }}
+        - name: AWS_ACCESS_KEY_ID
+{{ tpl (toYaml .Values.s3.accessKeyId) . | indent 10 }}
+        {{- end }}
+        {{- if .Values.s3.secretAccessKey }}
+        - name: AWS_SECRET_ACCESS_KEY
+{{ tpl (toYaml .Values.s3.secretAccessKey) . | indent 10 }}
+        {{- end }}
+{{ include "histion.metrics-env" . | indent 8 }}
+{{ include "histion.nats-env" . | indent 8 }}
+        volumeMounts:
+        - name: download-volume
+          mountPath: {{ .Values.compiler.downloadDir }}
+  volumeClaimTemplates:
+  - metadata:
+      name: download-volume
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      {{- if .Values.compiler.storageClassName }}
+      storageClassName: {{ .Values.compiler.storageClassName | quote }}
+      {{- end }}
+      resources:
+        requests:
+          storage: {{ .Values.compiler.storageSize | default "12Gi" }}
+---
+{{- if .Values.prometheus.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ .Release.Name }}-compiler
+  labels:
+    chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
+spec:
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-compiler
+  podMetricsEndpoints:
+  - port: metrics
+{{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-compiler
+  labels:
+    app: {{ .Release.Name }}-compiler
+spec:
+  clusterIP: None
+  selector:
+    app: {{ .Release.Name }}-compiler
+{{- end }}
