@@ -1,8 +1,9 @@
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use async_channel::Receiver;
 use histion_storage::client::StorageClient;
 use tokio_util::sync::CancellationToken;
 
+use crate::protocol::MessageBuilder;
 use crate::viewport::RetrieveTileWork;
 
 pub async fn worker_main(
@@ -12,7 +13,7 @@ pub async fn worker_main(
 ) -> Result<()> {
     loop {
         tokio::select! {
-            _ = cancel.cancelled() => bail!("Context cancelled"),
+            _ = cancel.cancelled() => return Ok(()),
             work = rx.recv() => {
                 let work = work.context("failed to receive work")?;
                 tokio::select! {
@@ -25,17 +26,9 @@ pub async fn worker_main(
                         work.meta.level,
                     ) => {
                         let data = data.context("failed to get tile from storage")?;
-                        let payload = {
-                            let mut payload = Vec::with_capacity(data.len() + 13);
-                            payload.push(work.slot);
-                            payload.extend_from_slice(&work.meta.x.to_le_bytes());
-                            payload.extend_from_slice(&work.meta.y.to_le_bytes());
-                            payload.extend_from_slice(&work.meta.level.to_le_bytes());
-                            payload.extend_from_slice(&data);
-                            payload.into()
-                        };
+                        let payload = MessageBuilder::tile_data(work.slot, &work.meta, &data);
                         tokio::select! {
-                            _ = cancel.cancelled() => bail!("Context cancelled"),
+                            _ = cancel.cancelled() => return Ok(()),
                             _ = work.cancel.cancelled() => {}
                             _ = work.tx.send(payload) => {}
                         }

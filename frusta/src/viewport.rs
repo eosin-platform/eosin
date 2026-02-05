@@ -1,8 +1,8 @@
-use async_channel::{Receiver, Sender};
+use async_channel::Sender;
 use bytes::Bytes;
 use rustc_hash::FxHashMap;
 
-use anyhow::{Context, Result, ensure};
+use anyhow::{ensure, Context, Result};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
@@ -87,7 +87,6 @@ impl TileMeta {
     }
 }
 
-#[derive(Clone)]
 pub struct ViewManager {
     sent: FxHashMap<TileKey, RequestedTile>,
     image: ImageDesc,
@@ -268,7 +267,7 @@ impl ViewManager {
         }
         for meta in candidates.iter() {
             let work = RetrieveTileWork {
-                slot: self.slot, // TODO: set correct slot
+                slot: self.slot,
                 slide_id: self.image.id,
                 cancel: cancel.clone(),
                 tx: self.send_tx.clone(),

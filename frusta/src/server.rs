@@ -1,16 +1,16 @@
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, ensure, Context, Result};
 use async_channel::Sender;
 use axum::{
-    Router,
     extract::{
-        State,
         ws::{Message, WebSocket, WebSocketUpgrade},
+        State,
     },
     response::IntoResponse,
     routing::get,
+    Router,
 };
 use bytes::Bytes;
-use futures_util::{SinkExt, StreamExt, stream::SplitSink};
+use futures_util::{stream::SplitSink, SinkExt, StreamExt};
 use histion_storage::client::StorageClient;
 use std::net::SocketAddr;
 use tokio_util::sync::CancellationToken;
@@ -19,9 +19,11 @@ use uuid::Uuid;
 
 use crate::{
     args::ServerArgs,
+    protocol::{MessageBuilder, MessageType, DPI_SIZE, IMAGE_DESC_SIZE, UUID_SIZE, VIEWPORT_SIZE},
     viewport::{ImageDesc, RetrieveTileWork, ViewManager, Viewport},
     worker::worker_main,
 };
+use rustc_hash::FxHashMap;
 
 /// Shared application state
 #[derive(Clone)]
@@ -56,15 +58,20 @@ pub async fn run_server(args: ServerArgs) -> Result<()> {
         .allow_methods(Any)
         .allow_headers(Any);
     let app = Router::new()
-        .route("/", get(index))
         .route("/ws", get(ws_handler))
-        .route("/health", get(health))
+        .route("/readyz", get(health))
+        .route("/healthz", get(health))
         .layer(cors)
         .with_state(state);
     let addr: SocketAddr = format!("0.0.0.0:{}", args.port).parse()?;
     tracing::info!(%addr, "starting frusta WebSocket server");
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
+    let shutdown_cancel = cancel.clone();
+    axum::serve(listener, app)
+        .with_graceful_shutdown(async move {
+            shutdown_cancel.cancelled().await;
+        })
+        .await?;
     cancel.cancel();
     for worker in workers {
         let _ = worker.await;
@@ -75,11 +82,6 @@ pub async fn run_server(args: ServerArgs) -> Result<()> {
 /// Health check endpoint
 async fn health() -> impl IntoResponse {
     "OK"
-}
-
-/// Index endpoint
-async fn index() -> impl IntoResponse {
-    "Frusta WebSocket Server"
 }
 
 /// WebSocket upgrade handler
@@ -185,9 +187,9 @@ async fn handle_socket(socket: WebSocket, state: AppState) -> Result<()> {
                 }
             }
             Ok(Message::Ping(data)) => {
-                send_tx.send(Message::Pong(data)).await.unwrap_or_else(|e| {
-                    tracing::error!("failed to send pong: {}", e);
-                });
+                if let Err(e) = send_tx.try_send(Message::Pong(data)) {
+                    tracing::warn!("failed to send pong (channel full or closed): {}", e);
+                }
             }
             Ok(Message::Pong(_)) => {
                 // Pong received, connection is alive
@@ -201,43 +203,36 @@ async fn handle_socket(socket: WebSocket, state: AppState) -> Result<()> {
 }
 
 async fn handle_message(
-    ty: WebsockMessageType,
+    ty: MessageType,
     data: Bytes,
     session: &mut Session,
     send_tx: &Sender<Message>,
 ) -> Result<()> {
     match ty {
-        WebsockMessageType::Update => {
-            tracing::info!("handling Update message");
+        MessageType::Update => {
+            tracing::debug!("handling Update message");
+            ensure!(data.len() >= 1 + VIEWPORT_SIZE, "Update message too short");
             let slot = data[0];
-            let viewport = Viewport::from_slice(&data[1..])?;
-            if slot as usize >= session.viewports.len() {
-                bail!("invalid slide slot");
-            }
-            session.viewports[slot as usize]
-                .as_mut()
-                .context("invalid slide slot")?
-                .update(&viewport)
-                .await
+            let viewport = Viewport::from_slice(&data[1..1 + VIEWPORT_SIZE])?;
+            session.get_viewport_mut(slot)?.update(&viewport).await
         }
-        WebsockMessageType::Open => {
-            tracing::info!("handling Open message");
-            let dpi = f32::from_le_bytes(data[0..4].try_into().unwrap());
-            let image = ImageDesc::from_slice(&data[4..32])?;
+        MessageType::Open => {
+            tracing::debug!("handling Open message");
+            ensure!(
+                data.len() >= DPI_SIZE + IMAGE_DESC_SIZE,
+                "Open message too short"
+            );
+            let dpi = f32::from_le_bytes(data[0..DPI_SIZE].try_into().unwrap());
+            let image = ImageDesc::from_slice(&data[DPI_SIZE..DPI_SIZE + IMAGE_DESC_SIZE])?;
             let slot = session.open_slide(dpi, image)?;
-            let payload = {
-                let mut payload = Vec::with_capacity(18);
-                payload.push(WebsockMessageType::Open as u8);
-                payload.push(slot);
-                payload.extend_from_slice(image.id.as_bytes());
-                payload.into()
-            };
+            let payload = MessageBuilder::open_response(slot, image.id);
             send_tx.send(Message::Binary(payload)).await?;
             Ok(())
         }
-        WebsockMessageType::Close => {
-            tracing::info!("handling Close message");
-            let id: Uuid = Uuid::from_slice(&data[..])?;
+        MessageType::Close => {
+            tracing::debug!("handling Close message");
+            ensure!(data.len() >= UUID_SIZE, "Close message too short");
+            let id = Uuid::from_slice(&data[..UUID_SIZE])?;
             session.close_slide(id)
         }
     }
@@ -245,10 +240,12 @@ async fn handle_message(
 
 pub struct Session {
     worker_tx: Sender<RetrieveTileWork>,
-    slides: [Option<Uuid>; 256], // fixed capacity, no allocation
+    slides: [Option<Uuid>; 256],
     viewports: Vec<Option<ViewManager>>,
-    free: Vec<u8>, // stack of free indices (0–255)
+    free: Vec<u8>,
     send_tx: Sender<Bytes>,
+    /// O(1) lookup from UUID to slot index
+    uuid_to_slot: FxHashMap<Uuid, u8>,
 }
 
 impl Session {
@@ -256,40 +253,33 @@ impl Session {
         Self {
             worker_tx,
             slides: [None; 256],
-            viewports: vec![None; 256],
-            free: (0..=255u8).rev().collect(), // LIFO free list
+            viewports: (0..256).map(|_| None).collect(),
+            free: (0..=255u8).rev().collect(),
             send_tx,
+            uuid_to_slot: FxHashMap::default(),
         }
     }
 
-    pub async fn update(&mut self, slot: u8, viewport: Viewport) -> Result<()> {
-        if let Some(man) = &mut self.viewports[slot as usize] {
-            man.update(&viewport).await?;
-            return Ok(());
-        } else {
-            bail!("invalid slide slot");
-        }
+    /// Get a mutable reference to a viewport by slot index.
+    pub fn get_viewport_mut(&mut self, slot: u8) -> Result<&mut ViewManager> {
+        self.viewports
+            .get_mut(slot as usize)
+            .and_then(|v| v.as_mut())
+            .context("invalid slide slot")
     }
 
     /// Allocate a slot for this slide ID. O(1).
     pub fn open_slide(&mut self, dpi: f32, image: ImageDesc) -> Result<u8> {
-        // Check if already open (O(256) worst-case scan)
-        // Optional: If you want strict O(1), add a HashMap<Uuid, u8>
-        if let Some((idx, _)) = self
-            .slides
-            .iter()
-            .enumerate()
-            .find(|(_, s)| s.map(|x| x == image.id).unwrap_or(false))
-        {
-            return Ok(idx as u8);
+        // O(1) check if already open
+        if let Some(&slot) = self.uuid_to_slot.get(&image.id) {
+            return Ok(slot);
         }
 
         // Allocate new slot
-        let Some(slot) = self.free.pop() else {
-            bail!("no free slide slots available");
-        };
+        let slot = self.free.pop().context("no free slide slots available")?;
 
         self.slides[slot as usize] = Some(image.id);
+        self.uuid_to_slot.insert(image.id, slot);
         let manager = ViewManager::new(
             slot,
             dpi,
@@ -303,42 +293,16 @@ impl Session {
 
     /// Free the slot for this slide ID. O(1).
     pub fn close_slide(&mut self, id: Uuid) -> Result<()> {
-        // Find which slot holds it
-        for (idx, slot) in self.slides.iter_mut().enumerate() {
-            if let Some(sid) = *slot {
-                if sid == id {
-                    // Free the slot
-                    *slot = None;
-                    self.viewports[idx] = None;
-                    self.free.push(idx as u8);
-                    return Ok(());
-                }
-            }
-        }
+        let slot = self.uuid_to_slot.remove(&id).context("slide not found")?;
 
-        bail!("slide not found");
+        self.slides[slot as usize] = None;
+        self.viewports[slot as usize] = None;
+        self.free.push(slot);
+        Ok(())
     }
 
     /// Fast lookup: slot → slide UUID
     pub fn get(&self, slot: u8) -> Option<Uuid> {
         self.slides[slot as usize]
-    }
-}
-
-#[repr(u8)]
-enum WebsockMessageType {
-    Update = 0,
-    Open = 1,
-    Close = 2,
-}
-
-impl TryFrom<u8> for WebsockMessageType {
-    type Error = ();
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0 => Ok(WebsockMessageType::Update),
-            _ => Err(()),
-        }
     }
 }
