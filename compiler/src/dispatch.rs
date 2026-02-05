@@ -1,11 +1,16 @@
 use anyhow::{Context, Result};
-use async_nats::jetstream;
+use async_nats::jetstream::{self, message::PublishMessage};
 use histion_common::streams::{ProcessSlideEvent, topics::PROCESS_SLIDE};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::args::DispatchArgs;
 use crate::db::{self, DispatchResult};
 use crate::s3;
+
+/// Generate a unique message ID for a slide key to prevent duplicate processing.
+fn message_id_for_key(key: &str) -> String {
+    format!("process-slide:{}", key)
+}
 
 /// Get current time in milliseconds since Unix epoch.
 fn now_ms() -> i64 {
@@ -70,14 +75,19 @@ pub async fn run_dispatch(args: DispatchArgs) -> Result<()> {
         // Clone jetstream for the closure
         let js = jetstream.clone();
         let payload_bytes: bytes::Bytes = payload.into();
+        let msg_id = message_id_for_key(&key);
 
         // Try to dispatch with publish callback
         let result = db::try_dispatch_with_publish(&pg_pool, &key, current_time, || {
             let js = js.clone();
             let payload = payload_bytes.clone();
+            let msg_id = msg_id.clone();
             async move {
+                // Build message with ID for deduplication
+                let publish = PublishMessage::build().payload(payload).message_id(msg_id);
+
                 let ack = js
-                    .publish(PROCESS_SLIDE, payload)
+                    .send_publish(PROCESS_SLIDE, publish)
                     .await
                     .context("failed to publish event")?;
 
