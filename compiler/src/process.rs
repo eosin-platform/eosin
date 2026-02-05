@@ -29,7 +29,10 @@ pub async fn run_process(args: ProcessArgs) -> Result<()> {
             .context("failed to configure thread pool")?;
         tracing::info!(threads = args.tile_threads, "configured thread pool");
     } else {
-        tracing::info!(threads = rayon::current_num_threads(), "using default thread pool");
+        tracing::info!(
+            threads = rayon::current_num_threads(),
+            "using default thread pool"
+        );
     }
 
     tracing::info!(
@@ -182,11 +185,11 @@ async fn handle_process_slide(
     result
 }
 
-/// Process a downloaded slide file: extract metadata, tile and upload, then insert into meta.
+/// Process a downloaded slide file: insert metadata first, then extract and upload tiles.
 ///
-/// Tiles are uploaded to storage first. Only after all tiles are successfully stored
-/// do we insert the slide metadata into the meta service. This ensures we never have
-/// metadata pointing to missing tiles.
+/// Slide metadata is inserted into the meta service first, then tiles are processed
+/// from highest mip level (lowest resolution) to level 0 (full resolution).
+/// This allows the slide to be viewable at low resolution while still processing.
 async fn process_downloaded_slide(
     local_path: &str,
     key: &str,
@@ -210,19 +213,8 @@ async fn process_downloaded_slide(
         "extracted slide metadata"
     );
 
-    // Process the slide: extract tiles and upload to storage FIRST
-    // This ensures all tiles exist before we create the metadata entry
-    tiler::process_slide(path, slide_id, storage_client)
-        .await
-        .context("failed to process slide tiles")?;
-
-    tracing::info!(
-        key = %key,
-        slide_id = %slide_id,
-        "all tiles uploaded to storage"
-    );
-
-    // Only after all tiles are successfully stored, insert metadata into meta service
+    // Insert metadata into meta service FIRST
+    // This allows the slide to be visible immediately (at low resolution)
     let slide = meta_client
         .create_slide(slide_id, metadata.width, metadata.height, key)
         .await
@@ -231,7 +223,19 @@ async fn process_downloaded_slide(
     tracing::info!(
         key = %key,
         slide_id = %slide.id,
-        "slide metadata inserted, processing complete"
+        "slide metadata inserted, processing tiles"
+    );
+
+    // Process the slide: extract tiles and upload to storage
+    // Tiles are processed from highest mip level (lowest resolution) to full resolution
+    tiler::process_slide(path, slide_id, storage_client)
+        .await
+        .context("failed to process slide tiles")?;
+
+    tracing::info!(
+        key = %key,
+        slide_id = %slide_id,
+        "all tiles uploaded, processing complete"
     );
 
     Ok(())

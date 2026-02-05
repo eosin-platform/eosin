@@ -77,8 +77,9 @@ pub async fn process_slide(
         "mip level configuration"
     );
 
-    // Process each mip level
-    for level in 0..=max_mip_level {
+    // Process each mip level from highest (lowest resolution) to 0 (full resolution)
+    // This allows the slide to be viewable at low resolution while still processing
+    for level in (0..=max_mip_level).rev() {
         process_level(&slide, &metadata, slide_id, level, storage_client, path).await?;
     }
 
