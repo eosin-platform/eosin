@@ -2132,6 +2132,7 @@ dependencies = [
  "bytes",
  "chrono",
  "clap",
+ "deadpool-redis",
  "futures-util",
  "histion-common",
  "histion-storage",

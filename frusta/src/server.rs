@@ -6,13 +6,18 @@ use axum::{
         ws::{Message, WebSocket, WebSocketUpgrade},
         State,
     },
+    http::HeaderMap,
     response::IntoResponse,
     routing::get,
     Router,
 };
 use bytes::Bytes;
 use futures_util::{stream::SplitSink, SinkExt, StreamExt};
-use histion_common::shutdown::shutdown_signal;
+use histion_common::{
+    rate_limit::{RateLimiter, RateLimiterConfig},
+    redis::init_redis,
+    shutdown::shutdown_signal,
+};
 use histion_storage::client::StorageClient;
 use std::{net::SocketAddr, time::Duration};
 use tokio_util::sync::CancellationToken;
@@ -36,6 +41,7 @@ pub struct AppState {
     pub storage_endpoint: String,
     pub tx: async_channel::Sender<RetrieveTileWork>,
     pub nats_client: NatsClient,
+    pub rate_limiter: RateLimiter,
 }
 
 /// Run the frusta WebSocket server.
@@ -47,6 +53,23 @@ pub async fn run_server(args: ServerArgs) -> Result<()> {
     // Connect to NATS
     let nats_client = args.nats.connect().await?;
     tracing::info!(url = %args.nats.nats_url, "connected to NATS");
+
+    // Initialize Redis for rate limiting
+    let redis_pool = init_redis(&args.redis).await;
+    let rate_limiter = RateLimiter::new(
+        redis_pool,
+        RateLimiterConfig {
+            // 1,000 requests per minute (short window)
+            burst_limit: 1_000,
+            burst_window_ms: 60_000,
+            // 10,000 requests per 10 minutes (long window)
+            long_limit: 10_000,
+            long_window_ms: 600_000,
+            max_list_size: 10_000,
+            key_prefix: "frusta:tile:".into(),
+        },
+    );
+    tracing::info!("rate limiter initialized: 1000 req/min, 10000 req/10min");
 
     let cancel = CancellationToken::new();
     let (tx, rx) = async_channel::bounded(1000);
@@ -64,6 +87,7 @@ pub async fn run_server(args: ServerArgs) -> Result<()> {
         storage_endpoint: args.storage_endpoint.clone(),
         tx,
         nats_client,
+        rate_limiter,
     };
     let cors = CorsLayer::new()
         .allow_origin(Any)
@@ -99,10 +123,31 @@ async fn health() -> impl IntoResponse {
     "OK"
 }
 
+/// Extract client IP from X-Forwarded-For header
+fn extract_client_ip(headers: &HeaderMap) -> Option<String> {
+    let xff = headers.get("x-forwarded-for")?;
+    let xff_str = xff.to_str().ok()?;
+    let first = xff_str.split(',').next()?;
+    let ip = first.trim();
+    if ip.is_empty() {
+        return None;
+    }
+    // Skip internal cluster traffic
+    if ip.starts_with("10.") || ip.starts_with("192.168.") || ip.starts_with("172.") {
+        return None;
+    }
+    Some(ip.to_string())
+}
+
 /// WebSocket upgrade handler
-async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl IntoResponse {
+async fn ws_handler(
+    ws: WebSocketUpgrade,
+    headers: HeaderMap,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    let client_ip = extract_client_ip(&headers);
     ws.on_upgrade(async move |socket| {
-        if let Err(e) = handle_socket(socket, state).await {
+        if let Err(e) = handle_socket(socket, state, client_ip).await {
             tracing::error!("WebSocket connection error: {}", e);
         }
     })
@@ -158,7 +203,11 @@ async fn sender_main(
 }
 
 /// Handle an individual WebSocket connection
-async fn handle_socket(socket: WebSocket, state: AppState) -> Result<()> {
+async fn handle_socket(
+    socket: WebSocket,
+    state: AppState,
+    client_ip: Option<String>,
+) -> Result<()> {
     let (sender, mut receiver) = socket.split();
     let cancel = CancellationToken::new();
     let (image_tx, image_rx) = async_channel::bounded::<Bytes>(100);
@@ -167,7 +216,13 @@ async fn handle_socket(socket: WebSocket, state: AppState) -> Result<()> {
         let cancel = cancel.clone();
         async move { sender_main(sender, image_rx, send_rx, cancel).await }
     });
-    let mut session = Session::new(state.tx.clone(), image_tx, state.nats_client.clone());
+    let mut session = Session::new(
+        state.tx.clone(),
+        image_tx,
+        state.nats_client.clone(),
+        state.rate_limiter.clone(),
+        client_ip,
+    );
 
     tracing::info!(
         storage_endpoint = %state.storage_endpoint,
@@ -277,6 +332,14 @@ async fn handle_message(
         }
         MessageType::RequestTile => {
             tracing::debug!("handling RequestTile message");
+            // Rate limit tile requests by client IP
+            if let Some(ref ip) = session.client_ip {
+                let key = format!("ip:{}", ip);
+                if !session.rate_limiter.check(&key).await {
+                    tracing::warn!(ip = %ip, "rate limited tile request");
+                    bail!("rate limited");
+                }
+            }
             ensure!(
                 data.len() >= TILE_REQUEST_SIZE,
                 "RequestTile message too short"
@@ -304,6 +367,8 @@ pub struct Session {
     /// O(1) lookup from UUID to slot index
     uuid_to_slot: FxHashMap<Uuid, u8>,
     nats_client: NatsClient,
+    rate_limiter: RateLimiter,
+    client_ip: Option<String>,
 }
 
 impl Session {
@@ -311,6 +376,8 @@ impl Session {
         worker_tx: Sender<RetrieveTileWork>,
         send_tx: Sender<Bytes>,
         nats_client: NatsClient,
+        rate_limiter: RateLimiter,
+        client_ip: Option<String>,
     ) -> Self {
         Self {
             worker_tx,
@@ -320,6 +387,8 @@ impl Session {
             send_tx,
             uuid_to_slot: FxHashMap::default(),
             nats_client,
+            rate_limiter,
+            client_ip,
         }
     }
 
@@ -356,6 +425,7 @@ impl Session {
             self.worker_tx.clone(),
             self.send_tx.clone(),
             self.nats_client.clone(),
+            self.client_ip.clone(),
         );
         self.viewports[slot as usize] = Some(manager);
         Ok(slot)

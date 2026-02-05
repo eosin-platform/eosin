@@ -53,6 +53,7 @@ pub async fn worker_main(
                                     level = work.meta.level,
                                     slot = work.slot,
                                     size = data.len(),
+                                    client_ip = work.client_ip.as_deref().unwrap_or("-"),
                                     "sent tile"
                                 );
                             }

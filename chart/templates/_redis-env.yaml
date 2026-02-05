@@ -1,7 +1,7 @@
 {{/*
 Redis environment variables template
 */}}
-{{- define "dorch.redis-env" -}}
+{{- define "histion.redis-env" -}}
 - name: REDIS_USERNAME
 {{ tpl (toYaml .Values.redis.username) . | indent 2 }}
 - name: REDIS_PASSWORD

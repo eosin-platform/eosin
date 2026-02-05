@@ -94,6 +94,7 @@ pub struct ViewManager {
     slot: u8,
     last_viewport: Arc<TokioRwLock<Option<Viewport>>>,
     nats_cancel: CancellationToken,
+    client_ip: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -128,6 +129,7 @@ pub struct RetrieveTileWork {
     pub cancel: CancellationToken,
     pub tx: Sender<Bytes>,
     pub meta: TileMeta,
+    pub client_ip: Option<String>,
 }
 
 impl ViewManager {
@@ -138,6 +140,7 @@ impl ViewManager {
         worker_tx: Sender<RetrieveTileWork>,
         send_tx: Sender<Bytes>,
         nats_client: NatsClient,
+        client_ip: Option<String>,
     ) -> Self {
         let nats_cancel = CancellationToken::new();
         let last_viewport = Arc::new(TokioRwLock::new(None));
@@ -152,6 +155,7 @@ impl ViewManager {
             let viewport_ref = last_viewport.clone();
             let nats = nats_client.clone();
             let sent = sent.clone();
+            let client_ip = client_ip.clone();
             async move {
                 if let Err(e) = tile_subscription_task(
                     slot,
@@ -162,6 +166,7 @@ impl ViewManager {
                     cancel,
                     viewport_ref,
                     sent,
+                    client_ip,
                 )
                 .await
                 {
@@ -195,6 +200,7 @@ impl ViewManager {
             send_tx,
             last_viewport,
             nats_cancel,
+            client_ip,
         }
     }
 
@@ -360,6 +366,7 @@ impl ViewManager {
                 cancel: cancel.clone(),
                 tx: self.send_tx.clone(),
                 meta: *meta,
+                client_ip: self.client_ip.clone(),
             };
             self.worker_tx
                 .send(work)
@@ -431,6 +438,7 @@ impl ViewManager {
             cancel,
             tx: self.send_tx.clone(),
             meta,
+            client_ip: self.client_ip.clone(),
         };
 
         self.worker_tx
@@ -530,6 +538,7 @@ async fn tile_subscription_task(
     cancel: CancellationToken,
     viewport_ref: Arc<TokioRwLock<Option<Viewport>>>,
     sent: SentTiles,
+    client_ip: Option<String>,
 ) -> Result<()> {
     let topic = topics::tile_data(image.id);
     let mut subscriber = nats_client
@@ -608,6 +617,7 @@ async fn tile_subscription_task(
                     cancel: cancel.clone(),
                     tx: send_tx.clone(),
                     meta,
+                    client_ip: client_ip.clone(),
                 };
 
                 if let Err(e) = worker_tx.send(work).await {
