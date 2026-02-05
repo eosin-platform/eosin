@@ -2,7 +2,7 @@ use async_channel::Sender;
 use async_nats::Client as NatsClient;
 use bytes::Bytes;
 use futures_util::StreamExt;
-use histion_common::streams::{SlideProgressEvent, topics};
+use histion_common::streams::{topics, SlideProgressEvent};
 use rustc_hash::FxHashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -21,8 +21,8 @@ const Y_MASK: u64 = (1 << Y_BITS) - 1;
 const LEVEL_MASK: u64 = (1 << LEVEL_BITS) - 1;
 const TILE_SIZE: f32 = 512.0;
 const MAX_TILES_PER_UPDATE: usize = 64; // tune this
-const SOFT_MAX_CACHE_SIZE: usize = 5_000; // tune this
-const HARD_MAX_CACHE_SIZE: usize = 10_000; // tune this
+const SOFT_MAX_CACHE_SIZE: usize = 5_00; // tune this
+const HARD_MAX_CACHE_SIZE: usize = 1_000; // tune this
 const PRUNE_BATCH_SIZE: usize = 256; // max removals per update
 
 #[derive(Debug, Clone, Copy)]
@@ -135,7 +135,7 @@ impl ViewManager {
     ) -> Self {
         let nats_cancel = CancellationToken::new();
         let last_viewport = Arc::new(RwLock::new(None));
-        
+
         // Spawn NATS subscription task for tile events
         tokio::spawn({
             let image = image.clone();
@@ -153,7 +153,9 @@ impl ViewManager {
                     nats,
                     cancel,
                     viewport_ref,
-                ).await {
+                )
+                .await
+                {
                     tracing::warn!(error = %e, "tile subscription task ended");
                 }
             }
@@ -165,13 +167,9 @@ impl ViewManager {
             let send_tx = send_tx.clone();
             let cancel = nats_cancel.clone();
             async move {
-                if let Err(e) = progress_subscription_task(
-                    slot,
-                    image_id,
-                    send_tx,
-                    nats_client,
-                    cancel,
-                ).await {
+                if let Err(e) =
+                    progress_subscription_task(slot, image_id, send_tx, nats_client, cancel).await
+                {
                     tracing::warn!(error = %e, "progress subscription task ended");
                 }
             }

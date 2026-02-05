@@ -416,7 +416,7 @@ async fn process_level(
                         let new_global = global_tiles_done.fetch_add(1, Ordering::Relaxed) + 1;
 
                         // Report progress every 10,000 tiles
-                        const PROGRESS_INTERVAL: usize = 10_000;
+                        const PROGRESS_INTERVAL: usize = 1_000;
                         let current_step = new_global / PROGRESS_INTERVAL;
                         let prev_step = last_reported_step.load(Ordering::Relaxed);
                         if current_step > prev_step {
