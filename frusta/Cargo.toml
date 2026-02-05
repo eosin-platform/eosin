@@ -1,0 +1,12 @@
+[package]
+name = "histion-frusta"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+histion-storage = { path = "../storage" }
+histion-frusta = { path = "../frusta" }
+clap = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+uuid = { workspace = true }

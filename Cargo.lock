@@ -1712,6 +1712,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "histion-frusta"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "histion-storage",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "histion-intake"
 version = "0.1.0"
 dependencies = [
@@ -1734,13 +1745,6 @@ dependencies = [
  "postgres-types",
  "tokio-postgres",
  "tokio-postgres-rustls",
-]
-
-[[package]]
-name = "histion-renderer"
-version = "0.1.0"
-dependencies = [
- "histion-storage",
 ]
 
 [[package]]
