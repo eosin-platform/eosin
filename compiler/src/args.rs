@@ -81,6 +81,14 @@ pub struct ProcessArgs {
     pub meta_endpoint: String,
 
     /// Storage service gRPC endpoint URL
-    #[arg(long, env = "STORAGE_ENDPOINT", default_value = "http://localhost:50051")]
+    #[arg(
+        long,
+        env = "STORAGE_ENDPOINT",
+        default_value = "http://localhost:50051"
+    )]
     pub storage_endpoint: String,
+
+    /// Number of threads for parallel tile processing (0 = use all available CPUs)
+    #[arg(long, env = "TILE_THREADS", default_value = "0")]
+    pub tile_threads: usize,
 }

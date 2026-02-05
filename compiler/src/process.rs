@@ -21,6 +21,17 @@ use crate::tiler;
 
 /// Run the process worker.
 pub async fn run_process(args: ProcessArgs) -> Result<()> {
+    // Configure rayon thread pool for parallel tile processing
+    if args.tile_threads > 0 {
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(args.tile_threads)
+            .build_global()
+            .context("failed to configure thread pool")?;
+        tracing::info!(threads = args.tile_threads, "configured thread pool");
+    } else {
+        tracing::info!(threads = rayon::current_num_threads(), "using default thread pool");
+    }
+
     tracing::info!(
         bucket = %args.s3.bucket,
         prefix = %args.s3.path_prefix,

@@ -2106,6 +2106,7 @@ dependencies = [
  "openslide-rs",
  "postgres",
  "postgres-types",
+ "rayon",
  "reqwest",
  "serde",
  "serde_json",

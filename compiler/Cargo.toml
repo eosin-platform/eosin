@@ -45,3 +45,4 @@ futures = "0.3"
 openslide-rs = { workspace = true }
 image = "0.25"
 webp = "0.3"
+rayon = "1.10"
