@@ -28,7 +28,7 @@ spec:
         - name: FRUSTA_ENDPOINT
           value: http://{{ .Release.Name }}-frusta
         - name: PUBLIC_FRUSTA_ENDPOINT
-          value: https://frusta.histion.ai
+          value: wss://frusta.histion.ai/ws
         - name: META_ENDPOINT
           value: http://{{ .Release.Name }}-meta
 ---
