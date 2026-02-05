@@ -12,7 +12,9 @@ use args::{Cli, Commands, ConsumerArgs};
 ///
 /// This is a stub that should be implemented to process cache miss events,
 /// such as fetching the missing tile from cold storage and caching it.
-async fn handle_cache_miss(event: CacheMissEvent) -> Result<()> {
+async fn handle_cache_miss(payload: &[u8]) -> Result<()> {
+    let event: CacheMissEvent = serde_json::from_slice(payload)?;
+
     tracing::info!(
         id = %event.id,
         x = event.x,
@@ -67,18 +69,10 @@ async fn run_consumer(args: ConsumerArgs) -> Result<()> {
     while let Some(msg) = messages.next().await {
         match msg {
             Ok(message) => {
-                // Parse the cache miss event
-                match serde_json::from_slice::<CacheMissEvent>(&message.payload) {
-                    Ok(event) => {
-                        if let Err(e) = handle_cache_miss(event).await {
-                            tracing::error!(?e, "failed to handle cache miss");
-                            // Don't ack on error - message will be redelivered
-                            continue;
-                        }
-                    }
-                    Err(e) => {
-                        tracing::error!(?e, "failed to parse cache miss event");
-                    }
+                if let Err(e) = handle_cache_miss(&message.payload).await {
+                    tracing::error!(?e, "failed to handle cache miss");
+                    // Don't ack on error - message will be redelivered
+                    continue;
                 }
 
                 // Acknowledge the message
