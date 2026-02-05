@@ -3,6 +3,12 @@ use uuid::Uuid;
 
 pub mod topics {
     pub const CACHE_MISS: &str = "histion.cache.miss";
+    pub const PROCESS_SLIDE: &str = "histion.process.slide";
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProcessSlideEvent {
+    pub key: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
