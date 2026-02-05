@@ -1,6 +1,11 @@
 use async_channel::Sender;
+use async_nats::Client as NatsClient;
 use bytes::Bytes;
+use futures_util::StreamExt;
+use histion_common::streams::topics;
 use rustc_hash::FxHashMap;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 use anyhow::{ensure, Context, Result};
 use tokio_util::sync::CancellationToken;
@@ -79,6 +84,8 @@ pub struct ViewManager {
     candidates: Vec<TileMeta>,
     send_tx: Sender<Bytes>,
     slot: u8,
+    last_viewport: Arc<RwLock<Option<Viewport>>>,
+    nats_cancel: CancellationToken,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -122,7 +129,33 @@ impl ViewManager {
         image: ImageDesc,
         worker_tx: Sender<RetrieveTileWork>,
         send_tx: Sender<Bytes>,
+        nats_client: NatsClient,
     ) -> Self {
+        let nats_cancel = CancellationToken::new();
+        let last_viewport = Arc::new(RwLock::new(None));
+        
+        // Spawn NATS subscription task for tile events
+        tokio::spawn({
+            let image = image.clone();
+            let worker_tx = worker_tx.clone();
+            let send_tx = send_tx.clone();
+            let cancel = nats_cancel.clone();
+            let viewport_ref = last_viewport.clone();
+            async move {
+                if let Err(e) = tile_subscription_task(
+                    slot,
+                    image,
+                    worker_tx,
+                    send_tx,
+                    nats_client,
+                    cancel,
+                    viewport_ref,
+                ).await {
+                    tracing::warn!(error = %e, "tile subscription task ended");
+                }
+            }
+        });
+
         Self {
             slot,
             dpi,
@@ -132,6 +165,8 @@ impl ViewManager {
             cancel_update: None,
             candidates: Vec::with_capacity(MAX_TILES_PER_UPDATE),
             send_tx,
+            last_viewport,
+            nats_cancel,
         }
     }
 
@@ -195,6 +230,9 @@ impl ViewManager {
     }
 
     pub async fn update(&mut self, viewport: &Viewport) -> Result<()> {
+        // Store the viewport for use by the NATS subscription task
+        *self.last_viewport.write().await = Some(*viewport);
+
         let cancel = CancellationToken::new();
         if let Some(old_cancel) = self.cancel_update.replace(cancel.clone()) {
             old_cancel.cancel();
@@ -327,6 +365,13 @@ impl ViewManager {
     }
 }
 
+impl Drop for ViewManager {
+    fn drop(&mut self) {
+        // Cancel the NATS subscription task when ViewManager is dropped
+        self.nats_cancel.cancel();
+    }
+}
+
 /// Compute which tiles (x, y) at a given level intersect the viewport.
 fn visible_tiles_for_level(viewport: &Viewport, image: &ImageDesc, level: u32) -> Vec<TileMeta> {
     let downsample = 2f32.powi(level as i32);
@@ -366,4 +411,99 @@ fn visible_tiles_for_level(viewport: &Viewport, image: &ImageDesc, level: u32) -
     }
 
     tiles
+}
+
+/// Check if a tile at (x, y, level) is visible within the given viewport.
+fn is_tile_in_viewport(viewport: &Viewport, image: &ImageDesc, x: u32, y: u32, level: u32) -> bool {
+    let downsample = 2f32.powi(level as i32);
+    let px_per_tile = downsample * TILE_SIZE;
+
+    let zoom = viewport.safe_zoom();
+    let view_x0 = viewport.x / px_per_tile;
+    let view_y0 = viewport.y / px_per_tile;
+    let view_x1 = (viewport.x + viewport.width as f32 / zoom) / px_per_tile;
+    let view_y1 = (viewport.y + viewport.height as f32 / zoom) / px_per_tile;
+    let tiles_x = (image.width as f32 / px_per_tile).ceil().max(0.0);
+    let tiles_y = (image.height as f32 / px_per_tile).ceil().max(0.0);
+
+    let min_tx = view_x0.floor().max(0.0) as u32;
+    let min_ty = view_y0.floor().max(0.0) as u32;
+    let max_tx = view_x1.ceil().max(0.0).min(tiles_x) as u32;
+    let max_ty = view_y1.ceil().max(0.0).min(tiles_y) as u32;
+
+    x >= min_tx && x < max_tx && y >= min_ty && y < max_ty
+}
+
+/// Background task that subscribes to NATS tile events for a specific slide.
+/// When a tile event is received, checks if it's in the current viewport and
+/// dispatches work to fetch and send it to the client.
+async fn tile_subscription_task(
+    slot: u8,
+    image: ImageDesc,
+    worker_tx: Sender<RetrieveTileWork>,
+    send_tx: Sender<Bytes>,
+    nats_client: NatsClient,
+    cancel: CancellationToken,
+    viewport_ref: Arc<RwLock<Option<Viewport>>>,
+) -> Result<()> {
+    let topic = topics::tile_data(image.id);
+    let mut subscriber = nats_client
+        .subscribe(topic.clone())
+        .await
+        .context("failed to subscribe to tile topic")?;
+
+    tracing::debug!(topic = %topic, slide_id = %image.id, "subscribed to tile events");
+
+    loop {
+        tokio::select! {
+            _ = cancel.cancelled() => {
+                tracing::debug!(slide_id = %image.id, "tile subscription cancelled");
+                break;
+            }
+            msg = subscriber.next() => {
+                let Some(msg) = msg else {
+                    tracing::warn!(slide_id = %image.id, "tile subscription stream ended");
+                    break;
+                };
+
+                // Parse the tile coordinates from the payload
+                // Format: x (4 bytes LE) | y (4 bytes LE) | level (4 bytes LE)
+                if msg.payload.len() < 12 {
+                    tracing::warn!("invalid tile event payload size: {}", msg.payload.len());
+                    continue;
+                }
+
+                let x = u32::from_le_bytes(msg.payload[0..4].try_into().unwrap());
+                let y = u32::from_le_bytes(msg.payload[4..8].try_into().unwrap());
+                let level = u32::from_le_bytes(msg.payload[8..12].try_into().unwrap());
+
+                // Check if the tile is within the current viewport
+                let viewport_guard = viewport_ref.read().await;
+                let Some(viewport) = *viewport_guard else {
+                    // No viewport set yet, skip
+                    continue;
+                };
+                drop(viewport_guard);
+
+                if !is_tile_in_viewport(&viewport, &image, x, y, level) {
+                    continue;
+                }
+
+                // Dispatch work to fetch and send the tile
+                let work = RetrieveTileWork {
+                    slide_id: image.id,
+                    slot,
+                    cancel: cancel.clone(),
+                    tx: send_tx.clone(),
+                    meta: TileMeta { x, y, level },
+                };
+
+                if let Err(e) = worker_tx.send(work).await {
+                    tracing::warn!(error = %e, "failed to dispatch tile work from NATS event");
+                }
+            }
+        }
+    }
+
+    Ok(())
 }

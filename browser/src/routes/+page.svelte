@@ -640,6 +640,7 @@
     overflow: hidden;
     cursor: grab;
     touch-action: none;
+    background: white;
   }
 
   .viewer-container:active {

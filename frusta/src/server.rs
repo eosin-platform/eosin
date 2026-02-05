@@ -1,5 +1,6 @@
 use anyhow::{bail, ensure, Context, Result};
 use async_channel::Sender;
+use async_nats::Client as NatsClient;
 use axum::{
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
@@ -31,6 +32,7 @@ use rustc_hash::FxHashMap;
 pub struct AppState {
     pub storage_endpoint: String,
     pub tx: async_channel::Sender<RetrieveTileWork>,
+    pub nats_client: NatsClient,
 }
 
 /// Run the frusta WebSocket server.
@@ -38,6 +40,11 @@ pub async fn run_server(args: ServerArgs) -> Result<()> {
     let storage = StorageClient::connect(&args.storage_endpoint)
         .await
         .context("failed to connect to storage endpoint")?;
+    
+    // Connect to NATS
+    let nats_client = args.nats.connect().await?;
+    tracing::info!(url = %args.nats.nats_url, "connected to NATS");
+
     let cancel = CancellationToken::new();
     let (tx, rx) = async_channel::bounded(1000);
     let workers = (0..args.worker_count)
@@ -53,6 +60,7 @@ pub async fn run_server(args: ServerArgs) -> Result<()> {
     let state = AppState {
         storage_endpoint: args.storage_endpoint.clone(),
         tx,
+        nats_client,
     };
     let cors = CorsLayer::new()
         .allow_origin(Any)
@@ -156,7 +164,7 @@ async fn handle_socket(socket: WebSocket, state: AppState) -> Result<()> {
         let cancel = cancel.clone();
         async move { sender_main(sender, image_rx, send_rx, cancel).await }
     });
-    let mut session = Session::new(state.tx.clone(), image_tx);
+    let mut session = Session::new(state.tx.clone(), image_tx, state.nats_client.clone());
 
     tracing::info!(
         storage_endpoint = %state.storage_endpoint,
@@ -270,10 +278,11 @@ pub struct Session {
     send_tx: Sender<Bytes>,
     /// O(1) lookup from UUID to slot index
     uuid_to_slot: FxHashMap<Uuid, u8>,
+    nats_client: NatsClient,
 }
 
 impl Session {
-    pub fn new(worker_tx: Sender<RetrieveTileWork>, send_tx: Sender<Bytes>) -> Self {
+    pub fn new(worker_tx: Sender<RetrieveTileWork>, send_tx: Sender<Bytes>, nats_client: NatsClient) -> Self {
         Self {
             worker_tx,
             slides: [None; 256],
@@ -281,6 +290,7 @@ impl Session {
             free: (0..=255u8).rev().collect(),
             send_tx,
             uuid_to_slot: FxHashMap::default(),
+            nats_client,
         }
     }
 
@@ -316,6 +326,7 @@ impl Session {
             image,
             self.worker_tx.clone(),
             self.send_tx.clone(),
+            self.nats_client.clone(),
         );
         self.viewports[slot as usize] = Some(manager);
         Ok(slot)

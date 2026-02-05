@@ -1,4 +1,6 @@
 use anyhow::{Context, Result, bail};
+use async_nats::Client as NatsClient;
+use histion_common::streams::topics;
 use histion_storage::StorageClient;
 use image::{ImageBuffer, Rgba, RgbaImage};
 use openslide_rs::{OpenSlide, Size};
@@ -61,6 +63,7 @@ pub async fn process_slide(
     path: &Path,
     slide_id: Uuid,
     storage_client: &mut StorageClient,
+    nats_client: &NatsClient,
     cancel: CancellationToken,
 ) -> Result<SlideMetadata> {
     let slide = OpenSlide::new(path).context("failed to open slide")?;
@@ -97,6 +100,7 @@ pub async fn process_slide(
             slide_id,
             level,
             storage_client,
+            nats_client,
             path,
             &cancel,
         )
@@ -124,6 +128,7 @@ async fn process_level(
     slide_id: Uuid,
     level: u32,
     storage_client: &mut StorageClient,
+    nats_client: &NatsClient,
     slide_path: &Path,
     cancel: &CancellationToken,
 ) -> Result<()> {
@@ -232,6 +237,17 @@ async fn process_level(
                             .context(format!(
                                 "failed to upload tile ({tx}, {ty}) at level {level}"
                             ))?;
+
+                        // Publish tile event to NATS (fire-and-forget, ignore errors)
+                        // Payload: x (4 bytes LE) | y (4 bytes LE) | level (4 bytes LE)
+                        let topic = topics::tile_data(slide_id);
+                        let mut payload = [0u8; 12];
+                        payload[0..4].copy_from_slice(&tx.to_le_bytes());
+                        payload[4..8].copy_from_slice(&ty.to_le_bytes());
+                        payload[8..12].copy_from_slice(&level.to_le_bytes());
+                        if let Err(e) = nats_client.publish(topic, bytes::Bytes::from(payload.to_vec())).await {
+                            tracing::warn!(error = %e, "failed to publish tile event");
+                        }
 
                         uploaded += 1;
 
