@@ -84,7 +84,11 @@ async fn index() -> impl IntoResponse {
 
 /// WebSocket upgrade handler
 async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| handle_socket(socket, state))
+    ws.on_upgrade(async move |socket| {
+        if let Err(e) = handle_socket(socket, state).await {
+            tracing::error!("WebSocket connection error: {}", e);
+        }
+    })
 }
 
 async fn sender_main(
@@ -93,21 +97,19 @@ async fn sender_main(
     send_rx: async_channel::Receiver<Message>,
     cancel: CancellationToken,
 ) {
-    loop {
+    let close_reason = loop {
         tokio::select! {
-            _ = cancel.cancelled() => break,
+            _ = cancel.cancelled() => break None,
             data = image_rx.recv() => {
                 match data {
                     Ok(data) => {
                         let msg = Message::Binary(data);
                         if let Err(e) = sender.send(msg).await {
-                            tracing::error!("failed to send message: {}", e);
-                            break;
+                            break Some(format!("failed to send message: {}", e));
                         }
                     }
                     Err(e) => {
-                        tracing::error!("failed to receive image data: {}", e);
-                        break;
+                        break Some(format!("failed to receive image data: {}", e));
                     }
                 }
             }
@@ -115,22 +117,31 @@ async fn sender_main(
                 match msg {
                     Ok(msg) => {
                         if let Err(e) = sender.send(msg).await {
-                            tracing::error!("failed to send message: {}", e);
-                            break;
+                            break Some(format!("failed to send message: {}", e));
                         }
                     }
                     Err(e) => {
-                        tracing::error!("failed to receive message to send: {}", e);
-                        break;
+                        break Some(format!("failed to receive message to send: {}", e));
                     }
                 }
             }
         }
+    };
+    if let Some(reason) = close_reason {
+        tracing::error!("{}", reason);
+        let _ = sender
+            .send(Message::Close(Some(axum::extract::ws::CloseFrame {
+                code: 1011, // Internal Error
+                reason: reason.into(),
+            })))
+            .await;
     }
+    let _ = sender.close().await;
+    cancel.cancel();
 }
 
 /// Handle an individual WebSocket connection
-async fn handle_socket(socket: WebSocket, state: AppState) {
+async fn handle_socket(socket: WebSocket, state: AppState) -> Result<()> {
     let (sender, mut receiver) = socket.split();
     let cancel = CancellationToken::new();
     let (image_tx, image_rx) = async_channel::bounded::<Bytes>(100);
@@ -147,7 +158,14 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
     );
 
     // Process incoming messages
-    while let Some(msg) = receiver.next().await {
+    loop {
+        let msg = tokio::select! {
+            _ = cancel.cancelled() => bail!("Context cancelled"),
+            msg = receiver.next() => msg, // msg: Option<Message>
+        };
+        let Some(msg) = msg else {
+            break;
+        };
         match msg {
             Ok(Message::Text(text)) => {
                 tracing::debug!("received text message: {}", text);
@@ -174,18 +192,12 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
             Ok(Message::Pong(_)) => {
                 // Pong received, connection is alive
             }
-            Ok(Message::Close(_)) => {
-                tracing::info!("client requested close");
-                break;
-            }
-            Err(e) => {
-                tracing::error!("websocket error: {}", e);
-                break;
-            }
+            Ok(Message::Close(_)) => bail!("client requested close"),
+            Err(e) => bail!("websocket error: {}", e),
         }
     }
-
-    tracing::info!("WebSocket connection closed");
+    tracing::info!("WebSocket connection closed gracefully");
+    Ok(())
 }
 
 async fn handle_message(
@@ -212,8 +224,7 @@ async fn handle_message(
             tracing::info!("handling Open message");
             let dpi = f32::from_le_bytes(data[0..4].try_into().unwrap());
             let image = ImageDesc::from_slice(&data[4..32])?;
-            let viewport = Viewport::from_slice(&data[32..])?;
-            let slot = session.open_slide(dpi, image, viewport)?;
+            let slot = session.open_slide(dpi, image)?;
             let payload = {
                 let mut payload = Vec::with_capacity(18);
                 payload.push(WebsockMessageType::Open as u8);
@@ -261,7 +272,7 @@ impl Session {
     }
 
     /// Allocate a slot for this slide ID. O(1).
-    pub fn open_slide(&mut self, dpi: f32, image: ImageDesc, viewport: Viewport) -> Result<u8> {
+    pub fn open_slide(&mut self, dpi: f32, image: ImageDesc) -> Result<u8> {
         // Check if already open (O(256) worst-case scan)
         // Optional: If you want strict O(1), add a HashMap<Uuid, u8>
         if let Some((idx, _)) = self
