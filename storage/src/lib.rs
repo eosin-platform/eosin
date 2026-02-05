@@ -1,6 +1,9 @@
 pub mod api;
+pub mod args;
 pub mod client;
 pub mod cluster;
+pub mod health;
+pub mod server;
 pub mod shard;
 
 pub mod proto {
