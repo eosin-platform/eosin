@@ -12,18 +12,12 @@ pub async fn worker_main(
 ) -> Result<()> {
     loop {
         tokio::select! {
-            _ = cancel.cancelled() => {
-                bail!("Context cancelled");
-            }
+            _ = cancel.cancelled() => bail!("Context cancelled"),
             work = rx.recv() => {
                 let work = work.context("failed to receive work")?;
                 tokio::select! {
-                    _ = cancel.cancelled() => {
-                        bail!("Context cancelled");
-                    }
-                    _ = work.cancel.cancelled() => {
-                        continue;
-                    }
+                    _ = cancel.cancelled() => bail!("Context cancelled"),
+                    _ = work.cancel.cancelled() => continue,
                     data = storage.get_tile(
                         work.slide_id,
                         work.meta.x,
@@ -35,7 +29,11 @@ pub async fn worker_main(
                             meta: work.meta,
                             data,
                         };
-                        work.tx.send(tile).await.context("failed to send tile to viewport")?;
+                        tokio::select! {
+                            _ = cancel.cancelled() => bail!("Context cancelled"),
+                            _ = work.cancel.cancelled() => {}
+                            _ = work.tx.send(tile) => {}
+                        }
                     }
                 }
             }
