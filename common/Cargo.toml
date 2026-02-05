@@ -1,0 +1,44 @@
+[package]
+name = "histion-common"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tokio-postgres = { workspace = true }
+postgres = { workspace = true }
+deadpool-postgres = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true }
+http-body-util = { workspace = true }
+bytes = { workspace = true }
+tokio-util = { version = "0.7", features = ["io"] }
+percent-encoding = { workspace = true }
+futures-util = { workspace = true }
+clap = { workspace = true }
+redis = { workspace = true }
+deadpool-redis = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio-stream = { workspace = true }
+axum = { workspace = true }
+reqwest = { workspace = true }
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+postgres-types = { workspace = true }
+base64-url = { workspace = true }
+axum-keycloak-auth = { workspace = true }
+async-nats = { workspace = true }
+keycloak = { workspace = true }
+owo-colors = { workspace = true }
+rustls = { workspace = true }
+rustls-native-certs = { workspace = true }
+tokio-postgres-rustls = { workspace = true }
+tower-http = { workspace = true }
+metrics = { workspace = true }
+metrics-exporter-prometheus = { workspace = true }
+tower = { workspace = true }
+rand = { workspace = true }
+http = "1.3.1"
+rustls-pemfile = "2.2.0"
