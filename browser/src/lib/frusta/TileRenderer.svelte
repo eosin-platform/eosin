@@ -129,19 +129,28 @@
     const dpi = window.devicePixelRatio * 96;
     const idealLevel = computeIdealLevel(viewport.zoom, image.levels, dpi);
 
+    // Compute finer level for 2x screen DPI (one level below ideal, clamped to 0)
+    const finerLevel = Math.max(0, idealLevel - 1);
+
     // Get visible tiles at the ideal level only (for retries, we only request at screen resolution)
     const idealTiles = visibleTilesForLevel(viewport, image, idealLevel);
 
-    // Cancel retry tracking for tiles no longer visible at ideal level
+    // Get visible tiles at finer level for 2x DPI requests
+    const finerTiles = finerLevel < idealLevel ? visibleTilesForLevel(viewport, image, finerLevel) : [];
+
+    // Build set of all tiles we want to track (ideal + finer)
+    const allTrackableTiles = [...idealTiles, ...finerTiles];
+
+    // Cancel retry tracking for tiles no longer visible at ideal or finer level
     if (retryManager) {
-      retryManager.cancelTilesNotIn(idealTiles);
+      retryManager.cancelTilesNotIn(allTrackableTiles);
     }
 
     // Render tiles with mip fallback
     // Strategy: For each tile position at the ideal level,
     // find the best available tile (finest resolution first, then fallback to coarser)
     for (const coord of idealTiles) {
-      renderTileWithFallback(coord, idealLevel);
+      renderTileWithFallback(coord, idealLevel, finerLevel);
     }
 
     // Debug overlay when shift is held
@@ -230,7 +239,7 @@
     }
   }
 
-  function renderTileWithFallback(targetCoord: TileCoord, idealLevel: number) {
+  function renderTileWithFallback(targetCoord: TileCoord, idealLevel: number, finerLevel: number) {
     if (!ctx) return;
 
     const rect = tileScreenRect(targetCoord, viewport);
@@ -260,9 +269,22 @@
     }
 
     // Tile not found at ideal level - start tracking for retry
-    // Only track tiles at the ideal level (screen resolution)
+    // Track tiles at the ideal level (screen resolution)
     if (retryManager && targetCoord.level === idealLevel) {
       retryManager.trackTile(targetCoord);
+    }
+
+    // Also track finer level tiles (up to 2x screen DPI) when ideal tile is missing
+    if (retryManager && finerLevel < idealLevel) {
+      // Each ideal tile maps to 4 finer tiles (2x2 grid)
+      const scale = Math.pow(2, idealLevel - finerLevel);
+      for (let dy = 0; dy < scale; dy++) {
+        for (let dx = 0; dx < scale; dx++) {
+          const finerX = targetCoord.x * scale + dx;
+          const finerY = targetCoord.y * scale + dy;
+          retryManager.trackTile({ x: finerX, y: finerY, level: finerLevel });
+        }
+      }
     }
 
     // If not found at ideal level, look for coarser fallbacks
