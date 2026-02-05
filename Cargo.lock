@@ -1748,6 +1748,7 @@ name = "histion-storage"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-nats",
  "aws-config",
  "aws-credential-types",
  "aws-sdk-s3",
@@ -1761,6 +1762,7 @@ dependencies = [
  "histion-common",
  "prost",
  "protobuf-src",
+ "serde_json",
  "tokio",
  "tokio-stream",
  "tonic",

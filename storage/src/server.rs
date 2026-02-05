@@ -1,6 +1,7 @@
 use std::net::SocketAddr;
 
 use anyhow::Result;
+use async_nats::jetstream;
 use tonic::transport::Server;
 
 use crate::api::ApiService;
@@ -11,11 +12,18 @@ use crate::proto::storage::storage_api_server::StorageApiServer;
 
 /// Run the storage server with both API and optional cluster services.
 pub async fn run_server(args: ServerArgs) -> Result<()> {
+    // Connect to NATS
+    let nats = args.nats.connect().await?;
+    tracing::info!(url = %args.nats.nats_url, "connected to NATS");
+
+    // Create JetStream context
+    let jetstream = jetstream::new(nats);
+
     let api_addr: SocketAddr = format!("0.0.0.0:{}", args.api_port).parse()?;
     tracing::info!(%api_addr, "starting API server");
 
     // Build the API server
-    let api_service = ApiService::new(&args.data_root);
+    let api_service = ApiService::new(&args.data_root, jetstream);
     let api_server = Server::builder()
         .add_service(StorageApiServer::new(api_service))
         .serve(api_addr);

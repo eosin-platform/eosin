@@ -5,6 +5,8 @@ edition = "2024"
 
 [dependencies]
 histion-common = { path = "../common" }
+async-nats = { workspace = true }
+serde_json = { workspace = true }
 # For loading from cold storage
 aws-config = { version = "1.8", features = ["rt-tokio", "rustls"] }
 aws-sdk-s3 = { version = "1.106", features = ["rustls"] }

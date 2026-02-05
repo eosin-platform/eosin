@@ -1,3 +1,4 @@
+use anyhow::Context;
 use clap::Parser;
 
 #[derive(Parser, Debug, Clone)]
@@ -37,6 +38,17 @@ pub struct NatsArgs {
 
     #[arg(long, env = "NATS_PASSWORD", default_value = "devpass")]
     pub nats_password: String,
+}
+
+impl NatsArgs {
+    /// Connect to NATS using the configured URL and credentials.
+    pub async fn connect(&self) -> anyhow::Result<async_nats::Client> {
+        async_nats::ConnectOptions::new()
+            .user_and_password(self.nats_user.clone(), self.nats_password.clone())
+            .connect(&self.nats_url)
+            .await
+            .context("failed to connect to NATS")
+    }
 }
 
 #[derive(Parser, Debug, Clone)]

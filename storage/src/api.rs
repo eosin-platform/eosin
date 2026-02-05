@@ -1,5 +1,8 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 
+use async_nats::jetstream::{self, message::PublishMessage};
+use histion_common::streams::{CacheMissEvent, topics::CACHE_MISS};
 use tokio::fs;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
@@ -9,16 +12,28 @@ use crate::proto::storage::{
     PutTileResponse, storage_api_server::StorageApi,
 };
 
-#[derive(Debug)]
+#[derive(Clone)]
 pub struct ApiService {
     data_root: PathBuf,
+    jetstream: Arc<jetstream::Context>,
 }
 
 impl ApiService {
-    pub fn new(data_root: impl Into<PathBuf>) -> Self {
+    pub fn new(data_root: impl Into<PathBuf>, jetstream: jetstream::Context) -> Self {
         Self {
             data_root: data_root.into(),
+            jetstream: Arc::new(jetstream),
         }
+    }
+
+    /// Publish a cache miss event to JetStream.
+    async fn publish_cache_miss(&self, event: CacheMissEvent) -> Result<(), async_nats::Error> {
+        let payload = serde_json::to_vec(&event).expect("failed to serialize CacheMissEvent");
+        let publish = PublishMessage::build()
+            .payload(payload.into())
+            .message_id(event.hash());
+        self.jetstream.send_publish(CACHE_MISS, publish).await?;
+        Ok(())
     }
 
     /// Returns the path to the tile file: {data_root}/{id}/{level}/{x}_{y}.webp
@@ -49,7 +64,22 @@ impl StorageApi for ApiService {
         );
 
         let data = fs::read(&path).await.map_err(|e| match e.kind() {
-            std::io::ErrorKind::NotFound => Status::not_found("tile not found"),
+            std::io::ErrorKind::NotFound => {
+                // Publish cache miss event to JetStream
+                let event = CacheMissEvent {
+                    id,
+                    x: req.x,
+                    y: req.y,
+                    level: req.level,
+                };
+                let service = self.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = service.publish_cache_miss(event).await {
+                        tracing::error!(?e, "failed to publish cache miss event");
+                    }
+                });
+                Status::not_found("tile not found")
+            }
             _ => {
                 tracing::error!(?e, ?path, "failed to read tile");
                 Status::internal("failed to read tile")
