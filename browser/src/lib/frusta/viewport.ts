@@ -230,3 +230,36 @@ export function pan(
     imageHeight
   );
 }
+
+/**
+ * Compute a centered viewport that fits the entire image within the viewport.
+ * Returns a viewport with zoom adjusted to fit and position centered.
+ */
+export function centerViewport(
+  viewportWidth: number,
+  viewportHeight: number,
+  imageWidth: number,
+  imageHeight: number,
+  padding: number = 0.9 // 90% of viewport to leave some margin
+): ViewportState {
+  // Calculate zoom to fit the entire image
+  const zoomX = (viewportWidth * padding) / imageWidth;
+  const zoomY = (viewportHeight * padding) / imageHeight;
+  const zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.min(zoomX, zoomY)));
+
+  // Calculate visible area at this zoom
+  const visibleWidth = viewportWidth / zoom;
+  const visibleHeight = viewportHeight / zoom;
+
+  // Center the viewport on the image
+  const x = (imageWidth - visibleWidth) / 2;
+  const y = (imageHeight - visibleHeight) / 2;
+
+  return {
+    x: Math.max(0, x),
+    y: Math.max(0, y),
+    width: viewportWidth,
+    height: viewportHeight,
+    zoom,
+  };
+}

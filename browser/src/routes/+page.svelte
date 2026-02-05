@@ -14,6 +14,7 @@
     zoomAround,
     pan,
     clampViewport,
+    centerViewport,
   } from '$lib/frusta';
   import type { SlideInfo } from './+page.server';
 
@@ -56,6 +57,9 @@
   let imageDesc = $state<ImageDesc | null>(null);
   let currentSlot = $state<number | null>(null);
   let loadError = $state<string | null>(null);
+
+  // Track last loaded slide ID to detect changes
+  let lastLoadedSlideId = $state<string | null>(null);
 
   // Viewport state
   let viewport = $state<ViewportState>({
@@ -127,6 +131,59 @@
       .join('');
     return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
   }
+
+  /**
+   * Center the viewport on the current image.
+   */
+  function centerOnImage() {
+    if (!imageDesc || !container) return;
+    const rect = container.getBoundingClientRect();
+    viewport = centerViewport(rect.width, rect.height, imageDesc.width, imageDesc.height);
+  }
+
+  /**
+   * Load a new slide - updates imageDesc, centers viewport, and opens via WebSocket.
+   */
+  function loadSlide(slide: SlideInfo) {
+    const newImageDesc = slideInfoToImageDesc(slide);
+    if (!newImageDesc) {
+      loadError = 'Failed to parse slide info';
+      return;
+    }
+
+    imageDesc = newImageDesc;
+    lastLoadedSlideId = slide.id;
+    loadError = null;
+
+    // Clear tile cache for new image
+    if (cache) {
+      cache.clear();
+      cacheSize = 0;
+      tilesReceived = 0;
+    }
+
+    // Center viewport on the new image
+    if (container) {
+      const rect = container.getBoundingClientRect();
+      viewport = centerViewport(rect.width, rect.height, imageDesc.width, imageDesc.height);
+    }
+
+    // Open slide if connected
+    if (connectionState === 'connected') {
+      openSlide();
+    }
+  }
+
+  // Reactive effect: watch for data.slide changes and load new slide
+  $effect(() => {
+    const slide = data.slide;
+    if (slide && slide.id !== lastLoadedSlideId) {
+      loadSlide(slide);
+    } else if (!slide && data.error) {
+      loadError = data.error;
+      imageDesc = null;
+    }
+  });
 
   function connect() {
     if (client) {
@@ -336,16 +393,17 @@
     });
     cache = tileCache;
 
-    // Load image from server-provided data
+    // Set initial viewport size from container
+    if (container) {
+      const rect = container.getBoundingClientRect();
+      viewport = { ...viewport, width: rect.width, height: rect.height };
+    }
+
+    // Load initial slide from server-provided data
     if (data.error) {
       loadError = data.error;
     } else if (data.slide) {
-      imageDesc = slideInfoToImageDesc(data.slide);
-    }
-
-    // Set initial viewport size
-    if (container) {
-      updateViewportSize();
+      loadSlide(data.slide);
     }
 
     // Always auto-connect on page load

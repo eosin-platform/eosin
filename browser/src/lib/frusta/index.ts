@@ -28,6 +28,7 @@ export {
   tileScreenRect,
   zoomAround,
   pan,
+  centerViewport,
   MIN_ZOOM,
   MAX_ZOOM,
 } from './viewport';
