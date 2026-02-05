@@ -248,6 +248,13 @@ async fn handle_message(
             let id = Uuid::from_slice(&data[..UUID_SIZE])?;
             session.close_slide(id).context("failed to close slide")
         }
+        MessageType::ClearCache => {
+            tracing::debug!("handling ClearCache message");
+            ensure!(data.len() >= 1, "ClearCache message too short");
+            let slot = data[0];
+            session.get_viewport_mut(slot)?.clear_cache();
+            Ok(())
+        }
     }
 }
 

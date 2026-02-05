@@ -20,6 +20,7 @@ pub enum MessageType {
     Update = 0,
     Open = 1,
     Close = 2,
+    ClearCache = 3,
 }
 
 impl TryFrom<u8> for MessageType {
@@ -30,6 +31,7 @@ impl TryFrom<u8> for MessageType {
             0 => Ok(MessageType::Update),
             1 => Ok(MessageType::Open),
             2 => Ok(MessageType::Close),
+            3 => Ok(MessageType::ClearCache),
             _ => Err(()),
         }
     }
