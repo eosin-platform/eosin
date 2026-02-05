@@ -19,6 +19,9 @@ pub struct ServerArgs {
     #[arg(long, env = "API_PORT", default_value_t = 3500)]
     pub api_port: u16,
 
+    #[arg(long, env = "DATA_ROOT", default_value = "/var/histion")]
+    pub data_root: String,
+
     #[arg(long, env = "CLUSTER_PORT")]
     pub cluster_port: Option<u16>,
 
