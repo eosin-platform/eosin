@@ -64,17 +64,6 @@ pub struct RequestedTile {
 type TileKey = u64;
 
 impl TileMeta {
-    pub fn index_checked(&self) -> Result<TileKey> {
-        let x = self.x as u64;
-        let y = self.y as u64;
-        let level = self.level as u64;
-        ensure!(x <= X_MASK, "x out of range for index packing");
-        ensure!(y <= Y_MASK, "y out of range for index packing");
-        ensure!(level <= LEVEL_MASK, "level out of range for index packing");
-        let index = x | (y << X_BITS) | (level << (X_BITS + Y_BITS));
-        Ok(index)
-    }
-
     #[inline]
     pub fn index_unchecked(&self) -> TileKey {
         let x = self.x as u64;

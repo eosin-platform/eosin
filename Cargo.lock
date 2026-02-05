@@ -1770,8 +1770,6 @@ dependencies = [
  "histion-common",
  "histion-storage",
  "rustc-hash",
- "serde",
- "serde_json",
  "tokio",
  "tokio-util",
  "tower-http",
