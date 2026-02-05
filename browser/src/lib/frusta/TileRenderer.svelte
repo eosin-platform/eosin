@@ -37,16 +37,26 @@
   let shiftHeld = $state(false);
   let mouseX = $state(0);
   let mouseY = $state(0);
+  // Forced mip level for debugging (null = normal behavior, 0-9 = force that level)
+  let forcedMipLevel: number | null = $state(null);
 
   function handleKeyDown(e: KeyboardEvent) {
     if (e.key === 'Shift') {
       shiftHeld = true;
+    }
+    // Number keys 0-9 force that mip level for debugging
+    if (e.key >= '0' && e.key <= '9') {
+      forcedMipLevel = parseInt(e.key, 10);
     }
   }
 
   function handleKeyUp(e: KeyboardEvent) {
     if (e.key === 'Shift') {
       shiftHeld = false;
+    }
+    // Release forced mip level when number key is released
+    if (e.key >= '0' && e.key <= '9' && forcedMipLevel === parseInt(e.key, 10)) {
+      forcedMipLevel = null;
     }
   }
 
@@ -101,6 +111,7 @@
     void shiftHeld;
     void mouseX;
     void mouseY;
+    void forcedMipLevel;
     render();
   });
 
@@ -127,7 +138,12 @@
 
     // Compute the ideal mip level for current zoom
     const dpi = window.devicePixelRatio * 96;
-    const idealLevel = computeIdealLevel(viewport.zoom, image.levels, dpi);
+    let idealLevel = computeIdealLevel(viewport.zoom, image.levels, dpi);
+
+    // If a number key is held, force that mip level (clamped to valid range)
+    if (forcedMipLevel !== null) {
+      idealLevel = Math.min(forcedMipLevel, image.levels - 1);
+    }
 
     // Compute finer level for 2x screen DPI (one level below ideal, clamped to 0)
     const finerLevel = Math.max(0, idealLevel - 1);
@@ -150,11 +166,16 @@
     // Strategy: For each tile position at the ideal level,
     // find the best available tile (finest resolution first, then fallback to coarser)
     for (const coord of idealTiles) {
-      renderTileWithFallback(coord, idealLevel, finerLevel);
+      if (forcedMipLevel !== null) {
+        // When forcing a mip level, only show tiles at exactly that level (no fallback)
+        renderTileExactLevel(coord);
+      } else {
+        renderTileWithFallback(coord, idealLevel, finerLevel);
+      }
     }
 
-    // Debug overlay when shift is held
-    if (shiftHeld) {
+    // Debug overlay when shift is held or mip level is forced
+    if (shiftHeld || forcedMipLevel !== null) {
       renderDebugOverlay(idealTiles, idealLevel);
     }
   }
@@ -236,6 +257,35 @@
         // Only highlight one tile (the one under cursor)
         break;
       }
+    }
+  }
+
+  /**
+   * Render a tile at exactly the specified level - no fallback.
+   * Used when a number key is held to debug a specific mip level.
+   */
+  function renderTileExactLevel(targetCoord: TileCoord) {
+    if (!ctx) return;
+
+    const rect = tileScreenRect(targetCoord, viewport);
+
+    // Skip tiles completely outside the viewport
+    if (
+      rect.x + rect.width < 0 ||
+      rect.y + rect.height < 0 ||
+      rect.x > viewport.width ||
+      rect.y > viewport.height
+    ) {
+      return;
+    }
+
+    // Only render if we have the tile at exactly this level
+    const cachedTile = cache.get(targetCoord.x, targetCoord.y, targetCoord.level);
+    if (cachedTile) {
+      renderTile(cachedTile, rect);
+    } else {
+      // Show placeholder if tile not available at this exact level
+      renderPlaceholder(rect);
     }
   }
 
