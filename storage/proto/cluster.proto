@@ -1,0 +1,58 @@
+syntax = "proto3";
+
+package cluster;
+
+// Cluster service for bidirectional inter-node communication
+service ClusterService {
+    // Bidirectional streaming for cluster synchronization
+    rpc Sync(stream ClusterMessage) returns (stream ClusterMessage);
+    
+    // Join the cluster
+    rpc Join(JoinRequest) returns (JoinResponse);
+    
+    // Leave the cluster
+    rpc Leave(LeaveRequest) returns (LeaveResponse);
+}
+
+message ClusterMessage {
+    oneof payload {
+        HeartbeatMessage heartbeat = 1;
+        ReplicationMessage replication = 2;
+        ShardAssignmentMessage shard_assignment = 3;
+    }
+}
+
+message HeartbeatMessage {
+    string node_id = 1;
+    uint64 timestamp = 2;
+}
+
+message ReplicationMessage {
+    bytes id = 1;  // 16-byte UUID
+    uint32 shard = 2;
+    bytes data = 3;
+    uint64 version = 4;
+}
+
+message ShardAssignmentMessage {
+    string node_id = 1;
+    repeated uint32 shards = 2;
+}
+
+message JoinRequest {
+    string node_id = 1;
+    string address = 2;
+}
+
+message JoinResponse {
+    bool accepted = 1;
+    repeated string peer_addresses = 2;
+}
+
+message LeaveRequest {
+    string node_id = 1;
+}
+
+message LeaveResponse {
+    bool acknowledged = 1;
+}
