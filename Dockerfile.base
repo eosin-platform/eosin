@@ -1,0 +1,35 @@
+# syntax=docker/dockerfile:1.6
+
+ARG BASE_IMAGE=rust:1-slim-trixie
+
+FROM ${BASE_IMAGE} AS chef
+RUN cargo install cargo-chef --locked
+WORKDIR /app
+COPY . .
+RUN cargo chef prepare --recipe-path recipe.json
+
+FROM ${BASE_IMAGE}
+RUN apt-get update && apt-get install -y \
+    pkg-config libssl-dev cmake zlib1g libzstd-dev \
+    libglib2.0-dev libva-dev libdrm-dev \
+    clang lld \
+ && rm -rf /var/lib/apt/lists/*
+
+ENV CC=clang
+ENV CXX=clang++
+
+RUN cargo install cargo-chef --locked
+
+# sccache
+RUN cargo install sccache --locked
+ENV RUSTC_WRAPPER=/usr/local/cargo/bin/sccache
+ENV SCCACHE_DIR=/sccache
+ENV CARGO_INCREMENTAL=0
+
+WORKDIR /app
+COPY Cargo.toml .
+COPY Cargo.lock .
+COPY common/Cargo.toml common/Cargo.toml
+COPY storage/Cargo.toml storage/Cargo.toml
+COPY --from=chef /app/recipe.json recipe.json
+RUN cargo chef cook --release --recipe-path recipe.json
