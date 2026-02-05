@@ -1,5 +1,5 @@
 [workspace]
-members = ["common", "frusta", "intake", "meta", "storage"]
+members = ["common", "compiler", "frusta", "intake", "meta", "storage"]
 resolver = "3"
 
 [workspace.dependencies]

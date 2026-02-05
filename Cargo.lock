@@ -1757,6 +1757,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "histion-compiler"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-nats",
+ "aws-config",
+ "aws-credential-types",
+ "aws-sdk-s3",
+ "aws-smithy-http 0.62.6",
+ "aws-smithy-runtime-api",
+ "aws-smithy-types",
+ "aws-types",
+ "bytes",
+ "clap",
+ "deadpool-postgres",
+ "futures",
+ "histion-common",
+ "postgres",
+ "postgres-types",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-postgres",
+ "tokio-postgres-rustls",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "histion-frusta"
 version = "0.1.0"
 dependencies = [
