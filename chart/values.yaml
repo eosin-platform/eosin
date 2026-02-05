@@ -75,6 +75,12 @@ compiler:
   consumerName: compiler
   downloadDir: /tmp/histion/full
   storageSize: 12Gi
+  resources:
+    limits:
+      memory: "256Mi"
+      cpu: "1000m"
+    requests:
+      memory: "128Mi"
   # storageClassName: ""
   s3:
     bucket:

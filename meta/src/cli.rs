@@ -15,8 +15,9 @@ pub async fn run_create_slide(args: CreateSlideArgs) -> Result<()> {
     let endpoint = args.endpoint.unwrap_or_else(default_endpoint);
     let client = MetaClient::new(&endpoint);
 
+    let id: Uuid = args.id.parse()?;
     let slide = client
-        .create_slide(args.width, args.height, &args.url)
+        .create_slide(id, args.width, args.height, &args.url)
         .await?;
 
     println!("Created slide:");

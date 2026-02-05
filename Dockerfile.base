@@ -12,6 +12,7 @@ FROM ${BASE_IMAGE}
 RUN apt-get update && apt-get install -y \
     pkg-config libssl-dev cmake zlib1g libzstd-dev \
     libglib2.0-dev libva-dev libdrm-dev \
+    libopenslide-dev \
     clang lld \
  && rm -rf /var/lib/apt/lists/*
 

@@ -39,17 +39,17 @@ pub async fn init_schema(pool: &Pool) -> Result<()> {
 }
 
 /// Insert a new slide into the database.
-pub async fn insert_slide(pool: &Pool, width: i32, height: i32, url: &str) -> Result<Slide> {
+pub async fn insert_slide(pool: &Pool, id: Uuid, width: i32, height: i32, url: &str) -> Result<Slide> {
     let client = pool.get().await.context("failed to get db connection")?;
 
     let row = client
         .query_one(
             r#"
-            INSERT INTO slides (width, height, url)
-            VALUES ($1, $2, $3)
+            INSERT INTO slides (id, width, height, url)
+            VALUES ($1, $2, $3, $4)
             RETURNING id, width, height, url
             "#,
-            &[&width, &height, &url],
+            &[&id, &width, &height, &url],
         )
         .await
         .context("failed to insert slide")?;

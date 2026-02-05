@@ -22,7 +22,7 @@ pub async fn create_slide(
     State(state): State<AppState>,
     Json(req): Json<CreateSlideRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    let slide = db::insert_slide(&state.pool, req.width, req.height, &req.url)
+    let slide = db::insert_slide(&state.pool, req.id, req.width, req.height, &req.url)
         .await
         .map_err(|e| {
             tracing::error!("failed to create slide: {:?}", e);

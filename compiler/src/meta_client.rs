@@ -14,6 +14,7 @@ pub struct Slide {
 /// Request to create a new slide
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateSlideRequest {
+    pub id: Uuid,
     pub width: i32,
     pub height: i32,
     pub url: String,
@@ -36,8 +37,15 @@ impl MetaClient {
 
     /// Create a new slide in the meta service
     #[allow(clippy::cast_possible_wrap)]
-    pub async fn create_slide(&self, width: u32, height: u32, url: &str) -> Result<Slide> {
+    pub async fn create_slide(
+        &self,
+        id: Uuid,
+        width: u32,
+        height: u32,
+        url: &str,
+    ) -> Result<Slide> {
         let request = CreateSlideRequest {
+            id,
             width: width as i32,
             height: height as i32,
             url: url.to_string(),

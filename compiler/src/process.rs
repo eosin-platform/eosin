@@ -6,6 +6,13 @@ use histion_common::streams::{ProcessSlideEvent, topics::PROCESS_SLIDE};
 use histion_storage::StorageClient;
 use std::path::Path;
 use tokio_util::sync::CancellationToken;
+use uuid::Uuid;
+
+/// Namespace UUID for generating deterministic slide IDs from S3 keys.
+/// This is a custom namespace specific to this application.
+const SLIDE_NAMESPACE: Uuid = Uuid::from_bytes([
+    0x6b, 0xa7, 0xb8, 0x10, 0x9d, 0xad, 0x11, 0xd1, 0x80, 0xb4, 0x00, 0xc0, 0x4f, 0xd4, 0x30, 0xc8,
+]);
 
 use crate::args::ProcessArgs;
 use crate::meta_client::MetaClient;
@@ -173,11 +180,15 @@ async fn process_downloaded_slide(
 ) -> Result<()> {
     let path = Path::new(local_path);
 
+    // Generate deterministic UUID from S3 key
+    let slide_id = Uuid::new_v5(&SLIDE_NAMESPACE, key.as_bytes());
+
     // Get slide metadata first
     let metadata = tiler::get_slide_metadata(path).context("failed to extract slide metadata")?;
 
     tracing::info!(
         key = %key,
+        slide_id = %slide_id,
         width = metadata.width,
         height = metadata.height,
         levels = metadata.level_count,
@@ -186,7 +197,7 @@ async fn process_downloaded_slide(
 
     // Insert metadata into meta service
     let slide = meta_client
-        .create_slide(metadata.width, metadata.height, key)
+        .create_slide(slide_id, metadata.width, metadata.height, key)
         .await
         .context("failed to create slide in meta service")?;
 

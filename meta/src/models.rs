@@ -13,6 +13,7 @@ pub struct Slide {
 /// Request to create a new slide.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateSlideRequest {
+    pub id: Uuid,
     pub width: i32,
     pub height: i32,
     pub url: String,

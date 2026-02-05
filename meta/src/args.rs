@@ -49,6 +49,10 @@ pub struct CreateSlideArgs {
     #[arg(long, env = "META_ENDPOINT")]
     pub endpoint: Option<String>,
 
+    /// Slide UUID (deterministic, based on S3 key hash)
+    #[arg(long)]
+    pub id: String,
+
     /// Slide width in pixels
     #[arg(long)]
     pub width: i32,

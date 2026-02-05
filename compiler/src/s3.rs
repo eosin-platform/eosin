@@ -3,9 +3,11 @@ use aws_sdk_s3::Client as S3Client;
 use aws_sdk_s3::config::Region;
 use std::path::Path;
 use tokio::fs::File;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncWriteExt, BufWriter};
 
 use crate::args::S3Args;
+
+const FLUSH_THRESHOLD: usize = 8 * 1024 * 1024; // 8 MB
 
 /// Create an S3 client from the provided arguments.
 pub async fn create_s3_client(args: &S3Args) -> Result<S3Client> {
@@ -23,34 +25,25 @@ pub async fn create_s3_client(args: &S3Args) -> Result<S3Client> {
 }
 
 /// List all TIF files in the bucket with the given prefix.
-pub async fn list_tif_files(
-    client: &S3Client,
-    bucket: &str,
-    prefix: &str,
-) -> Result<Vec<String>> {
+pub async fn list_tif_files(client: &S3Client, bucket: &str, prefix: &str) -> Result<Vec<String>> {
     let mut keys = Vec::new();
     let mut continuation_token: Option<String> = None;
 
     loop {
-        let mut request = client
-            .list_objects_v2()
-            .bucket(bucket)
-            .prefix(prefix);
+        let mut request = client.list_objects_v2().bucket(bucket).prefix(prefix);
 
         if let Some(token) = continuation_token.take() {
             request = request.continuation_token(token);
         }
 
-        let response = request
-            .send()
-            .await
-            .context("failed to list S3 objects")?;
+        let response = request.send().await.context("failed to list S3 objects")?;
 
         if let Some(contents) = response.contents {
             for object in contents {
                 if let Some(key) = object.key {
                     // Check if it's a .tif file (case-insensitive)
-                    if key.to_lowercase().ends_with(".tif") || key.to_lowercase().ends_with(".tiff") {
+                    if key.to_lowercase().ends_with(".tif") || key.to_lowercase().ends_with(".tiff")
+                    {
                         keys.push(key);
                     }
                 }
@@ -103,21 +96,33 @@ pub async fn download_file(
         .await
         .context("failed to get object from S3")?;
 
-    let mut file = File::create(&dest_path)
+    // Stream the body directly to disk to minimize memory usage
+    let file = File::create(&dest_path)
         .await
         .context("failed to create destination file")?;
 
-    let body = response
-        .body
-        .collect()
-        .await
-        .context("failed to read S3 object body")?;
+    // Use a buffered writer for better I/O performance
+    let mut writer = BufWriter::new(file);
+    let mut stream = response.body;
+    let mut written = 0;
 
-    file.write_all(&body.into_bytes())
+    while let Some(chunk) = stream
+        .try_next()
         .await
-        .context("failed to write file")?;
+        .context("failed to read chunk from S3 stream")?
+    {
+        writer
+            .write_all(&chunk)
+            .await
+            .context("failed to write chunk to file")?;
+        written += chunk.len();
+        if written > FLUSH_THRESHOLD {
+            writer.flush().await.context("failed to flush file")?;
+            written = 0;
+        }
+    }
 
-    file.flush().await.context("failed to flush file")?;
+    writer.flush().await.context("failed to flush file")?;
 
     tracing::info!(path = %dest_path, "download complete");
 
