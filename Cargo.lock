@@ -2135,6 +2135,7 @@ dependencies = [
  "futures-util",
  "histion-common",
  "histion-storage",
+ "parking_lot",
  "rustc-hash",
  "tokio",
  "tokio-util",

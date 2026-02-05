@@ -3,9 +3,10 @@ use async_nats::Client as NatsClient;
 use bytes::Bytes;
 use futures_util::StreamExt;
 use histion_common::streams::{topics, SlideProgressEvent};
+use parking_lot::RwLock;
 use rustc_hash::FxHashMap;
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use tokio::sync::RwLock as TokioRwLock;
 
 use anyhow::{ensure, Context, Result};
 use tokio_util::sync::CancellationToken;
@@ -24,6 +25,11 @@ const MAX_TILES_PER_UPDATE: usize = 64; // tune this
 const SOFT_MAX_CACHE_SIZE: usize = 5_00; // tune this
 const HARD_MAX_CACHE_SIZE: usize = 1_000; // tune this
 const PRUNE_BATCH_SIZE: usize = 256; // max removals per update
+
+/// Shared state for tracking which tiles have been sent to the client.
+/// This is shared between the main update loop and the NATS subscription task
+/// to prevent sending duplicate tiles.
+type SentTiles = Arc<RwLock<FxHashMap<TileKey, RequestedTile>>>;
 
 #[derive(Debug, Clone, Copy)]
 pub struct ImageDesc {
@@ -78,7 +84,7 @@ impl TileMeta {
 }
 
 pub struct ViewManager {
-    sent: FxHashMap<TileKey, RequestedTile>,
+    sent: SentTiles,
     image: ImageDesc,
     cancel_update: Option<CancellationToken>,
     worker_tx: Sender<RetrieveTileWork>,
@@ -86,7 +92,7 @@ pub struct ViewManager {
     candidates: Vec<TileMeta>,
     send_tx: Sender<Bytes>,
     slot: u8,
-    last_viewport: Arc<RwLock<Option<Viewport>>>,
+    last_viewport: Arc<TokioRwLock<Option<Viewport>>>,
     nats_cancel: CancellationToken,
 }
 
@@ -134,7 +140,8 @@ impl ViewManager {
         nats_client: NatsClient,
     ) -> Self {
         let nats_cancel = CancellationToken::new();
-        let last_viewport = Arc::new(RwLock::new(None));
+        let last_viewport = Arc::new(TokioRwLock::new(None));
+        let sent: SentTiles = Arc::new(RwLock::new(FxHashMap::default()));
 
         // Spawn NATS subscription task for tile events
         tokio::spawn({
@@ -144,6 +151,7 @@ impl ViewManager {
             let cancel = nats_cancel.clone();
             let viewport_ref = last_viewport.clone();
             let nats = nats_client.clone();
+            let sent = sent.clone();
             async move {
                 if let Err(e) = tile_subscription_task(
                     slot,
@@ -153,6 +161,7 @@ impl ViewManager {
                     nats,
                     cancel,
                     viewport_ref,
+                    sent,
                 )
                 .await
                 {
@@ -178,7 +187,7 @@ impl ViewManager {
         Self {
             slot,
             dpi,
-            sent: FxHashMap::default(),
+            sent,
             image,
             worker_tx,
             cancel_update: None,
@@ -190,24 +199,21 @@ impl ViewManager {
     }
 
     pub fn clear_cache(&mut self) {
-        self.sent.clear();
+        self.sent.write().clear();
         if let Some(cancel) = self.cancel_update.take() {
             cancel.cancel();
         }
     }
 
     pub fn maybe_soft_prune_cache(&mut self) {
-        let len = self.sent.len();
+        let mut sent = self.sent.write();
+        let len = sent.len();
         if len <= SOFT_MAX_CACHE_SIZE {
             return;
         }
 
         // Collect timestamps only.
-        let mut times: Vec<i64> = self
-            .sent
-            .values()
-            .map(|info| info.last_requested_at)
-            .collect();
+        let mut times: Vec<i64> = sent.values().map(|info| info.last_requested_at).collect();
 
         use std::cmp::min;
         let nth = min(PRUNE_BATCH_SIZE, times.len() - 1);
@@ -215,11 +221,12 @@ impl ViewManager {
         let cutoff = times[nth];
 
         // Keep entries with timestamp >= cutoff.
-        self.sent.retain(|_, info| info.last_requested_at >= cutoff);
+        sent.retain(|_, info| info.last_requested_at >= cutoff);
     }
 
     fn maybe_hard_prune_cache(&mut self) {
-        let len = self.sent.len();
+        let mut sent = self.sent.write();
+        let len = sent.len();
         if len <= HARD_MAX_CACHE_SIZE {
             return;
         }
@@ -233,11 +240,7 @@ impl ViewManager {
         }
 
         // Collect timestamps only.
-        let mut times: Vec<i64> = self
-            .sent
-            .values()
-            .map(|info| info.last_requested_at)
-            .collect();
+        let mut times: Vec<i64> = sent.values().map(|info| info.last_requested_at).collect();
 
         use std::cmp::min;
         let nth = min(drop, times.len() - 1);
@@ -245,7 +248,7 @@ impl ViewManager {
         let cutoff = times[nth];
 
         // Keep entries with timestamp >= cutoff (the newer half).
-        self.sent.retain(|_, info| info.last_requested_at >= cutoff);
+        sent.retain(|_, info| info.last_requested_at >= cutoff);
     }
 
     pub async fn update(&mut self, viewport: &Viewport) -> Result<()> {
@@ -312,21 +315,44 @@ impl ViewManager {
                 tiles.sort_by(cmp);
             }
 
-            for meta in tiles {
-                let key = meta.index_unchecked();
-                // Skip tiles we've already sent recently (simple de-dupe).
-                if self.sent.contains_key(&key) {
-                    continue;
-                }
-                candidates.push(meta);
-                if candidates.len() >= MAX_TILES_PER_UPDATE {
-                    break;
+            {
+                let sent = self.sent.read();
+                for meta in tiles {
+                    let key = meta.index_unchecked();
+                    // Skip tiles we've already sent recently (simple de-dupe).
+                    if sent.contains_key(&key) {
+                        continue;
+                    }
+                    candidates.push(meta);
+                    if candidates.len() >= MAX_TILES_PER_UPDATE {
+                        break;
+                    }
                 }
             }
             if candidates.len() >= MAX_TILES_PER_UPDATE {
                 break;
             }
         }
+
+        // Mark all candidates as sent before dispatching work
+        // This prevents duplicate dispatches from concurrent NATS events
+        {
+            let mut sent = self.sent.write();
+            for meta in candidates.iter() {
+                let key = meta.index_unchecked();
+                sent.entry(key)
+                    .and_modify(|existing| {
+                        existing.count += 1;
+                        existing.last_requested_at = now;
+                    })
+                    .or_insert_with(|| RequestedTile {
+                        count: 1,
+                        last_requested_at: now,
+                    });
+            }
+        }
+
+        // Now dispatch work items without holding the lock
         for meta in candidates.iter() {
             let work = RetrieveTileWork {
                 slot: self.slot,
@@ -339,17 +365,6 @@ impl ViewManager {
                 .send(work)
                 .await
                 .context("failed to send tile retrieval work")?;
-            let key = meta.index_unchecked();
-            self.sent
-                .entry(key)
-                .and_modify(|existing| {
-                    existing.count += 1;
-                    existing.last_requested_at = now;
-                })
-                .or_insert_with(|| RequestedTile {
-                    count: 1,
-                    last_requested_at: now,
-                });
         }
         Ok(())
     }
@@ -463,7 +478,8 @@ async fn tile_subscription_task(
     send_tx: Sender<Bytes>,
     nats_client: NatsClient,
     cancel: CancellationToken,
-    viewport_ref: Arc<RwLock<Option<Viewport>>>,
+    viewport_ref: Arc<TokioRwLock<Option<Viewport>>>,
+    sent: SentTiles,
 ) -> Result<()> {
     let topic = topics::tile_data(image.id);
     let mut subscriber = nats_client
@@ -496,6 +512,17 @@ async fn tile_subscription_task(
                 let y = u32::from_le_bytes(msg.payload[4..8].try_into().unwrap());
                 let level = u32::from_le_bytes(msg.payload[8..12].try_into().unwrap());
 
+                let meta = TileMeta { x, y, level };
+                let key = meta.index_unchecked();
+
+                // Check if we've already sent this tile to the client
+                {
+                    let sent_guard = sent.read();
+                    if sent_guard.contains_key(&key) {
+                        continue;
+                    }
+                }
+
                 // Check if the tile is within the current viewport
                 let viewport_guard = viewport_ref.read().await;
                 let Some(viewport) = *viewport_guard else {
@@ -508,13 +535,29 @@ async fn tile_subscription_task(
                     continue;
                 }
 
+                // Mark the tile as sent before dispatching work
+                {
+                    let now = chrono::Utc::now().timestamp_millis();
+                    let mut sent_guard = sent.write();
+                    sent_guard
+                        .entry(key)
+                        .and_modify(|existing| {
+                            existing.count += 1;
+                            existing.last_requested_at = now;
+                        })
+                        .or_insert_with(|| RequestedTile {
+                            count: 1,
+                            last_requested_at: now,
+                        });
+                }
+
                 // Dispatch work to fetch and send the tile
                 let work = RetrieveTileWork {
                     slide_id: image.id,
                     slot,
                     cancel: cancel.clone(),
                     tx: send_tx.clone(),
-                    meta: TileMeta { x, y, level },
+                    meta,
                 };
 
                 if let Err(e) = worker_tx.send(work).await {
