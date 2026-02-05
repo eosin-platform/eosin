@@ -1,0 +1,1 @@
+This service accepts raw WSI image files, stores them temporarily in S3, inserts the sharded representation into the storage backend, then optionally deletes the original data (garbage collection).

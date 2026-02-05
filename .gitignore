@@ -1,0 +1,9 @@
+target
+secrets/
+*.jpg
+.venv/
+__pycache__/
+*.pyc
+output
+.buildx-cache
+notes.txt

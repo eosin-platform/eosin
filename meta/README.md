@@ -1,0 +1,1 @@
+Stores WSI metadata, annotations, etc.

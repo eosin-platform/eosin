@@ -1,0 +1,1 @@
+pulls data from `meta` and `storage` to efficiently render the view for each client

@@ -1,0 +1,7 @@
+[package]
+name = "iws-renderer"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+iws-storage = { path = "../storage" }

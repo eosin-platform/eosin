@@ -1,0 +1,67 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: camelyon17-rclone-sync
+  namespace: camelyon
+spec:
+  restartPolicy: Never
+  containers:
+    - name: rclone-sync
+      image: rclone/rclone:latest
+      resources:
+        requests:
+          cpu: "250m"
+          memory: "512Mi"
+        limits:
+          cpu: "1"
+          memory: "1Gi"
+      volumeMounts:
+        - name: s3-cred
+          mountPath: /var/run/secrets/s3
+          readOnly: true
+      command: ["/bin/sh", "-c"]
+      args:
+        - |
+          set -euo pipefail
+
+          DO_KEY="$(cat /var/run/secrets/s3/aws_access_key_id)"
+          DO_SECRET="$(cat /var/run/secrets/s3/aws_secret_key)"
+
+          mkdir -p /config
+
+          cat > /config/rclone.conf <<EOF
+          [aws]
+          type = s3
+          provider = AWS
+          env_auth = false
+          access_key_id =
+          secret_access_key =
+          region = us-west-2
+          anonymous = true
+
+          [do]
+          type = s3
+          provider = DigitalOcean
+          env_auth = false
+          access_key_id = ${DO_KEY}
+          secret_access_key = ${DO_SECRET}
+          endpoint = nyc3.digitaloceanspaces.com
+          region = nyc3
+          acl = private
+          EOF
+
+          export RCLONE_CONFIG=/config/rclone.conf
+
+          echo "Starting low-memory sync CAMELYON17 -> DO Spaces..."
+          rclone sync aws:camelyon-dataset/CAMELYON17 do:camelyon17 \
+            --s3-chunk-size 8M \
+            --transfers 2 \
+            --checkers 4 \
+            --buffer-size 0 \
+            --stats 30s \
+            --stats-one-line \
+            --progress
+  volumes:
+    - name: s3-cred
+      secret:
+        secretName: s3-cred
