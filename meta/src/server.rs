@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use axum::{Router, routing::get};
 use deadpool_postgres::Pool;
+use histion_common::shutdown::shutdown_signal;
 use std::net::SocketAddr;
 use tower_http::cors::{Any, CorsLayer};
 
@@ -41,6 +42,10 @@ pub async fn run_server(args: ServerArgs) -> Result<()> {
     let addr: SocketAddr = format!("0.0.0.0:{}", args.port).parse()?;
     tracing::info!(%addr, "starting meta HTTP server");
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
+    histion_common::signal_ready();
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await?;
+    tracing::info!("server stopped gracefully");
     Ok(())
 }

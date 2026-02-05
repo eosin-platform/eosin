@@ -19,6 +19,7 @@ clap = { workspace = true }
 axum = { workspace = true }
 anyhow = { workspace = true }
 tokio = { workspace = true }
+tokio-util = { workspace = true }
 tonic = { workspace = true }
 tonic-prost = "0.14"
 prost = "0.14"

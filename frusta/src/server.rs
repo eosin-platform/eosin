@@ -11,6 +11,7 @@ use axum::{
 };
 use bytes::Bytes;
 use futures_util::{stream::SplitSink, SinkExt, StreamExt};
+use histion_common::shutdown::shutdown_signal;
 use histion_storage::client::StorageClient;
 use std::{net::SocketAddr, time::Duration};
 use tokio_util::sync::CancellationToken;
@@ -66,12 +67,15 @@ pub async fn run_server(args: ServerArgs) -> Result<()> {
     let addr: SocketAddr = format!("0.0.0.0:{}", args.port).parse()?;
     tracing::info!(%addr, "starting frusta WebSocket server");
     let listener = tokio::net::TcpListener::bind(addr).await?;
+    histion_common::signal_ready();
     let shutdown_cancel = cancel.clone();
     axum::serve(listener, app)
         .with_graceful_shutdown(async move {
-            shutdown_cancel.cancelled().await;
+            shutdown_signal().await;
+            shutdown_cancel.cancel();
         })
         .await?;
+    tracing::info!("server stopped, waiting for workers to finish...");
     cancel.cancel();
     for worker in workers {
         let _ = worker.await;

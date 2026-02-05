@@ -14,6 +14,8 @@ use server::run_server;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    histion_common::init();
+
     tracing_subscriber::fmt::init();
 
     let cli = Cli::parse();

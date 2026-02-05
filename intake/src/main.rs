@@ -2,7 +2,9 @@ use anyhow::Result;
 use async_nats::jetstream::{self, consumer::PullConsumer};
 use clap::Parser;
 use futures::StreamExt;
+use histion_common::shutdown::shutdown_signal;
 use histion_common::streams::{CacheMissEvent, topics::CACHE_MISS};
+use tokio_util::sync::CancellationToken;
 
 mod args;
 
@@ -62,35 +64,59 @@ async fn run_consumer(args: ConsumerArgs) -> Result<()> {
         .await?;
     tracing::info!(consumer = %args.consumer_name, "consumer ready");
 
-    // Process messages
+    // Process messages with graceful shutdown
     let mut messages = consumer.messages().await?;
     tracing::info!("listening for cache miss events");
 
-    while let Some(msg) = messages.next().await {
-        match msg {
-            Ok(message) => {
-                if let Err(e) = handle_cache_miss(&message.payload).await {
-                    tracing::error!(?e, "failed to handle cache miss");
-                    // Don't ack on error - message will be redelivered
-                    continue;
-                }
+    let cancel = CancellationToken::new();
+    let signal_cancel = cancel.clone();
+    tokio::spawn(async move {
+        shutdown_signal().await;
+        signal_cancel.cancel();
+    });
 
-                // Acknowledge the message
-                if let Err(e) = message.ack().await {
-                    tracing::error!(?e, "failed to ack message");
-                }
+    histion_common::signal_ready();
+
+    loop {
+        tokio::select! {
+            _ = cancel.cancelled() => {
+                tracing::info!("shutdown signal received, stopping consumer");
+                break;
             }
-            Err(e) => {
-                tracing::error!(?e, "error receiving message");
+            msg = messages.next() => {
+                match msg {
+                    Some(Ok(message)) => {
+                        if let Err(e) = handle_cache_miss(&message.payload).await {
+                            tracing::error!(?e, "failed to handle cache miss");
+                            // Don't ack on error - message will be redelivered
+                            continue;
+                        }
+
+                        // Acknowledge the message
+                        if let Err(e) = message.ack().await {
+                            tracing::error!(?e, "failed to ack message");
+                        }
+                    }
+                    Some(Err(e)) => {
+                        tracing::error!(?e, "error receiving message");
+                    }
+                    None => {
+                        tracing::info!("message stream ended");
+                        break;
+                    }
+                }
             }
         }
     }
 
+    tracing::info!("consumer stopped gracefully");
     Ok(())
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    histion_common::init();
+
     tracing_subscriber::fmt::init();
 
     let cli = Cli::parse();
