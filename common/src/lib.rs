@@ -19,7 +19,6 @@ pub mod redis;
 mod request_context;
 pub mod shutdown;
 pub mod streams;
-pub mod types;
 pub mod wait;
 pub mod wait_registry;
 

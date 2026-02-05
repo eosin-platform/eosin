@@ -1,10 +1,21 @@
 use anyhow::Result;
+use clap::Parser;
 
 mod args;
 mod client;
+mod server;
+mod viewport;
+
+use args::{Cli, Commands};
+use server::run_server;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    println!("Hello, world!");
-    Ok(())
+    tracing_subscriber::fmt::init();
+
+    let cli = Cli::parse();
+
+    match cli.command {
+        Commands::Server(args) => run_server(args).await,
+    }
 }
