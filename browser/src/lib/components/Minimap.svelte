@@ -93,15 +93,14 @@
     ctx.fillStyle = '#2a2a2a';
     ctx.fillRect(0, 0, displayWidth, displayHeight);
 
-    // Find the coarsest level that has tiles (highest level number)
+    // Render all cached tiles from coarsest to finest level
+    // This composites all available tiles, with finer tiles drawn on top
     const coarsestLevel = image.levels - 1;
     
-    // Try to render from the coarsest level available
     for (let level = coarsestLevel; level >= 0; level--) {
       const tiles = cache.getTilesForLevel(level);
       if (tiles.length > 0) {
         renderTilesAtLevel(level, tiles);
-        break; // Use the coarsest level with tiles
       }
     }
   }
