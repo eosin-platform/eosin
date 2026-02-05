@@ -1,19 +1,21 @@
-FROM histion-base:latest AS builder
+ARG RUNTIME_IMAGE=debian:trixie-slim
+ARG BASE_IMAGE=thavlik/histion-base:latest
 
-WORKDIR /app
-
-COPY Cargo.toml Cargo.lock ./
-COPY common common
+FROM ${BASE_IMAGE} AS builder
+COPY common/src common/src
 COPY compiler compiler
+COPY storage storage
+WORKDIR /app/compiler
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/sccache \
+    --mount=type=cache,target=/app/target \
+    sccache --start-server && \
+    cargo build --release --bin histion-compiler && \
+    cp /app/target/release/histion-compiler /app/histion-compiler && \
+    sccache --show-stats
 
-RUN cargo build --release --package histion-compiler
-
-FROM debian:bookworm-slim
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
-COPY --from=builder /app/target/release/histion-compiler /usr/local/bin/
-
-ENTRYPOINT ["histion-compiler"]
+FROM ${RUNTIME_IMAGE}
+RUN apt-get update && apt-get install -y libssl3 && rm -rf /var/lib/apt/lists/*
+COPY --from=builder /app/histion-compiler /usr/local/bin/histion-compiler
+CMD ["histion-compiler"]

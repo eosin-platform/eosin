@@ -7,7 +7,8 @@ group "default" {
     "storage",
     "frusta",
     "meta",
-    "browser"
+    "browser",
+    "compiler"
   ]
 }
 
@@ -56,4 +57,15 @@ target "meta" {
   push       = true
   cache-from = ["type=local,src=.buildx-cache/histion-meta"]
   cache-to   = ["type=local,dest=.buildx-cache/histion-meta,mode=min"]
+}
+
+target "compiler" {
+  contexts   = { base_context = "target:base" }
+  context    = "./"
+  dockerfile = "compiler/Dockerfile"
+  args       = { BASE_IMAGE = "base_context" }
+  tags       = ["${REGISTRY}thavlik/histion-compiler:latest"]
+  push       = true
+  cache-from = ["type=local,src=.buildx-cache/histion-compiler"]
+  cache-to   = ["type=local,dest=.buildx-cache/histion-compiler,mode=min"]
 }
