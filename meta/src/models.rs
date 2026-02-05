@@ -33,6 +33,14 @@ pub struct ListSlidesRequest {
     pub limit: i64,
 }
 
+/// Slide item for list responses (without url for efficiency).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SlideListItem {
+    pub id: Uuid,
+    pub width: i32,
+    pub height: i32,
+}
+
 /// Response containing paginated list of slides.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ListSlidesResponse {
@@ -40,5 +48,5 @@ pub struct ListSlidesResponse {
     pub limit: i64,
     pub full_count: i64,
     pub truncated: bool,
-    pub items: Vec<Slide>,
+    pub items: Vec<SlideListItem>,
 }

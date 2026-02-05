@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use deadpool_postgres::Pool;
 use uuid::Uuid;
 
-use crate::models::{ListSlidesResponse, Slide};
+use crate::models::{ListSlidesResponse, Slide, SlideListItem};
 
 /// Initialize the database schema, creating tables if they don't exist.
 pub async fn init_schema(pool: &Pool) -> Result<()> {
@@ -175,7 +175,6 @@ pub async fn list_slides(pool: &Pool, offset: i64, limit: i64) -> Result<ListSli
                 id, 
                 width, 
                 height, 
-                url,
                 COUNT(*) OVER() AS full_count
             FROM slides
             ORDER BY id
@@ -190,13 +189,12 @@ pub async fn list_slides(pool: &Pool, offset: i64, limit: i64) -> Result<ListSli
     // Extract full_count from first row, or 0 if no rows
     let full_count: i64 = rows.first().map(|r| r.get("full_count")).unwrap_or(0);
 
-    let items: Vec<Slide> = rows
+    let items: Vec<SlideListItem> = rows
         .iter()
-        .map(|r| Slide {
+        .map(|r| SlideListItem {
             id: r.get("id"),
             width: r.get("width"),
             height: r.get("height"),
-            url: r.get("url"),
         })
         .collect();
 
