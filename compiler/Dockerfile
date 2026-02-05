@@ -18,6 +18,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 FROM ${RUNTIME_IMAGE}
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl3 \
+    ca-certificates \
     libopenslide0 \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /app/histion-compiler /usr/local/bin/histion-compiler

@@ -39,11 +39,46 @@ spec:
           key: secret_access_key
     - name: NATS_URL
       value: nats://nats.nats.svc.cluster.local:4222
+    - name: POSTGRES_HOST
+      valueFrom:
+        secretKeyRef:
+          name: postgres-cred
+          key: host
+    - name: POSTGRES_PORT
+      valueFrom:
+        secretKeyRef:
+          name: postgres-cred
+          key: port
+    - name: POSTGRES_DATABASE
+      valueFrom:
+        secretKeyRef:
+          name: postgres-cred
+          key: database
+    - name: POSTGRES_USERNAME
+      valueFrom:
+        secretKeyRef:
+          name: postgres-cred
+          key: username
+    - name: POSTGRES_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: postgres-cred
+          key: password
+    - name: POSTGRES_SSLMODE
+      valueFrom:
+        secretKeyRef:
+          name: postgres-cred
+          key: sslmode
+    - name: POSTGRES_CA_CERT
+      valueFrom:
+        secretKeyRef:
+          name: postgres-cred
+          key: ca
     - name: NATS_USER
       valueFrom:
         secretKeyRef:
           name: nats-cred
-          key: username
+          key: user
     - name: NATS_PASSWORD
       valueFrom:
         secretKeyRef:

@@ -20,6 +20,9 @@ do_restart() {
     restart_args=()
     for arg in "$@"; do
         case "$arg" in
+        compiler)
+            kubectl rollout restart statefulset --context $KUBECONTEXT -n histion "histion-$arg"
+            ;;
         *)
             restart_args+=("$arg")
             ;;
