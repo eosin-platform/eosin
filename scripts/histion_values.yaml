@@ -1,4 +1,17 @@
 
+nats:
+  url: "nats://nats.nats.svc.cluster.local:4222"
+  user:
+    valueFrom:
+      secretKeyRef:
+        name: nats-cred
+        key: user
+  password:
+    valueFrom:
+      secretKeyRef:
+        name: nats-cred
+        key: password
+
 s3:
   accessKeyId:
     valueFrom:
