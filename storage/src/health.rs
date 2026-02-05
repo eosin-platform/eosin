@@ -2,6 +2,7 @@ use std::{net::SocketAddr, sync::Arc};
 
 use anyhow::Result;
 use axum::{Router, extract::State, http::StatusCode, response::IntoResponse, routing::get};
+use histion_common::shutdown::shutdown_signal;
 use tonic::transport::Channel;
 
 use crate::args::HealthArgs;
@@ -28,8 +29,11 @@ pub async fn run_health(args: HealthArgs) -> Result<()> {
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(http_addr).await?;
-    axum::serve(listener, app).await?;
-
+    histion_common::signal_ready();
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await?;
+    tracing::info!("health check server stopped gracefully");
     Ok(())
 }
 
