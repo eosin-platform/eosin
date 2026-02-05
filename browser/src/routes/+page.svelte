@@ -2,6 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { browser } from '$app/environment';
   import { page } from '$app/stores';
+  import { env } from '$env/dynamic/public';
   import {
     createFrustaClient,
     type ConnectionState,
@@ -22,7 +23,9 @@
   let tilesReceived = $state(0);
   let cacheSize = $state(0);
   let lastError = $state<string | null>(null);
-  let wsUrl = $state('ws://localhost:8080/ws');
+
+  // WebSocket endpoint from environment (required)
+  const wsUrl = env.PUBLIC_FRUSTA_ENDPOINT!;
 
   // Image state from URL params
   let imageDesc = $state<ImageDesc | null>(null);
@@ -361,11 +364,6 @@
 <main>
   <header class="controls">
     <div class="connection-controls">
-      <label>
-        WebSocket:
-        <input type="text" bind:value={wsUrl} placeholder="ws://localhost:8080/ws" />
-      </label>
-
       {#if connectionState === 'disconnected' || connectionState === 'error'}
         <button onclick={connect}>Connect</button>
       {:else}
@@ -465,23 +463,6 @@
     gap: 1rem;
     font-size: 0.875rem;
     color: #aaa;
-  }
-
-  label {
-    display: flex;
-    gap: 0.5rem;
-    align-items: center;
-    font-size: 0.875rem;
-  }
-
-  input {
-    padding: 0.375rem 0.5rem;
-    font-size: 0.875rem;
-    border: 1px solid #444;
-    border-radius: 4px;
-    background: #2a2a2a;
-    color: #eee;
-    width: 220px;
   }
 
   button {

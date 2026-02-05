@@ -27,6 +27,8 @@ spec:
         env:
         - name: FRUSTA_ENDPOINT
           value: http://{{ .Release.Name }}-frusta
+        - name: META_ENDPOINT
+          value: http://{{ .Release.Name }}-meta
 ---
 apiVersion: v1
 kind: Service
