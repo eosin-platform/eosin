@@ -60,6 +60,10 @@ spec:
           value: {{ .Values.compiler.consumerName | quote }}
         - name: DOWNLOAD_DIR
           value: {{ .Values.compiler.downloadDir | quote }}
+        - name: META_ENDPOINT
+          value: http://{{ .Release.Name }}-meta:80
+        - name: STORAGE_ENDPOINT
+          value: http://{{ .Release.Name }}-storage:80
         {{- if .Values.s3.accessKeyId }}
         - name: AWS_ACCESS_KEY_ID
 {{ tpl (toYaml .Values.s3.accessKeyId) . | indent 10 }}

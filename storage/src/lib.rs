@@ -6,6 +6,8 @@ pub mod health;
 pub mod server;
 pub mod shard;
 
+pub use client::StorageClient;
+
 pub mod proto {
     pub mod storage {
         tonic::include_proto!("storage");

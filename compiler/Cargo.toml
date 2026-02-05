@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 histion-common = { path = "../common" }
+histion-storage = { path = "../storage" }
 async-nats = { workspace = true }
 serde_json = { workspace = true }
 serde = { workspace = true }
@@ -35,6 +36,12 @@ anyhow = { workspace = true }
 bytes = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
+uuid = { workspace = true }
+reqwest = { workspace = true }
 tracing = "0.1"
 tracing-subscriber = "0.3"
 futures = "0.3"
+# Image processing
+openslide-rs = { workspace = true }
+image = "0.25"
+webp = "0.3"

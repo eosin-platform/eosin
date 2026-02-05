@@ -71,4 +71,12 @@ pub struct ProcessArgs {
     /// Directory to download TIF files to
     #[arg(long, env = "DOWNLOAD_DIR", default_value = "/tmp/histion/full")]
     pub download_dir: String,
+
+    /// Meta service endpoint URL
+    #[arg(long, env = "META_ENDPOINT", default_value = "http://localhost:8080")]
+    pub meta_endpoint: String,
+
+    /// Storage service gRPC endpoint URL
+    #[arg(long, env = "STORAGE_ENDPOINT", default_value = "http://localhost:50051")]
+    pub storage_endpoint: String,
 }

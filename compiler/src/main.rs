@@ -4,8 +4,10 @@ use clap::Parser;
 mod args;
 mod db;
 mod dispatch;
+mod meta_client;
 mod process;
 mod s3;
+mod tiler;
 
 use args::{Cli, Commands};
 use dispatch::run_dispatch;
