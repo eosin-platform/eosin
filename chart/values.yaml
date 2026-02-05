@@ -1,0 +1,11 @@
+storage:
+  image: thavlik/histion-storage:latest
+  imagePullPolicy: Always
+  replicas: 1
+  logLevel: debug
+
+frusta:
+  image: thavlik/histion-frusta:latest
+  imagePullPolicy: Always
+  replicas: 1
+  logLevel: debug

@@ -1,0 +1,8 @@
+apiVersion: v2
+description: "Histion - a performant Whole Slide Imaging viewer"
+name: histion
+version: 0.0.1
+maintainers:
+  - name: Tom Havlik
+    email: thavlik@protonmail.com
+    url: https://thavlik.dev
