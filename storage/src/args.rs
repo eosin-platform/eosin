@@ -11,6 +11,7 @@ pub struct Cli {
 #[derive(Subcommand, Debug, Clone)]
 pub enum Commands {
     Server(ServerArgs),
+    Health(HealthArgs),
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -26,4 +27,15 @@ pub struct ServerArgs {
 
     #[arg(long, env = "SHARD")]
     pub shard: Option<u32>,
+}
+
+#[derive(Parser, Debug, Clone)]
+pub struct HealthArgs {
+    /// HTTP port to listen on for health checks
+    #[arg(long, env = "HTTP_PORT", default_value_t = 8080)]
+    pub http_port: u16,
+
+    /// gRPC target address of the API server to health check
+    #[arg(long, env = "GRPC_TARGET", default_value = "http://127.0.0.1:3500")]
+    pub grpc_target: String,
 }
