@@ -1,0 +1,15 @@
+{{/*
+Redis environment variables template
+*/}}
+{{- define "dorch.redis-env" -}}
+- name: REDIS_USERNAME
+{{ tpl (toYaml .Values.redis.username) . | indent 2 }}
+- name: REDIS_PASSWORD
+{{ tpl (toYaml .Values.redis.password) . | indent 2 }}
+- name: REDIS_HOST
+{{ tpl (toYaml .Values.redis.host) . | indent 2 }}
+- name: REDIS_PORT
+{{ tpl (toYaml .Values.redis.port) . | indent 2 }}
+- name: REDIS_PROTO
+{{ tpl (toYaml .Values.redis.proto) . | indent 2 }}
+{{- end -}}

@@ -12,6 +12,30 @@ nats:
         name: nats-cred
         key: password
 
+redis:
+  username:
+    valueFrom:
+      secretKeyRef:
+        name: redis-cred
+        key: username
+  password:
+    valueFrom:
+      secretKeyRef:
+        name: redis-cred
+        key: password
+  host:
+    valueFrom:
+      secretKeyRef:
+        name: redis-cred
+        key: host
+  port:
+    valueFrom:
+      secretKeyRef:
+        name: redis-cred
+        key: port
+  proto:
+    value: rediss
+
 s3:
   accessKeyId:
     valueFrom:

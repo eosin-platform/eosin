@@ -58,6 +58,7 @@ spec:
           value: http://{{ .Release.Name }}-storage:80
 {{ include "histion.metrics-env" . | indent 8 }}
 {{ include "histion.nats-env" . | indent 8 }}
+{{ include "histion.redis-env" . | indent 8 }}
 ---
 {{- if .Values.prometheus.enabled }}
 apiVersion: monitoring.coreos.com/v1

@@ -145,6 +145,11 @@ export class TileRetryManager {
     pending.retryCount++;
     pending.retryTimeoutId = undefined;
 
+    // Log the tile request for debugging
+    console.log(
+      `[TileRetry] Requesting tile (${pending.coord.x}, ${pending.coord.y}) level=${pending.coord.level} retry=${pending.retryCount}`
+    );
+
     // Request the tile
     this.onRequestTile(pending.coord);
 

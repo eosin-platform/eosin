@@ -33,6 +33,31 @@
   let animationFrameId: number | null = null;
   let retryManager: TileRetryManager | null = null;
 
+  // Debug mode state
+  let shiftHeld = $state(false);
+  let mouseX = $state(0);
+  let mouseY = $state(0);
+
+  function handleKeyDown(e: KeyboardEvent) {
+    if (e.key === 'Shift') {
+      shiftHeld = true;
+    }
+  }
+
+  function handleKeyUp(e: KeyboardEvent) {
+    if (e.key === 'Shift') {
+      shiftHeld = false;
+    }
+  }
+
+  function handleMouseMove(e: MouseEvent) {
+    const rect = canvas?.getBoundingClientRect();
+    if (rect) {
+      mouseX = e.clientX - rect.left;
+      mouseY = e.clientY - rect.top;
+    }
+  }
+
   // Initialize retry manager when client and slot are available
   $effect(() => {
     if (client && slot !== undefined) {
@@ -51,6 +76,8 @@
 
   onMount(() => {
     ctx = canvas.getContext('2d');
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
     render();
   });
 
@@ -62,13 +89,18 @@
     imageCache.clear();
     // Clear retry manager
     retryManager?.clear();
+    window.removeEventListener('keydown', handleKeyDown);
+    window.removeEventListener('keyup', handleKeyUp);
   });
 
-  // Re-render when viewport or renderTrigger changes
+  // Re-render when viewport, renderTrigger, or debug state changes
   $effect(() => {
     // Access reactive dependencies
     void viewport;
     void renderTrigger;
+    void shiftHeld;
+    void mouseX;
+    void mouseY;
     render();
   });
 
@@ -110,6 +142,91 @@
     // find the best available tile (finest resolution first, then fallback to coarser)
     for (const coord of idealTiles) {
       renderTileWithFallback(coord, idealLevel);
+    }
+
+    // Debug overlay when shift is held
+    if (shiftHeld) {
+      renderDebugOverlay(idealTiles, idealLevel);
+    }
+  }
+
+  function renderDebugOverlay(idealTiles: TileCoord[], idealLevel: number) {
+    if (!ctx) return;
+
+    // Find the tile under the cursor
+    for (const coord of idealTiles) {
+      const rect = tileScreenRect(coord, viewport);
+
+      // Check if mouse is within this tile
+      if (
+        mouseX >= rect.x &&
+        mouseX < rect.x + rect.width &&
+        mouseY >= rect.y &&
+        mouseY < rect.y + rect.height
+      ) {
+        // Determine what mip level is actually being displayed
+        let displayedLevel = coord.level;
+        let cachedTile = cache.get(coord.x, coord.y, coord.level);
+
+        if (!cachedTile) {
+          // Look for fallback level being used
+          for (let level = idealLevel + 1; level < image.levels; level++) {
+            const scale = Math.pow(2, level - idealLevel);
+            const coarseX = Math.floor(coord.x / scale);
+            const coarseY = Math.floor(coord.y / scale);
+            const coarse = cache.get(coarseX, coarseY, level);
+            if (coarse) {
+              displayedLevel = level;
+              break;
+            }
+          }
+          // If no fallback found, show -1 to indicate placeholder
+          if (!cachedTile && displayedLevel === coord.level) {
+            displayedLevel = -1;
+          }
+        }
+
+        // Draw debug frame around the tile
+        ctx.strokeStyle = '#00ff00';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(rect.x + 1, rect.y + 1, rect.width - 2, rect.height - 2);
+
+        // Prepare mip level label
+        const label = displayedLevel === -1 ? 'N/A' : `L${displayedLevel}`;
+        const fontSize = 14; // Constant size
+        ctx.font = `bold ${fontSize}px monospace`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        // Calculate label position (center of tile)
+        let labelX = rect.x + rect.width / 2;
+        let labelY = rect.y + rect.height / 2;
+
+        // Measure text for background
+        const textMetrics = ctx.measureText(label);
+        const textWidth = textMetrics.width + 8;
+        const textHeight = fontSize + 6;
+
+        // Clamp label position to keep it on screen
+        labelX = Math.max(textWidth / 2 + 4, Math.min(viewport.width - textWidth / 2 - 4, labelX));
+        labelY = Math.max(textHeight / 2 + 4, Math.min(viewport.height - textHeight / 2 - 4, labelY));
+
+        // Draw background for label
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+        ctx.fillRect(
+          labelX - textWidth / 2,
+          labelY - textHeight / 2,
+          textWidth,
+          textHeight
+        );
+
+        // Draw label text
+        ctx.fillStyle = displayedLevel === idealLevel ? '#00ff00' : '#ffff00';
+        ctx.fillText(label, labelX, labelY);
+
+        // Only highlight one tile (the one under cursor)
+        break;
+      }
     }
   }
 
@@ -270,6 +387,7 @@
   bind:this={canvas}
   class="tile-canvas"
   style="width: {viewport.width}px; height: {viewport.height}px"
+  onmousemove={handleMouseMove}
 ></canvas>
 
 <style>

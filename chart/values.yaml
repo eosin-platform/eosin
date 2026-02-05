@@ -17,6 +17,18 @@ s3:
 
 registry: "" # empty string is the same as "docker.io/"
 
+redis:
+  username:
+    value: ""
+  password:
+    value: ""
+  host:
+    value: ""
+  port:
+    value: ""
+  proto:
+    value: redis
+
 prometheus:
   enabled: false
 
