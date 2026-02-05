@@ -17,9 +17,4 @@ postgres = { version = "0.19.11", features = [
 ] }
 deadpool-postgres = { version = "0.14.1", features = ["serde"] }
 postgres-types = { version = "0.2.10", features = ["derive"] }
-axum = { version = "0.8.8", features = [
-    "query",
-    "json",
-    "macros",
-    "tokio",
-] }
+axum = { workspace = true }

@@ -14,7 +14,14 @@ rustls = { version = "0.23", default-features = false, features = [
 ] }
 rustls-native-certs = "0.8"
 tokio-rustls = { version = "0.26" }
+tonic = { version = "0.14.3" }
 
 # Used by EDA services and storage
 # apt-get install -y --no-install-recommends libopenslide-dev
 openslide-rs = "2.4.0"
+axum = { version = "0.8.8", features = [
+    "query",
+    "json",
+    "macros",
+    "tokio",
+] }
