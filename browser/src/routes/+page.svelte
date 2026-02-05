@@ -17,6 +17,7 @@
     clampViewport,
     centerViewport,
   } from '$lib/frusta';
+  import Minimap from '$lib/components/Minimap.svelte';
   import type { SlideInfo } from './+page.server';
 
   // Server-provided data
@@ -268,6 +269,13 @@
     }, VIEWPORT_UPDATE_DEBOUNCE_MS);
   }
 
+  // Handler for minimap viewport changes
+  function handleMinimapViewportChange(newViewport: ViewportState) {
+    if (!imageDesc) return;
+    viewport = clampViewport(newViewport, imageDesc.width, imageDesc.height);
+    scheduleViewportUpdate();
+  }
+
   // Mouse event handlers
   function handleMouseDown(e: MouseEvent) {
     if (e.button !== 0) return; // Left button only
@@ -496,6 +504,11 @@
   >
     {#if imageDesc && cache}
       <TileRenderer image={imageDesc} {viewport} {cache} {renderTrigger} />
+      <Minimap
+        image={imageDesc}
+        {viewport}
+        onViewportChange={handleMinimapViewportChange}
+      />
     {:else}
       <div class="no-image">
         <h2>No Image Loaded</h2>
