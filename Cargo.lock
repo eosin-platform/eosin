@@ -2088,6 +2088,7 @@ name = "histion-compiler"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-channel",
  "async-nats",
  "aws-config",
  "aws-credential-types",

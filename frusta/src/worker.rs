@@ -45,7 +45,17 @@ pub async fn worker_main(
                         tokio::select! {
                             _ = cancel.cancelled() => return Ok(()),
                             _ = work.cancel.cancelled() => {}
-                            _ = work.tx.send(payload) => {}
+                            _ = work.tx.send(payload) => {
+                                tracing::info!(
+                                    slide_id = %work.slide_id,
+                                    x = work.meta.x,
+                                    y = work.meta.y,
+                                    level = work.meta.level,
+                                    slot = work.slot,
+                                    size = data.len(),
+                                    "sent tile"
+                                );
+                            }
                         }
                     }
                 }

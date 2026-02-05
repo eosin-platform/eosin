@@ -14,9 +14,11 @@
     totalCount: number;
     hasMore: boolean;
     pageSize: number;
+    collapsed?: boolean;
+    onToggle?: () => void;
   }
 
-  let { initialSlides, totalCount, hasMore, pageSize }: Props = $props();
+  let { initialSlides, totalCount, hasMore, pageSize, collapsed = false, onToggle }: Props = $props();
 
   let slides = $state<SlideListItem[]>([]);
   let loading = $state(false);
@@ -99,12 +101,31 @@
     // Use shortened ID as label
     return slide.id.slice(0, 8);
   }
+
+  function handleToggle() {
+    if (onToggle) {
+      onToggle();
+    }
+  }
 </script>
 
-<aside class="sidebar" bind:this={scrollContainer}>
+<aside class="sidebar" class:collapsed bind:this={scrollContainer}>
   <div class="sidebar-header">
-    <h2>Slides</h2>
-    <span class="slide-count">{totalCount}</span>
+    <button class="toggle-btn" onclick={handleToggle} aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        {#if collapsed}
+          <line x1="3" y1="12" x2="21" y2="12"></line>
+          <line x1="3" y1="6" x2="21" y2="6"></line>
+          <line x1="3" y1="18" x2="21" y2="18"></line>
+        {:else}
+          <polyline points="15 18 9 12 15 6"></polyline>
+        {/if}
+      </svg>
+    </button>
+    {#if !collapsed}
+      <h2>Slides</h2>
+      <span class="slide-count">{totalCount}</span>
+    {/if}
   </div>
 
   <nav class="slide-list">
@@ -113,9 +134,14 @@
         href="/?id={slide.id}" 
         class="slide-item"
         class:active={currentSlideId === slide.id}
+        title={collapsed ? `${getSlideLabel(slide)} - ${formatDimensions(slide.width, slide.height)}` : undefined}
       >
-        <span class="slide-name">{getSlideLabel(slide)}</span>
-        <span class="slide-dimensions">{formatDimensions(slide.width, slide.height)}</span>
+        {#if collapsed}
+          <span class="slide-icon">{slide.id.slice(0, 2).toUpperCase()}</span>
+        {:else}
+          <span class="slide-name">{getSlideLabel(slide)}</span>
+          <span class="slide-dimensions">{formatDimensions(slide.width, slide.height)}</span>
+        {/if}
       </a>
     {/each}
 
@@ -155,18 +181,51 @@
     flex-direction: column;
     overflow-y: auto;
     overflow-x: hidden;
+    transition: width 0.2s ease, min-width 0.2s ease;
+  }
+
+  .sidebar.collapsed {
+    width: 56px;
+    min-width: 56px;
+  }
+
+  .toggle-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    color: #aaa;
+    cursor: pointer;
+    border-radius: 6px;
+    transition: background-color 0.15s, color 0.15s;
+    flex-shrink: 0;
+  }
+
+  .toggle-btn:hover {
+    background: #333;
+    color: #fff;
   }
 
   .sidebar-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 1rem;
+    padding: 0.75rem;
     border-bottom: 1px solid #333;
     position: sticky;
     top: 0;
     background: #141414;
     z-index: 10;
+    gap: 0.5rem;
+  }
+
+  .sidebar.collapsed .sidebar-header {
+    justify-content: center;
+    padding: 0.75rem 0.5rem;
   }
 
   .sidebar-header h2 {
@@ -192,6 +251,10 @@
     gap: 2px;
   }
 
+  .sidebar.collapsed .slide-list {
+    padding: 0.25rem;
+  }
+
   .slide-item {
     display: flex;
     flex-direction: column;
@@ -201,6 +264,28 @@
     color: #ccc;
     transition: background-color 0.15s, color 0.15s;
     gap: 0.25rem;
+  }
+
+  .sidebar.collapsed .slide-item {
+    padding: 0.5rem;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .slide-icon {
+    font-size: 0.75rem;
+    font-weight: 600;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #222;
+    border-radius: 4px;
+  }
+
+  .sidebar.collapsed .slide-item.active .slide-icon {
+    background: rgba(255, 255, 255, 0.2);
   }
 
   .slide-item:hover {

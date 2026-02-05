@@ -107,6 +107,20 @@ pub async fn run_process(args: ProcessArgs) -> Result<()> {
     let bucket = args.s3.bucket.clone();
     let download_dir = args.download_dir.clone();
 
+    // Clear the download directory at startup. It's a mounted dir so we can't
+    // remove it directly and must remove contents only.
+    let download_path = Path::new(&download_dir);
+    let mut entries = tokio::fs::read_dir(download_path).await?;
+    while let Some(entry) = entries.next_entry().await? {
+        let path = entry.path();
+        if path.is_file() {
+            tokio::fs::remove_file(path).await?;
+        } else if path.is_dir() {
+            tokio::fs::remove_dir_all(path).await?;
+        }
+    }
+    tracing::info!(path = %download_dir, "cleared download directory");
+
     loop {
         tokio::select! {
             () = cancel.cancelled() => {
@@ -126,6 +140,7 @@ pub async fn run_process(args: ProcessArgs) -> Result<()> {
                             &download_dir,
                             &meta_client,
                             &mut storage,
+                            cancel.clone(),
                         ).await {
                             tracing::error!(?e, "failed to process slide");
                             // Don't ack on error - message will be redelivered
@@ -161,6 +176,7 @@ async fn handle_process_slide(
     download_dir: &str,
     meta_client: &MetaClient,
     storage_client: &mut StorageClient,
+    cancel: CancellationToken,
 ) -> Result<()> {
     let event: ProcessSlideEvent =
         serde_json::from_slice(payload).context("failed to deserialize ProcessSlideEvent")?;
@@ -173,7 +189,8 @@ async fn handle_process_slide(
 
     // Process the slide, ensuring cleanup happens regardless of success/failure
     let result =
-        process_downloaded_slide(&local_path, &event.key, meta_client, storage_client).await;
+        process_downloaded_slide(&local_path, &event.key, meta_client, storage_client, cancel)
+            .await;
 
     // Always delete the local file to free up space
     if let Err(e) = tokio::fs::remove_file(&local_path).await {
@@ -195,6 +212,7 @@ async fn process_downloaded_slide(
     key: &str,
     meta_client: &MetaClient,
     storage_client: &mut StorageClient,
+    cancel: CancellationToken,
 ) -> Result<()> {
     let path = Path::new(local_path);
 
@@ -228,7 +246,7 @@ async fn process_downloaded_slide(
 
     // Process the slide: extract tiles and upload to storage
     // Tiles are processed from highest mip level (lowest resolution) to full resolution
-    tiler::process_slide(path, slide_id, storage_client)
+    tiler::process_slide(path, slide_id, storage_client, cancel)
         .await
         .context("failed to process slide tiles")?;
 

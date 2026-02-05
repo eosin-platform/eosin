@@ -4,7 +4,9 @@ use image::{ImageBuffer, Rgba, RgbaImage};
 use openslide_rs::{OpenSlide, Size};
 use rayon::prelude::*;
 use std::path::Path;
-use std::sync::mpsc;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 /// Tile size in pixels (width and height)
@@ -52,10 +54,14 @@ pub fn get_slide_metadata(path: &Path) -> Result<SlideMetadata> {
 ///
 /// This function is memory-efficient: it processes one tile at a time, never holding
 /// the entire slide in memory. Tile extraction and encoding is parallelized using rayon.
+///
+/// The `cancel` token allows for graceful shutdown - processing will stop at the next
+/// opportunity when cancellation is requested.
 pub async fn process_slide(
     path: &Path,
     slide_id: Uuid,
     storage_client: &mut StorageClient,
+    cancel: CancellationToken,
 ) -> Result<SlideMetadata> {
     let slide = OpenSlide::new(path).context("failed to open slide")?;
     let metadata = get_slide_metadata(path)?;
@@ -80,7 +86,21 @@ pub async fn process_slide(
     // Process each mip level from highest (lowest resolution) to 0 (full resolution)
     // This allows the slide to be viewable at low resolution while still processing
     for level in (0..=max_mip_level).rev() {
-        process_level(&slide, &metadata, slide_id, level, storage_client, path).await?;
+        // Check for cancellation between levels
+        if cancel.is_cancelled() {
+            tracing::info!("processing cancelled, stopping at level {}", level);
+            bail!("processing cancelled");
+        }
+        process_level(
+            &slide,
+            &metadata,
+            slide_id,
+            level,
+            storage_client,
+            path,
+            &cancel,
+        )
+        .await?;
     }
 
     Ok(metadata)
@@ -105,6 +125,7 @@ async fn process_level(
     level: u32,
     storage_client: &mut StorageClient,
     slide_path: &Path,
+    cancel: &CancellationToken,
 ) -> Result<()> {
     // Calculate dimensions at this MIP level
     let scale = 1u32 << level; // 2^level
@@ -138,7 +159,11 @@ async fn process_level(
 
     // Process tiles in parallel using rayon
     // Each thread will open its own OpenSlide handle via thread_local
-    let (tx_channel, rx_channel) = mpsc::sync_channel::<(u32, u32, Vec<u8>)>(64);
+    let (tx_channel, rx_channel) = async_channel::bounded::<(u32, u32, Vec<u8>)>(64);
+
+    // Shared flag to signal rayon threads to stop
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let cancelled_clone = cancelled.clone();
 
     // Spawn the parallel tile extraction in a blocking task
     let extraction_handle = tokio::task::spawn_blocking(move || {
@@ -148,6 +173,11 @@ async fn process_level(
         }
 
         tile_coords.par_iter().try_for_each(|&(tx, ty)| {
+            // Check for cancellation
+            if cancelled_clone.load(Ordering::Relaxed) {
+                return Err(anyhow::anyhow!("processing cancelled"));
+            }
+
             // Get or create the OpenSlide handle for this thread
             SLIDE_HANDLE.with(|cell| {
                 let mut handle_ref = cell.borrow_mut();
@@ -166,7 +196,7 @@ async fn process_level(
 
                 // Send the encoded tile to the upload channel
                 tx_channel
-                    .send((tx, ty, webp_data))
+                    .send_blocking((tx, ty, webp_data))
                     .map_err(|e| anyhow::anyhow!("failed to send tile: {e}"))?;
 
                 Ok::<(), anyhow::Error>(())
@@ -178,25 +208,50 @@ async fn process_level(
     let mut uploaded = 0usize;
     let mut last_progress = 0usize;
 
-    while let Ok((tx, ty, webp_data)) = rx_channel.recv() {
-        storage_client
-            .put_tile(slide_id, tx, ty, level, webp_data)
-            .await
-            .context(format!(
-                "failed to upload tile ({tx}, {ty}) at level {level}"
-            ))?;
+    loop {
+        tokio::select! {
+            biased;
 
-        uploaded += 1;
+            () = cancel.cancelled() => {
+                tracing::info!(level = level, "cancellation requested, stopping tile upload");
+                // Signal rayon threads to stop
+                cancelled.store(true, Ordering::Relaxed);
+                // Close the channel to unblock any waiting senders
+                rx_channel.close();
+                // Wait for extraction task to finish
+                let _ = extraction_handle.await;
+                bail!("processing cancelled");
+            }
 
-        // Log progress every 10%
-        let progress_pct = (uploaded * 100) / total_tiles;
-        if progress_pct >= last_progress + 10 || uploaded == total_tiles {
-            tracing::info!(
-                level = level,
-                progress = format!("{uploaded}/{total_tiles} ({progress_pct}%)"),
-                "tiles uploaded"
-            );
-            last_progress = progress_pct;
+            result = rx_channel.recv() => {
+                match result {
+                    Ok((tx, ty, webp_data)) => {
+                        storage_client
+                            .put_tile(slide_id, tx, ty, level, webp_data)
+                            .await
+                            .context(format!(
+                                "failed to upload tile ({tx}, {ty}) at level {level}"
+                            ))?;
+
+                        uploaded += 1;
+
+                        // Log progress every 10%
+                        let progress_pct = (uploaded * 100) / total_tiles;
+                        if progress_pct >= last_progress + 10 || uploaded == total_tiles {
+                            tracing::info!(
+                                level = level,
+                                progress = format!("{uploaded}/{total_tiles} ({progress_pct}%)"),
+                                "tiles uploaded"
+                            );
+                            last_progress = progress_pct;
+                        }
+                    }
+                    Err(_) => {
+                        // Channel closed, extraction complete
+                        break;
+                    }
+                }
+            }
         }
     }
 

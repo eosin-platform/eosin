@@ -96,15 +96,15 @@ impl StorageApi for ApiService {
         let req = request.into_inner();
         let id = Uuid::from_slice(&req.id).map_err(|_| Status::invalid_argument("invalid UUID"))?;
         let path = self.tile_path(&id, req.level, req.x, req.y);
-        tracing::info!(
-            %id,
-            x = req.x,
-            y = req.y,
-            level = req.level,
-            data_len = req.data.len(),
-            ?path,
-            "put_tile request"
-        );
+        //tracing::info!(
+        //    %id,
+        //    x = req.x,
+        //    y = req.y,
+        //    level = req.level,
+        //    data_len = req.data.len(),
+        //    ?path,
+        //    "put_tile request"
+        //);
 
         // Create parent directories if they don't exist
         if let Some(parent) = path.parent() {

@@ -1,2 +1,21 @@
 @import 'tailwindcss';
 @plugin '@tailwindcss/typography';
+
+/* Mobile-friendly global styles */
+html, body {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+
+/* Prevent text selection on interactive elements */
+button, a {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Ensure smooth scrolling on iOS */
+.sidebar, .main-content {
+  -webkit-overflow-scrolling: touch;
+}
