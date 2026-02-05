@@ -21,7 +21,11 @@ do_restart() {
     for arg in "$@"; do
         case "$arg" in
         compiler)
-            kubectl rollout restart statefulset --context $KUBECONTEXT -n histion "histion-$arg"
+            kubectl rollout restart statefulset --context $KUBECONTEXT -n histion "histion-compiler"
+            exit 0
+            ;;
+        storage)
+            kubectl rollout restart statefulset --context $KUBECONTEXT -n histion "histion-storage"
             exit 0
             ;;
         *)
@@ -29,6 +33,11 @@ do_restart() {
             ;;
         esac
     done
+    # restart the compiler if no specific service is mentioned
+    if [ ${#restart_args[@]} -eq 0 ]; then
+        kubectl rollout restart statefulset --context $KUBECONTEXT -n histion "histion-compiler"
+        kubectl rollout restart statefulset --context $KUBECONTEXT -n histion "histion-storage"
+    fi
     kubectl rollout restart deployment --context $KUBECONTEXT -n histion "${restart_args[@]/#/histion-}"
 }
 

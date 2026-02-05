@@ -26,6 +26,29 @@
   let cacheSize = $state(0);
   let lastError = $state<string | null>(null);
 
+  // Toast notification state
+  let toastMessage = $state<string | null>(null);
+  let toastTimeout: ReturnType<typeof setTimeout> | null = null;
+
+  function showToast(message: string, duration = 5000) {
+    toastMessage = message;
+    if (toastTimeout) {
+      clearTimeout(toastTimeout);
+    }
+    toastTimeout = setTimeout(() => {
+      toastMessage = null;
+      toastTimeout = null;
+    }, duration);
+  }
+
+  function dismissToast() {
+    toastMessage = null;
+    if (toastTimeout) {
+      clearTimeout(toastTimeout);
+      toastTimeout = null;
+    }
+  }
+
   // WebSocket endpoint from environment (required)
   const wsUrl = env.PUBLIC_FRUSTA_ENDPOINT!;
 
@@ -115,7 +138,7 @@
     client = createFrustaClient({
       url: wsUrl,
       reconnectDelay: 1000,
-      maxReconnectAttempts: 5,
+      maxReconnectAttempts: 0, // Infinite retries
       onStateChange: (state) => {
         connectionState = state;
 
@@ -135,18 +158,14 @@
         sendViewportUpdate();
       },
       onError: (error) => {
-        lastError = error instanceof Error ? error.message : 'Connection error';
+        const msg = error instanceof Error ? error.message : 'Connection error';
+        lastError = msg;
+        showToast(msg);
         console.error('WebSocket error:', error);
       },
     });
 
     client.connect();
-  }
-
-  function disconnect() {
-    client?.disconnect();
-    client = null;
-    currentSlot = null;
   }
 
   function openSlide() {
@@ -329,10 +348,8 @@
       updateViewportSize();
     }
 
-    // Auto-connect if we have an image
-    if (imageDesc) {
-      connect();
-    }
+    // Always auto-connect on page load
+    connect();
 
     // Listen for resize
     window.addEventListener('resize', updateViewportSize);
@@ -347,6 +364,9 @@
     if (viewportUpdateTimeout) {
       clearTimeout(viewportUpdateTimeout);
     }
+    if (toastTimeout) {
+      clearTimeout(toastTimeout);
+    }
     if (browser) {
       window.removeEventListener('resize', updateViewportSize);
       window.removeEventListener('mouseup', handleMouseUp);
@@ -356,20 +376,17 @@
 
 <main>
   <header class="controls">
-    <div class="connection-controls">
-      {#if connectionState === 'disconnected' || connectionState === 'error'}
-        <button onclick={connect}>Connect</button>
-      {:else}
-        <button onclick={disconnect}>Disconnect</button>
-      {/if}
-
+    <div class="connection-status">
       <span class="status">
-        <span
-          class="status-indicator"
-          class:connected={connectionState === 'connected'}
-          class:connecting={connectionState === 'connecting'}
-          class:error={connectionState === 'error'}
-        ></span>
+        {#if connectionState === 'connecting'}
+          <span class="spinner"></span>
+        {:else}
+          <span
+            class="status-indicator"
+            class:connected={connectionState === 'connected'}
+            class:error={connectionState === 'error' || connectionState === 'disconnected'}
+          ></span>
+        {/if}
         {connectionState}
       </span>
     </div>
@@ -385,8 +402,6 @@
 
     {#if loadError}
       <p class="error">{loadError}</p>
-    {:else if lastError}
-      <p class="error">{lastError}</p>
     {/if}
   </header>
 
@@ -417,6 +432,15 @@
       </div>
     {/if}
   </div>
+
+  {#if toastMessage}
+    <div class="toast" role="alert">
+      <span class="toast-message">{toastMessage}</span>
+      <button class="toast-dismiss" onclick={dismissToast} aria-label="Dismiss">
+        ×
+      </button>
+    </div>
+  {/if}
 </main>
 
 <style>
@@ -434,6 +458,55 @@
     flex-direction: column;
     height: 100%;
     flex: 1;
+    position: relative;
+  }
+
+  .toast {
+    position: absolute;
+    bottom: 1.5rem;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    background: #dc2626;
+    color: white;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    font-size: 0.875rem;
+    z-index: 1000;
+    animation: slideUp 0.2s ease-out;
+  }
+
+  @keyframes slideUp {
+    from {
+      opacity: 0;
+      transform: translateX(-50%) translateY(1rem);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+  }
+
+  .toast-message {
+    max-width: 400px;
+  }
+
+  .toast-dismiss {
+    background: none;
+    border: none;
+    color: white;
+    font-size: 1.25rem;
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+    opacity: 0.8;
+  }
+
+  .toast-dismiss:hover {
+    opacity: 1;
   }
 
   .controls {
@@ -447,11 +520,10 @@
     justify-content: space-between;
   }
 
-  .connection-controls {
+  .connection-status {
     display: flex;
     gap: 0.5rem;
     align-items: center;
-    flex-wrap: wrap;
   }
 
   .stats {
@@ -461,19 +533,19 @@
     color: #aaa;
   }
 
-  button {
-    padding: 0.375rem 0.75rem;
-    font-size: 0.875rem;
-    cursor: pointer;
-    border: none;
-    border-radius: 4px;
-    background-color: #0066cc;
-    color: white;
-    transition: background-color 0.15s;
+  .spinner {
+    width: 14px;
+    height: 14px;
+    border: 2px solid #333;
+    border-top-color: #0066cc;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
   }
 
-  button:hover {
-    background-color: #0055aa;
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
   }
 
   .status {
@@ -492,10 +564,6 @@
 
   .status-indicator.connected {
     background-color: #22c55e;
-  }
-
-  .status-indicator.connecting {
-    background-color: #f59e0b;
   }
 
   .status-indicator.error {
