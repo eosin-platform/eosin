@@ -9,6 +9,8 @@ pub struct Slide {
     pub width: i32,
     pub height: i32,
     pub url: String,
+    /// Full size of the original slide file in bytes
+    pub full_size: i64,
 }
 
 /// Request to create a new slide
@@ -18,6 +20,8 @@ pub struct CreateSlideRequest {
     pub width: i32,
     pub height: i32,
     pub url: String,
+    /// Full size of the original slide file in bytes
+    pub full_size: i64,
 }
 
 /// Client for the meta HTTP API
@@ -43,12 +47,14 @@ impl MetaClient {
         width: u32,
         height: u32,
         url: &str,
+        full_size: i64,
     ) -> Result<Slide> {
         let request = CreateSlideRequest {
             id,
             width: width as i32,
             height: height as i32,
             url: url.to_string(),
+            full_size,
         };
 
         let response = self

@@ -242,6 +242,12 @@ async fn process_downloaded_slide(
     // Generate deterministic UUID from S3 key
     let slide_id = Uuid::new_v5(&SLIDE_NAMESPACE, key.as_bytes());
 
+    // Get file size for metadata
+    let file_metadata = tokio::fs::metadata(path)
+        .await
+        .context("failed to get file metadata")?;
+    let full_size = file_metadata.len() as i64;
+
     // Get slide metadata first
     let metadata = tiler::get_slide_metadata(path).context("failed to extract slide metadata")?;
 
@@ -251,13 +257,14 @@ async fn process_downloaded_slide(
         width = metadata.width,
         height = metadata.height,
         levels = metadata.level_count,
+        full_size = full_size,
         "extracted slide metadata"
     );
 
     // Insert metadata into meta service FIRST
     // This allows the slide to be visible immediately (at low resolution)
     let slide = meta_client
-        .create_slide(slide_id, metadata.width, metadata.height, key)
+        .create_slide(slide_id, metadata.width, metadata.height, key, full_size)
         .await
         .context("failed to create slide in meta service")?;
 

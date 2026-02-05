@@ -4,6 +4,8 @@ export interface SlideListItem {
   id: string;
   width: number;
   height: number;
+  /** Full size of the original slide file in bytes */
+  full_size: number;
 }
 
 export interface SlidesResponse {

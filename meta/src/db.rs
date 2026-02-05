@@ -15,7 +15,8 @@ pub async fn init_schema(pool: &Pool) -> Result<()> {
                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                 width INT NOT NULL,
                 height INT NOT NULL,
-                url TEXT NOT NULL
+                url TEXT NOT NULL,
+                full_size BIGINT NOT NULL DEFAULT 0
             )
             "#,
             &[],
@@ -45,19 +46,20 @@ pub async fn insert_slide(
     width: i32,
     height: i32,
     url: &str,
+    full_size: i64,
 ) -> Result<Slide> {
     let client = pool.get().await.context("failed to get db connection")?;
 
     let row = client
         .query_one(
             r#"
-            INSERT INTO slides (id, width, height, url)
-            VALUES ($1, $2, $3, $4)
+            INSERT INTO slides (id, width, height, url, full_size)
+            VALUES ($1, $2, $3, $4, $5)
             ON CONFLICT (id) DO UPDATE
             SET id = slides.id
-            RETURNING id, width, height, url;
+            RETURNING id, width, height, url, full_size;
             "#,
-            &[&id, &width, &height, &url],
+            &[&id, &width, &height, &url, &full_size],
         )
         .await
         .context("failed to insert slide")?;
@@ -67,6 +69,7 @@ pub async fn insert_slide(
         width: row.get("width"),
         height: row.get("height"),
         url: row.get("url"),
+        full_size: row.get("full_size"),
     })
 }
 
@@ -77,7 +80,7 @@ pub async fn get_slide(pool: &Pool, id: Uuid) -> Result<Option<Slide>> {
     let row = client
         .query_opt(
             r#"
-            SELECT id, width, height, url
+            SELECT id, width, height, url, full_size
             FROM slides
             WHERE id = $1
             "#,
@@ -91,6 +94,7 @@ pub async fn get_slide(pool: &Pool, id: Uuid) -> Result<Option<Slide>> {
         width: r.get("width"),
         height: r.get("height"),
         url: r.get("url"),
+        full_size: r.get("full_size"),
     }))
 }
 
@@ -101,6 +105,7 @@ pub async fn update_slide(
     width: Option<i32>,
     height: Option<i32>,
     url: Option<&str>,
+    full_size: Option<i64>,
 ) -> Result<Option<Slide>> {
     let client = pool.get().await.context("failed to get db connection")?;
 
@@ -125,6 +130,11 @@ pub async fn update_slide(
         params.push(u);
         param_idx += 1;
     }
+    if let Some(ref fs) = full_size {
+        set_clauses.push(format!("full_size = ${}", param_idx));
+        params.push(fs);
+        param_idx += 1;
+    }
 
     if set_clauses.is_empty() {
         // Nothing to update, just return the existing slide
@@ -132,7 +142,7 @@ pub async fn update_slide(
     }
 
     let query = format!(
-        "UPDATE slides SET {} WHERE id = ${} RETURNING id, width, height, url",
+        "UPDATE slides SET {} WHERE id = ${} RETURNING id, width, height, url, full_size",
         set_clauses.join(", "),
         param_idx
     );
@@ -148,6 +158,7 @@ pub async fn update_slide(
         width: r.get("width"),
         height: r.get("height"),
         url: r.get("url"),
+        full_size: r.get("full_size"),
     }))
 }
 
@@ -182,7 +193,8 @@ pub async fn list_slides(pool: &Pool, offset: i64, limit: i64) -> Result<ListSli
             SELECT 
                 id, 
                 width, 
-                height, 
+                height,
+                full_size,
                 COUNT(*) OVER() AS full_count
             FROM slides
             ORDER BY id
@@ -203,6 +215,7 @@ pub async fn list_slides(pool: &Pool, offset: i64, limit: i64) -> Result<ListSli
             id: r.get("id"),
             width: r.get("width"),
             height: r.get("height"),
+            full_size: r.get("full_size"),
         })
         .collect();
 

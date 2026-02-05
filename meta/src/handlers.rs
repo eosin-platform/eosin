@@ -22,15 +22,22 @@ pub async fn create_slide(
     State(state): State<AppState>,
     Json(req): Json<CreateSlideRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    let slide = db::insert_slide(&state.pool, req.id, req.width, req.height, &req.url)
-        .await
-        .map_err(|e| {
-            tracing::error!("failed to create slide: {:?}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("failed to create slide: {}", e),
-            )
-        })?;
+    let slide = db::insert_slide(
+        &state.pool,
+        req.id,
+        req.width,
+        req.height,
+        &req.url,
+        req.full_size,
+    )
+    .await
+    .map_err(|e| {
+        tracing::error!("failed to create slide: {:?}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("failed to create slide: {}", e),
+        )
+    })?;
 
     Ok((StatusCode::CREATED, Json(slide)))
 }
@@ -60,15 +67,22 @@ pub async fn update_slide(
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateSlideRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    let slide = db::update_slide(&state.pool, id, req.width, req.height, req.url.as_deref())
-        .await
-        .map_err(|e| {
-            tracing::error!("failed to update slide: {:?}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("failed to update slide: {}", e),
-            )
-        })?;
+    let slide = db::update_slide(
+        &state.pool,
+        id,
+        req.width,
+        req.height,
+        req.url.as_deref(),
+        req.full_size,
+    )
+    .await
+    .map_err(|e| {
+        tracing::error!("failed to update slide: {:?}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("failed to update slide: {}", e),
+        )
+    })?;
 
     match slide {
         Some(s) => Ok(Json(s)),

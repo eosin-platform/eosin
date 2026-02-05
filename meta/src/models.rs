@@ -8,6 +8,8 @@ pub struct Slide {
     pub width: i32,
     pub height: i32,
     pub url: String,
+    /// Full size of the original slide file in bytes
+    pub full_size: i64,
 }
 
 /// Request to create a new slide.
@@ -17,6 +19,8 @@ pub struct CreateSlideRequest {
     pub width: i32,
     pub height: i32,
     pub url: String,
+    /// Full size of the original slide file in bytes
+    pub full_size: i64,
 }
 
 /// Request to update an existing slide.
@@ -25,6 +29,8 @@ pub struct UpdateSlideRequest {
     pub width: Option<i32>,
     pub height: Option<i32>,
     pub url: Option<String>,
+    /// Full size of the original slide file in bytes
+    pub full_size: Option<i64>,
 }
 
 /// Request to list slides with pagination.
@@ -40,6 +46,8 @@ pub struct SlideListItem {
     pub id: Uuid,
     pub width: i32,
     pub height: i32,
+    /// Full size of the original slide file in bytes
+    pub full_size: i64,
 }
 
 /// Response containing paginated list of slides.

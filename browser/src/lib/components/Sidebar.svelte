@@ -7,6 +7,8 @@
     id: string;
     width: number;
     height: number;
+    /** Full size of the original slide file in bytes */
+    full_size: number;
   }
 
   interface Props {
@@ -97,6 +99,17 @@
     return `${width} × ${height}`;
   }
 
+  function formatSize(bytes: number): string {
+    if (bytes >= 1073741824) {
+      return `${(bytes / 1073741824).toFixed(1)} GB`;
+    } else if (bytes >= 1048576) {
+      return `${(bytes / 1048576).toFixed(1)} MB`;
+    } else if (bytes >= 1024) {
+      return `${(bytes / 1024).toFixed(1)} KB`;
+    }
+    return `${bytes} B`;
+  }
+
   function getSlideLabel(slide: SlideListItem): string {
     // Use shortened ID as label
     return slide.id.slice(0, 8);
@@ -134,13 +147,16 @@
         href="/?id={slide.id}" 
         class="slide-item"
         class:active={currentSlideId === slide.id}
-        title={collapsed ? `${getSlideLabel(slide)} - ${formatDimensions(slide.width, slide.height)}` : undefined}
+        title={collapsed ? `${getSlideLabel(slide)} - ${formatDimensions(slide.width, slide.height)} - ${formatSize(slide.full_size)}` : undefined}
       >
         {#if collapsed}
           <span class="slide-icon">{slide.id.slice(0, 2).toUpperCase()}</span>
         {:else}
           <span class="slide-name">{getSlideLabel(slide)}</span>
-          <span class="slide-dimensions">{formatDimensions(slide.width, slide.height)}</span>
+          <span class="slide-meta">
+            <span class="slide-dimensions">{formatDimensions(slide.width, slide.height)}</span>
+            <span class="slide-size">{formatSize(slide.full_size)}</span>
+          </span>
         {/if}
       </a>
     {/each}
@@ -313,6 +329,23 @@
   .slide-dimensions {
     font-size: 0.75rem;
     color: #888;
+  }
+
+  .slide-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+  }
+
+  .slide-size {
+    font-size: 0.75rem;
+    color: #888;
+    text-align: right;
+  }
+
+  .slide-item.active .slide-size {
+    color: rgba(255, 255, 255, 0.8);
   }
 
   .empty-state {
