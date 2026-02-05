@@ -61,6 +61,8 @@ pub async fn list_tif_files(client: &S3Client, bucket: &str, prefix: &str) -> Re
 }
 
 /// Download a file from S3 to the local filesystem.
+/// Uses atomic write: downloads to a temp file first, then renames on completion.
+/// This prevents partial/corrupted files from being used if the download is interrupted.
 pub async fn download_file(
     client: &S3Client,
     bucket: &str,
@@ -79,11 +81,20 @@ pub async fn download_file(
         .unwrap_or(key);
 
     let dest_path = format!("{dest_dir}/{filename}");
+    let temp_path = format!("{dest_dir}/.{filename}.tmp");
 
-    // Check if file already exists
+    // Check if file already exists (complete download from previous run)
     if tokio::fs::try_exists(&dest_path).await.unwrap_or(false) {
         tracing::info!(path = %dest_path, "file already exists, skipping download");
         return Ok(dest_path);
+    }
+
+    // Clean up any partial download from a previous interrupted attempt
+    if tokio::fs::try_exists(&temp_path).await.unwrap_or(false) {
+        tracing::warn!(path = %temp_path, "removing incomplete download from previous attempt");
+        tokio::fs::remove_file(&temp_path)
+            .await
+            .context("failed to remove incomplete temp file")?;
     }
 
     tracing::info!(bucket = %bucket, key = %key, dest = %dest_path, "downloading file from S3");
@@ -96,10 +107,10 @@ pub async fn download_file(
         .await
         .context("failed to get object from S3")?;
 
-    // Stream the body directly to disk to minimize memory usage
-    let file = File::create(&dest_path)
+    // Stream the body to a temp file first
+    let file = File::create(&temp_path)
         .await
-        .context("failed to create destination file")?;
+        .context("failed to create temp file")?;
 
     // Use a buffered writer for better I/O performance
     let mut writer = BufWriter::new(file);
@@ -123,6 +134,11 @@ pub async fn download_file(
     }
 
     writer.flush().await.context("failed to flush file")?;
+
+    // Atomic rename: only move to final path after download is complete
+    tokio::fs::rename(&temp_path, &dest_path)
+        .await
+        .context("failed to rename temp file to final destination")?;
 
     tracing::info!(path = %dest_path, "download complete");
 

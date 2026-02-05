@@ -1,5 +1,9 @@
 {{- if .Values.compiler.enabled }}
 {{- $image := printf "%s%s" .Values.registry .Values.compiler.image -}}
+{{- $s3Bucket := .Values.compiler.s3.bucket | default .Values.s3.bucket -}}
+{{- $s3PathPrefix := .Values.compiler.s3.pathPrefix | default (dict "value" "") -}}
+{{- $s3Endpoint := .Values.compiler.s3.endpoint | default .Values.s3.endpoint -}}
+{{- $s3Region := .Values.compiler.s3.region | default .Values.s3.region -}}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -45,15 +49,15 @@ spec:
         - name: LOG_LEVEL
           value: {{ .Values.compiler.logLevel }}
         - name: S3_BUCKET
-{{ tpl (toYaml .Values.compiler.s3.bucket) . | indent 10 }}
+{{ tpl (toYaml $s3Bucket) . | indent 10 }}
         - name: S3_PATH_PREFIX
-{{ tpl (toYaml .Values.compiler.s3.pathPrefix) . | indent 10 }}
-        {{- if .Values.compiler.s3.endpoint }}
+{{ tpl (toYaml $s3PathPrefix) . | indent 10 }}
+        {{- if $s3Endpoint }}
         - name: S3_ENDPOINT
-{{ tpl (toYaml .Values.compiler.s3.endpoint) . | indent 10 }}
+{{ tpl (toYaml $s3Endpoint) . | indent 10 }}
         {{- end }}
         - name: S3_REGION
-{{ tpl (toYaml .Values.compiler.s3.region) . | indent 10 }}
+{{ tpl (toYaml $s3Region) . | indent 10 }}
         - name: STREAM_NAME
           value: {{ .Values.compiler.streamName | quote }}
         - name: CONSUMER_NAME

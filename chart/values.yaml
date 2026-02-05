@@ -82,11 +82,4 @@ compiler:
     requests:
       memory: "128Mi"
   # storageClassName: ""
-  s3:
-    bucket:
-      value: ""
-    pathPrefix:
-      value: ""
-    endpoint: {}
-    region:
-      value: "us-east-1"
+  s3: {}  # Falls back to global s3 settings
