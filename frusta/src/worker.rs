@@ -3,7 +3,7 @@ use async_channel::Receiver;
 use histion_storage::client::StorageClient;
 use tokio_util::sync::CancellationToken;
 
-use crate::viewport::{RetrieveTileWork, Tile};
+use crate::viewport::RetrieveTileWork;
 
 pub async fn worker_main(
     cancel: CancellationToken,
@@ -25,14 +25,19 @@ pub async fn worker_main(
                         work.meta.level,
                     ) => {
                         let data = data.context("failed to get tile from storage")?;
-                        let tile = Tile {
-                            meta: work.meta,
-                            data,
+                        let payload = {
+                            let mut payload = Vec::with_capacity(data.len() + 13);
+                            payload.push(work.slot);
+                            payload.extend_from_slice(&work.meta.x.to_le_bytes());
+                            payload.extend_from_slice(&work.meta.y.to_le_bytes());
+                            payload.extend_from_slice(&work.meta.level.to_le_bytes());
+                            payload.extend_from_slice(&data);
+                            payload.into()
                         };
                         tokio::select! {
                             _ = cancel.cancelled() => bail!("Context cancelled"),
                             _ = work.cancel.cancelled() => {}
-                            _ = work.tx.send(tile) => {}
+                            _ = work.tx.send(payload) => {}
                         }
                     }
                 }

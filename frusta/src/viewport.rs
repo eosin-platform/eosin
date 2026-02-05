@@ -1,7 +1,8 @@
+use async_channel::{Receiver, Sender};
+use bytes::Bytes;
 use rustc_hash::FxHashMap;
 
 use anyhow::{Context, Result, ensure};
-use tokio::sync::mpsc::{Receiver, Sender};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
@@ -23,6 +24,22 @@ pub struct ImageDesc {
     pub width: u32,
     pub height: u32,
     pub levels: u32,
+}
+
+impl ImageDesc {
+    pub fn from_slice(data: &[u8]) -> Result<Self> {
+        ensure!(data.len() == 16 + 4 + 4 + 4, "invalid image desc length");
+        let id = Uuid::from_slice(&data[0..16])?;
+        let width = u32::from_le_bytes(data[16..20].try_into().unwrap());
+        let height = u32::from_le_bytes(data[20..24].try_into().unwrap());
+        let levels = u32::from_le_bytes(data[24..28].try_into().unwrap());
+        Ok(Self {
+            id,
+            width,
+            height,
+            levels,
+        })
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -70,16 +87,19 @@ impl TileMeta {
     }
 }
 
+#[derive(Clone)]
 pub struct ViewManager {
     sent: FxHashMap<TileKey, RequestedTile>,
     image: ImageDesc,
-    tx: Sender<Tile>,
     cancel_update: Option<CancellationToken>,
     worker_tx: Sender<RetrieveTileWork>,
     dpi: f32,
     candidates: Vec<TileMeta>,
+    send_tx: Sender<Bytes>,
+    slot: u8,
 }
 
+#[derive(Debug, Clone, Copy)]
 pub struct Viewport {
     pub x: f32,
     pub y: f32,
@@ -92,34 +112,45 @@ impl Viewport {
     pub fn safe_zoom(&self) -> f32 {
         self.zoom.max(1e-6)
     }
+
+    pub fn from_slice(data: &[u8]) -> Result<Self> {
+        ensure!(data.len() == 5 * 4, "invalid viewport data length");
+        Ok(Self {
+            x: f32::from_le_bytes(data[0..4].try_into().unwrap()),
+            y: f32::from_le_bytes(data[4..8].try_into().unwrap()),
+            width: u32::from_le_bytes(data[8..12].try_into().unwrap()),
+            height: u32::from_le_bytes(data[12..16].try_into().unwrap()),
+            zoom: f32::from_le_bytes(data[16..20].try_into().unwrap()),
+        })
+    }
 }
 
 pub struct RetrieveTileWork {
     pub slide_id: Uuid,
+    pub slot: u8,
     pub cancel: CancellationToken,
-    pub tx: Sender<Tile>,
+    pub tx: Sender<Bytes>,
     pub meta: TileMeta,
 }
 
 impl ViewManager {
     pub fn new(
+        slot: u8,
         dpi: f32,
         image: ImageDesc,
         worker_tx: Sender<RetrieveTileWork>,
-    ) -> (Self, Receiver<Tile>) {
-        let (tx, rx) = tokio::sync::mpsc::channel(100);
-        (
-            Self {
-                dpi,
-                sent: FxHashMap::default(),
-                image,
-                tx,
-                worker_tx,
-                cancel_update: None,
-                candidates: Vec::with_capacity(MAX_TILES_PER_UPDATE),
-            },
-            rx,
-        )
+        send_tx: Sender<Bytes>,
+    ) -> Self {
+        Self {
+            slot,
+            dpi,
+            sent: FxHashMap::default(),
+            image,
+            worker_tx,
+            cancel_update: None,
+            candidates: Vec::with_capacity(MAX_TILES_PER_UPDATE),
+            send_tx,
+        }
     }
 
     pub fn clear_cache(&mut self) {
@@ -237,9 +268,10 @@ impl ViewManager {
         }
         for meta in candidates.iter() {
             let work = RetrieveTileWork {
+                slot: self.slot, // TODO: set correct slot
                 slide_id: self.image.id,
                 cancel: cancel.clone(),
-                tx: self.tx.clone(),
+                tx: self.send_tx.clone(),
                 meta: *meta,
             };
             self.worker_tx
