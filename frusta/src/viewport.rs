@@ -1,6 +1,13 @@
-use std::collections::BTreeMap;
+use std::collections::HashMap;
 
 use anyhow::{Result, ensure};
+use histion_storage::client::StorageClient;
+
+pub struct ImageDesc {
+    pub width: u32,
+    pub height: u32,
+    pub levels: u32,
+}
 
 pub struct Tile {
     pub x: u32,
@@ -32,14 +39,22 @@ impl Tile {
 }
 
 pub struct ClientViewport {
-    sent: BTreeMap<TileKey, Tile>,
+    sent: HashMap<TileKey, Tile>,
+    storage: StorageClient,
+    image: ImageDesc,
 }
 
 impl ClientViewport {
-    pub fn new() -> Self {
+    pub fn new(storage: StorageClient, image: ImageDesc) -> Self {
         Self {
-            sent: BTreeMap::new(),
+            sent: HashMap::new(),
+            storage,
+            image,
         }
+    }
+
+    pub fn update(&mut self) -> Result<()> {
+        Ok(())
     }
 
     fn tile_sent(&mut self, tile: Tile) -> Result<()> {
