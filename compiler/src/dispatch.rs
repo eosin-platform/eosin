@@ -9,10 +9,11 @@ use crate::s3;
 
 /// Generate a unique message ID for a slide key to prevent duplicate processing.
 fn message_id_for_key(key: &str) -> String {
-    format!("process-slide:{}", key)
+    format!("process-slide:{key}")
 }
 
 /// Get current time in milliseconds since Unix epoch.
+#[allow(clippy::cast_possible_truncation)]
 fn now_ms() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -58,7 +59,12 @@ pub async fn run_dispatch(args: DispatchArgs) -> Result<()> {
     tracing::info!(stream = %args.stream_name, "connected to stream");
 
     // List all TIF files
-    let tif_files = s3::list_tif_files(&s3_client, &args.s3.bucket, &args.s3.path_prefix).await?;
+    let mut tif_files =
+        s3::list_tif_files(&s3_client, &args.s3.bucket, &args.s3.path_prefix).await?;
+
+    // Sort for stable ordering (deterministic behavior on restart)
+    tif_files.sort();
+
     tracing::info!(count = tif_files.len(), "found TIF files");
 
     let mut dispatched_count = 0;
@@ -66,6 +72,15 @@ pub async fn run_dispatch(args: DispatchArgs) -> Result<()> {
     let mut failed_count = 0;
 
     for key in tif_files {
+        // Check if we've hit the max dispatch limit
+        if args.max_dispatch > 0 && dispatched_count >= args.max_dispatch {
+            tracing::info!(
+                max_dispatch = args.max_dispatch,
+                "reached max dispatch limit, terminating"
+            );
+            break;
+        }
+
         let current_time = now_ms();
 
         // Create the event payload
@@ -118,6 +133,7 @@ pub async fn run_dispatch(args: DispatchArgs) -> Result<()> {
         dispatched = dispatched_count,
         skipped = skipped_count,
         failed = failed_count,
+        max_dispatch = args.max_dispatch,
         "dispatch job complete"
     );
 

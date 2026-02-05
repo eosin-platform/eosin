@@ -85,7 +85,7 @@ pub async fn download_file(
         .and_then(|s| s.to_str())
         .unwrap_or(key);
 
-    let dest_path = format!("{}/{}", dest_dir, filename);
+    let dest_path = format!("{dest_dir}/{filename}");
 
     // Check if file already exists
     if tokio::fs::try_exists(&dest_path).await.unwrap_or(false) {

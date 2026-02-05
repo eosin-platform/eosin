@@ -88,7 +88,7 @@ pub async fn run_process(args: ProcessArgs) -> Result<()> {
 
     loop {
         tokio::select! {
-            _ = cancel.cancelled() => {
+            () = cancel.cancelled() => {
                 tracing::info!("shutdown signal received, stopping worker");
                 break;
             }
@@ -132,7 +132,7 @@ pub async fn run_process(args: ProcessArgs) -> Result<()> {
     Ok(())
 }
 
-/// Handle a ProcessSlideEvent: download TIF, insert metadata, extract and upload tiles.
+/// Handle a `ProcessSlideEvent`: download TIF, insert metadata, extract and upload tiles.
 async fn handle_process_slide(
     payload: &[u8],
     s3_client: &aws_sdk_s3::Client,
@@ -150,13 +150,34 @@ async fn handle_process_slide(
     let local_path = s3::download_file(s3_client, bucket, &event.key, download_dir).await?;
     tracing::info!(key = %event.key, path = %local_path, "slide downloaded");
 
-    let path = Path::new(&local_path);
+    // Process the slide, ensuring cleanup happens regardless of success/failure
+    let result =
+        process_downloaded_slide(&local_path, &event.key, meta_client, storage_client).await;
+
+    // Always delete the local file to free up space
+    if let Err(e) = tokio::fs::remove_file(&local_path).await {
+        tracing::warn!(path = %local_path, error = ?e, "failed to delete local file");
+    } else {
+        tracing::debug!(path = %local_path, "deleted local file");
+    }
+
+    result
+}
+
+/// Process a downloaded slide file: extract metadata, insert into meta service, tile and upload.
+async fn process_downloaded_slide(
+    local_path: &str,
+    key: &str,
+    meta_client: &MetaClient,
+    storage_client: &mut StorageClient,
+) -> Result<()> {
+    let path = Path::new(local_path);
 
     // Get slide metadata first
     let metadata = tiler::get_slide_metadata(path).context("failed to extract slide metadata")?;
 
     tracing::info!(
-        key = %event.key,
+        key = %key,
         width = metadata.width,
         height = metadata.height,
         levels = metadata.level_count,
@@ -165,12 +186,12 @@ async fn handle_process_slide(
 
     // Insert metadata into meta service
     let slide = meta_client
-        .create_slide(metadata.width, metadata.height, &event.key)
+        .create_slide(metadata.width, metadata.height, key)
         .await
         .context("failed to create slide in meta service")?;
 
     tracing::info!(
-        key = %event.key,
+        key = %key,
         slide_id = %slide.id,
         "slide metadata inserted"
     );
@@ -181,15 +202,10 @@ async fn handle_process_slide(
         .context("failed to process slide tiles")?;
 
     tracing::info!(
-        key = %event.key,
+        key = %key,
         slide_id = %slide.id,
         "slide processing complete"
     );
-
-    // Optionally delete the local file to free up space
-    if let Err(e) = tokio::fs::remove_file(&local_path).await {
-        tracing::warn!(path = %local_path, error = ?e, "failed to delete local file");
-    }
 
     Ok(())
 }

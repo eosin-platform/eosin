@@ -35,6 +35,7 @@ impl MetaClient {
     }
 
     /// Create a new slide in the meta service
+    #[allow(clippy::cast_possible_wrap)]
     pub async fn create_slide(&self, width: u32, height: u32, url: &str) -> Result<Slide> {
         let request = CreateSlideRequest {
             width: width as i32,
@@ -44,7 +45,7 @@ impl MetaClient {
 
         let response = self
             .client
-            .post(format!("{}/slides", self.base_url))
+            .post(format!("{}/slides", &self.base_url))
             .json(&request)
             .send()
             .await
@@ -53,7 +54,7 @@ impl MetaClient {
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            anyhow::bail!("failed to create slide: {} - {}", status, body);
+            anyhow::bail!("failed to create slide: {status} - {body}");
         }
 
         response
@@ -63,10 +64,11 @@ impl MetaClient {
     }
 
     /// Get a slide by ID
+    #[allow(dead_code)]
     pub async fn get_slide(&self, id: Uuid) -> Result<Option<Slide>> {
         let response = self
             .client
-            .get(format!("{}/slides/{}", self.base_url, id))
+            .get(format!("{}/slides/{id}", &self.base_url))
             .send()
             .await
             .context("failed to send get slide request")?;
@@ -78,7 +80,7 @@ impl MetaClient {
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            anyhow::bail!("failed to get slide: {} - {}", status, body);
+            anyhow::bail!("failed to get slide: {status} - {body}");
         }
 
         Ok(Some(

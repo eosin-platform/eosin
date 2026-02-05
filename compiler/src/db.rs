@@ -7,13 +7,13 @@ pub async fn init_schema(pool: &Pool) -> Result<()> {
 
     client
         .execute(
-            r#"
+            r"
             CREATE TABLE IF NOT EXISTS compiler_dispatch (
                 key TEXT PRIMARY KEY,
                 discovered_at BIGINT NOT NULL,
                 dispatched_at BIGINT
             )
-            "#,
+            ",
             &[],
         )
         .await
@@ -57,11 +57,11 @@ where
 
     // Upsert the row
     tx.execute(
-        r#"
+        r"
         INSERT INTO compiler_dispatch (key, discovered_at, dispatched_at)
         VALUES ($1, $2, NULL)
         ON CONFLICT (key) DO NOTHING
-        "#,
+        ",
         &[&key, &now_ms],
     )
     .await
@@ -70,11 +70,11 @@ where
     // Lock the row and check if it's already dispatched
     let row = tx
         .query_one(
-            r#"
+            r"
             SELECT dispatched_at FROM compiler_dispatch
             WHERE key = $1
             FOR UPDATE
-            "#,
+            ",
             &[&key],
         )
         .await
@@ -97,11 +97,11 @@ where
 
     // Mark as dispatched
     tx.execute(
-        r#"
+        r"
         UPDATE compiler_dispatch
         SET dispatched_at = $1
         WHERE key = $2
-        "#,
+        ",
         &[&now_ms, &key],
     )
     .await

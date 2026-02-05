@@ -15,7 +15,9 @@ pub async fn run_create_slide(args: CreateSlideArgs) -> Result<()> {
     let endpoint = args.endpoint.unwrap_or_else(default_endpoint);
     let client = MetaClient::new(&endpoint);
 
-    let slide = client.create_slide(args.width, args.height, &args.url).await?;
+    let slide = client
+        .create_slide(args.width, args.height, &args.url)
+        .await?;
 
     println!("Created slide:");
     println!("  ID:     {}", slide.id);
@@ -104,10 +106,7 @@ pub async fn run_list_slides(args: ListSlidesArgs) -> Result<()> {
         println!("  (no slides)");
     } else {
         for slide in &response.items {
-            println!(
-                "  {} - {}x{} - {}",
-                slide.id, slide.width, slide.height, slide.url
-            );
+            println!("  {} - {}x{}", slide.id, slide.width, slide.height,);
         }
     }
 

@@ -49,12 +49,6 @@ pub struct TileMeta {
     pub level: u32,
 }
 
-#[derive(Debug, Clone)]
-pub struct Tile {
-    pub meta: TileMeta,
-    pub data: Vec<u8>,
-}
-
 #[derive(Debug, Clone, Copy)]
 pub struct RequestedTile {
     pub count: u32,

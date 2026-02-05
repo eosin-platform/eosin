@@ -13,7 +13,7 @@ pub enum Commands {
     /// Dispatch processing jobs for TIF files in S3
     Dispatch(DispatchArgs),
 
-    /// Process slides from the PROCESS_SLIDE topic
+    /// Process slides from the `PROCESS_SLIDE` topic
     Process(ProcessArgs),
 }
 
@@ -47,9 +47,13 @@ pub struct DispatchArgs {
     #[command(flatten)]
     pub postgres: PostgresArgs,
 
-    /// Name of the JetStream stream to publish to
+    /// Name of the `JetStream` stream to publish to
     #[arg(long, env = "STREAM_NAME", default_value = "histion")]
     pub stream_name: String,
+
+    /// Maximum number of messages to dispatch before terminating (0 = unlimited)
+    #[arg(long, env = "MAX_DISPATCH", default_value = "0")]
+    pub max_dispatch: usize,
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -60,7 +64,7 @@ pub struct ProcessArgs {
     #[command(flatten)]
     pub nats: NatsArgs,
 
-    /// Name of the JetStream stream to consume from
+    /// Name of the `JetStream` stream to consume from
     #[arg(long, env = "STREAM_NAME", default_value = "histion")]
     pub stream_name: String,
 

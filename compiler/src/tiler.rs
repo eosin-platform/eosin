@@ -14,10 +14,12 @@ pub struct SlideMetadata {
     pub width: u32,
     pub height: u32,
     pub level_count: u32,
+    #[allow(dead_code)]
     pub level_dimensions: Vec<(u32, u32)>,
 }
 
 /// Open a slide and extract its metadata
+#[allow(clippy::cast_possible_truncation)]
 pub fn get_slide_metadata(path: &Path) -> Result<SlideMetadata> {
     let slide = OpenSlide::new(path).context("failed to open slide")?;
     
@@ -28,19 +30,19 @@ pub fn get_slide_metadata(path: &Path) -> Result<SlideMetadata> {
     for level in 0..level_count {
         let Size { w, h } = slide
             .get_level_dimensions(level)
-            .context(format!("failed to get dimensions for level {}", level))?;
-        level_dimensions.push((w as u32, h as u32));
+            .context(format!("failed to get dimensions for level {level}"))?;
+        level_dimensions.push((w, h));
     }
     
     Ok(SlideMetadata {
-        width: w as u32,
-        height: h as u32,
+        width: w,
+        height: h,
         level_count,
         level_dimensions,
     })
 }
 
-/// Process a slide file: extract all tiles at all mip levels and upload to storage.
+/// Process a slide file: extract all tiles at all MIP levels and upload to storage.
 /// 
 /// This function is memory-efficient: it processes one tile at a time, never holding
 /// the entire slide in memory.
@@ -76,17 +78,18 @@ pub async fn process_slide(
     Ok(metadata)
 }
 
-/// Calculate the maximum mip level needed
+/// Calculate the maximum MIP level needed
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 fn calculate_max_mip_level(width: u32, height: u32) -> u32 {
     let max_dim = width.max(height);
     if max_dim <= TILE_SIZE {
         return 0;
     }
     // Calculate how many times we can halve until we're at or below TILE_SIZE
-    ((max_dim as f64) / (TILE_SIZE as f64)).log2().ceil() as u32
+    (f64::from(max_dim) / f64::from(TILE_SIZE)).log2().ceil() as u32
 }
 
-/// Process a single mip level
+/// Process a single MIP level
 async fn process_level(
     slide: &OpenSlide,
     metadata: &SlideMetadata,
@@ -94,19 +97,19 @@ async fn process_level(
     level: u32,
     storage_client: &mut StorageClient,
 ) -> Result<()> {
-    // Calculate dimensions at this mip level
+    // Calculate dimensions at this MIP level
     let scale = 1u32 << level; // 2^level
-    let level_width = (metadata.width + scale - 1) / scale;
-    let level_height = (metadata.height + scale - 1) / scale;
+    let level_width = metadata.width.div_ceil(scale);
+    let level_height = metadata.height.div_ceil(scale);
     
     // Calculate tile grid
-    let tiles_x = (level_width + TILE_SIZE - 1) / TILE_SIZE;
-    let tiles_y = (level_height + TILE_SIZE - 1) / TILE_SIZE;
+    let tiles_x = level_width.div_ceil(TILE_SIZE);
+    let tiles_y = level_height.div_ceil(TILE_SIZE);
     
     tracing::info!(
         level = level,
-        dimensions = format!("{}x{}", level_width, level_height),
-        tiles = format!("{}x{}", tiles_x, tiles_y),
+        dimensions = format!("{level_width}x{level_height}"),
+        tiles = format!("{tiles_x}x{tiles_y}"),
         "processing level"
     );
     
@@ -116,12 +119,12 @@ async fn process_level(
     for ty in 0..tiles_y {
         for tx in 0..tiles_x {
             let tile = extract_tile(slide, metadata, level, tx, ty, native_level)?;
-            let webp_data = encode_tile_webp(&tile)?;
+            let webp_data = encode_tile_webp(&tile);
             
             storage_client
                 .put_tile(slide_id, tx, ty, level, webp_data)
                 .await
-                .context(format!("failed to upload tile ({}, {}) at level {}", tx, ty, level))?;
+                .context(format!("failed to upload tile ({tx}, {ty}) at level {level}"))?;
         }
         
         // Log progress periodically
@@ -137,26 +140,25 @@ async fn process_level(
     Ok(())
 }
 
-/// Find the best native level in the slide that can be used to extract a tile at the given mip level.
+/// Find the best native level in the slide that can be used to extract a tile at the given MIP level.
 /// Returns the native level index and its scale relative to level 0.
 fn find_best_native_level(slide: &OpenSlide, metadata: &SlideMetadata, target_level: u32) -> Option<(u32, f64)> {
-    let target_scale = (1u32 << target_level) as f64;
+    let target_scale = f64::from(1u32 << target_level);
     
     // Find a native level with scale <= target_scale (higher resolution than needed)
     // We prefer the level closest to our target to minimize downscaling work
     let mut best: Option<(u32, f64)> = None;
     
     for native_level in 0..metadata.level_count {
-        if let Ok(downsample) = slide.get_level_downsample(native_level) {
-            if downsample <= target_scale {
-                match best {
-                    None => best = Some((native_level, downsample)),
-                    Some((_, best_downsample)) => {
-                        if downsample > best_downsample {
-                            best = Some((native_level, downsample));
-                        }
-                    }
+        if let Ok(downsample) = slide.get_level_downsample(native_level)
+            && downsample <= target_scale
+        {
+            if let Some((_, best_downsample)) = best {
+                if downsample > best_downsample {
+                    best = Some((native_level, downsample));
                 }
+            } else {
+                best = Some((native_level, downsample));
             }
         }
     }
@@ -164,10 +166,11 @@ fn find_best_native_level(slide: &OpenSlide, metadata: &SlideMetadata, target_le
     best
 }
 
-/// Extract a single tile at the given mip level and tile coordinates.
+/// Extract a single tile at the given MIP level and tile coordinates.
 /// 
 /// If the native level doesn't match exactly, we read from the best available level
 /// and downsample as needed.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
 fn extract_tile(
     slide: &OpenSlide,
     metadata: &SlideMetadata,
@@ -176,15 +179,15 @@ fn extract_tile(
     ty: u32,
     native_level: Option<(u32, f64)>,
 ) -> Result<RgbaImage> {
-    let target_scale = (1u32 << level) as f64;
+    let target_scale = f64::from(1u32 << level);
     
     // Calculate the region in level-0 coordinates
-    let x0 = (tx * TILE_SIZE) as i64 * (target_scale as i64);
-    let y0 = (ty * TILE_SIZE) as i64 * (target_scale as i64);
+    let x0 = i64::from(tx * TILE_SIZE) * (target_scale as i64);
+    let y0 = i64::from(ty * TILE_SIZE) * (target_scale as i64);
     
     // Clamp to slide bounds
-    let level_width = (metadata.width as f64 / target_scale).ceil() as u32;
-    let level_height = (metadata.height as f64 / target_scale).ceil() as u32;
+    let level_width = (f64::from(metadata.width) / target_scale).ceil() as u32;
+    let level_height = (f64::from(metadata.height) / target_scale).ceil() as u32;
     let tile_width = TILE_SIZE.min(level_width.saturating_sub(tx * TILE_SIZE));
     let tile_height = TILE_SIZE.min(level_height.saturating_sub(ty * TILE_SIZE));
     
@@ -193,67 +196,64 @@ fn extract_tile(
         return Ok(RgbaImage::new(tile_width, tile_height));
     }
     
-    match native_level {
-        Some((native_idx, native_downsample)) => {
-            // Read from the native level
-            let additional_scale = target_scale / native_downsample;
-            
-            // Size to read from native level
-            let read_width = ((tile_width as f64) * additional_scale).ceil() as u32;
-            let read_height = ((tile_height as f64) * additional_scale).ceil() as u32;
-            
-            // Position in level-0 coordinates
-            let region = slide
-                .read_region(&openslide_rs::Region {
-                    address: openslide_rs::Address { x: x0 as u32, y: y0 as u32 },
-                    level: native_idx,
-                    size: Size {
-                        w: read_width,
-                        h: read_height,
-                    },
-                })
-                .context("failed to read region from slide")?;
-            
-            // Convert to RgbaImage
-            let img = rgba_buffer_from_openslide(&region, read_width, read_height)?;
-            
-            // Resize if needed
-            if additional_scale > 1.0 + f64::EPSILON {
-                Ok(resize_image(&img, tile_width, tile_height))
-            } else {
-                Ok(img)
-            }
-        }
-        None => {
-            // No suitable native level - need to compute from level 0 and downsample
-            tracing::warn!(
-                level = level,
-                tile = format!("({}, {})", tx, ty),
-                "no suitable native level, computing mip manually"
-            );
-            
-            // Read from level 0 and downsample
-            let read_width = (tile_width as f64 * target_scale).ceil() as u32;
-            let read_height = (tile_height as f64 * target_scale).ceil() as u32;
-            
-            let region = slide
-                .read_region(&openslide_rs::Region {
-                    address: openslide_rs::Address { x: x0 as u32, y: y0 as u32 },
-                    level: 0,
-                    size: Size {
-                        w: read_width,
-                        h: read_height,
-                    },
-                })
-                .context("failed to read region from slide")?;
-            
-            let img = rgba_buffer_from_openslide(&region, read_width, read_height)?;
+    if let Some((native_idx, native_downsample)) = native_level {
+        // Read from the native level
+        let additional_scale = target_scale / native_downsample;
+        
+        // Size to read from native level
+        let read_width = (f64::from(tile_width) * additional_scale).ceil() as u32;
+        let read_height = (f64::from(tile_height) * additional_scale).ceil() as u32;
+        
+        // Position in level-0 coordinates
+        let region = slide
+            .read_region(&openslide_rs::Region {
+                address: openslide_rs::Address { x: x0 as u32, y: y0 as u32 },
+                level: native_idx,
+                size: Size {
+                    w: read_width,
+                    h: read_height,
+                },
+            })
+            .context("failed to read region from slide")?;
+        
+        // Convert to RgbaImage
+        let img = rgba_buffer_from_openslide(&region, read_width, read_height)?;
+        
+        // Resize if needed
+        if additional_scale > 1.0 + f64::EPSILON {
             Ok(resize_image(&img, tile_width, tile_height))
+        } else {
+            Ok(img)
         }
+    } else {
+        // No suitable native level - need to compute from level 0 and downsample
+        tracing::warn!(
+            level = level,
+            tile = format!("({tx}, {ty})"),
+            "no suitable native level, computing mip manually"
+        );
+        
+        // Read from level 0 and downsample
+        let read_width = (f64::from(tile_width) * target_scale).ceil() as u32;
+        let read_height = (f64::from(tile_height) * target_scale).ceil() as u32;
+        
+        let region = slide
+            .read_region(&openslide_rs::Region {
+                address: openslide_rs::Address { x: x0 as u32, y: y0 as u32 },
+                level: 0,
+                size: Size {
+                    w: read_width,
+                    h: read_height,
+                },
+            })
+            .context("failed to read region from slide")?;
+        
+        let img = rgba_buffer_from_openslide(&region, read_width, read_height)?;
+        Ok(resize_image(&img, tile_width, tile_height))
     }
 }
 
-/// Convert OpenSlide region buffer to RgbaImage
+/// Convert `OpenSlide` region buffer to `RgbaImage`
 fn rgba_buffer_from_openslide(buffer: &[u8], width: u32, height: u32) -> Result<RgbaImage> {
     // OpenSlide returns ARGB in native byte order, we need RGBA
     let expected_size = (width * height * 4) as usize;
@@ -291,10 +291,10 @@ fn resize_image(img: &RgbaImage, new_width: u32, new_height: u32) -> RgbaImage {
 }
 
 /// Encode a tile as WebP
-fn encode_tile_webp(img: &RgbaImage) -> Result<Vec<u8>> {
+fn encode_tile_webp(img: &RgbaImage) -> Vec<u8> {
     let encoder = webp::Encoder::from_rgba(img.as_raw(), img.width(), img.height());
     let webp = encoder.encode(85.0); // Quality 85
-    Ok(webp.to_vec())
+    webp.to_vec()
 }
 
 #[cfg(test)]

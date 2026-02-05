@@ -209,17 +209,3 @@ pub async fn list_slides(pool: &Pool, offset: i64, limit: i64) -> Result<ListSli
         items,
     })
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_list_slides_truncated_logic() {
-        // offset=0, limit=10, got 10 items, full_count=25 -> truncated=true
-        assert!(0 + 10 < 25);
-
-        // offset=20, limit=10, got 5 items, full_count=25 -> truncated=false
-        assert!(!(20 + 5 < 25));
-    }
-}
