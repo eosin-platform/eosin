@@ -5,6 +5,7 @@ mod args;
 mod client;
 mod server;
 mod viewport;
+mod worker;
 
 use args::{Cli, Commands};
 use server::run_server;

@@ -20,3 +20,4 @@ rustc-hash = "2.1.1"
 futures-util = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+async-channel = "2.5.0"

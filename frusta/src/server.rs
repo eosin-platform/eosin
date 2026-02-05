@@ -1,6 +1,6 @@
 use std::net::SocketAddr;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use axum::{
     Router,
     extract::{
@@ -11,40 +11,58 @@ use axum::{
     routing::get,
 };
 use futures_util::{SinkExt, StreamExt};
+use histion_storage::client::StorageClient;
+use tokio_util::sync::CancellationToken;
 use tower_http::cors::{Any, CorsLayer};
 
-use crate::args::ServerArgs;
+use crate::{args::ServerArgs, viewport::RetrieveTileWork, worker::worker_main};
 
 /// Shared application state
 #[derive(Clone)]
 pub struct AppState {
     pub storage_endpoint: String,
+    pub tx: async_channel::Sender<RetrieveTileWork>,
 }
 
 /// Run the frusta WebSocket server.
 pub async fn run_server(args: ServerArgs) -> Result<()> {
+    let storage = StorageClient::connect(&args.storage_endpoint)
+        .await
+        .context("failed to connect to storage endpoint")?;
+    let cancel = CancellationToken::new();
+    let (tx, rx) = async_channel::bounded(1000);
+    let workers = (0..args.worker_count)
+        .map(|_| {
+            tokio::spawn({
+                let cancel = cancel.clone();
+                let storage = storage.clone();
+                let rx = rx.clone();
+                async move { worker_main(cancel, storage, rx).await }
+            })
+        })
+        .collect::<Vec<_>>();
     let state = AppState {
         storage_endpoint: args.storage_endpoint.clone(),
+        tx,
     };
-
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods(Any)
         .allow_headers(Any);
-
     let app = Router::new()
         .route("/", get(index))
         .route("/ws", get(ws_handler))
         .route("/health", get(health))
         .layer(cors)
         .with_state(state);
-
     let addr: SocketAddr = format!("0.0.0.0:{}", args.port).parse()?;
     tracing::info!(%addr, "starting frusta WebSocket server");
-
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;
-
+    cancel.cancel();
+    for worker in workers {
+        let _ = worker.await;
+    }
     Ok(())
 }
 

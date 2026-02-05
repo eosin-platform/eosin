@@ -19,4 +19,7 @@ pub struct ServerArgs {
 
     #[arg(long, env = "STORAGE_ENDPOINT", required = true)]
     pub storage_endpoint: String,
+
+    #[arg(long, env = "WORKER_COUNT", default_value_t = 4)]
+    pub worker_count: usize,
 }
