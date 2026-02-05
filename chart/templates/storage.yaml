@@ -51,11 +51,11 @@ spec:
         readinessProbe:
           httpGet:
             path: /readyz
-            port: 80
+            port: 8080
         livenessProbe:
           httpGet:
             path: /healthz
-            port: 80
+            port: 8080
         env:
         - name: SERVICE_NAME
           value: storage
@@ -67,6 +67,20 @@ spec:
           value: http://{{ .Release.Name }}-storage:80
 {{ include "histion.metrics-env" . | indent 8 }}
 {{ include "histion.nats-env" . | indent 8 }}
+      - name: health
+        imagePullPolicy: {{ .Values.storage.imagePullPolicy }}
+        image: {{ $image }}
+        command:
+          - histion-storage
+          - health
+          - --http-port
+          - "8080"
+          - --grpc-target
+          - "http://127.0.0.1:80"
+        ports:
+        - containerPort: 8080
+          protocol: TCP
+          name: health
 ---
 {{- if .Values.prometheus.enabled }}
 apiVersion: monitoring.coreos.com/v1
