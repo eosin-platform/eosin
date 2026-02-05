@@ -69,6 +69,7 @@ pub struct ViewManager {
     tx: Sender<Tile>,
     cancel_update: Option<CancellationToken>,
     worker_tx: Sender<RetrieveTileWork>,
+    dpi: f32,
 }
 
 pub struct Viewport {
@@ -88,6 +89,7 @@ pub struct RetrieveTileWork {
 
 impl ViewManager {
     pub fn new(
+        dpi: f32,
         storage: StorageClient,
         image: ImageDesc,
         worker_tx: Sender<RetrieveTileWork>,
@@ -95,6 +97,7 @@ impl ViewManager {
         let (tx, rx) = tokio::sync::mpsc::channel(100);
         (
             Self {
+                dpi,
                 sent: FxHashMap::default(),
                 storage,
                 image,
