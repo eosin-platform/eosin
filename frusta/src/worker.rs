@@ -25,7 +25,22 @@ pub async fn worker_main(
                         work.meta.y,
                         work.meta.level,
                     ) => {
-                        let data = data.context("failed to get tile from storage")?;
+                        // Handle missing tiles gracefully - they may not be processed yet
+                        // The client can request again later when the tile becomes available
+                        let data = match data {
+                            Ok(data) => data,
+                            Err(e) => {
+                                tracing::debug!(
+                                    slide_id = %work.slide_id,
+                                    x = work.meta.x,
+                                    y = work.meta.y,
+                                    level = work.meta.level,
+                                    error = %e,
+                                    "tile not available, skipping"
+                                );
+                                continue;
+                            }
+                        };
                         let payload = MessageBuilder::tile_data(work.slot, &work.meta, &data);
                         tokio::select! {
                             _ = cancel.cancelled() => return Ok(()),
