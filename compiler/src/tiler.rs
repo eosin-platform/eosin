@@ -361,10 +361,18 @@ async fn process_level(
 
                 let slide = handle_ref.as_ref().unwrap();
 
-                // Extract the tile
-                let tile = extract_tile(slide, &metadata_clone, level, tx, ty, native_level)?;
+                // Extract the tile (returns None if the tile should be skipped)
+                let tile = match extract_tile(slide, &metadata_clone, level, tx, ty, native_level)? {
+                    Some(t) => t,
+                    None => {
+                        tx_channel
+                            .send_blocking(None)
+                            .map_err(|e| anyhow::anyhow!("failed to send skip signal: {e}"))?;
+                        return Ok(());
+                    }
+                };
 
-                // Skip empty tiles (sparse TIF regions with no content)
+                // Skip empty/black tiles (sparse TIF regions with no useful content)
                 if is_tile_empty(&tile) {
                     tx_channel
                         .send_blocking(None)
@@ -668,7 +676,7 @@ fn extract_tile(
     tx: u32,
     ty: u32,
     native_level: Option<(u32, f64)>,
-) -> Result<RgbaImage> {
+) -> Result<Option<RgbaImage>> {
     let target_scale = f64::from(1u32 << level);
 
     // Calculate the region in level-0 coordinates
@@ -682,71 +690,92 @@ fn extract_tile(
     let tile_height = TILE_SIZE.min(level_height.saturating_sub(ty * TILE_SIZE));
 
     if tile_width == 0 || tile_height == 0 {
-        // Return empty tile
-        return Ok(RgbaImage::new(tile_width, tile_height));
+        return Ok(None);
     }
 
-    if let Some((native_idx, native_downsample)) = native_level {
-        // Read from the native level
+    // Build a list of (native_idx, native_downsample) candidates to try, ordered
+    // from the preferred level down to level 0.  Some TIFF files advertise more
+    // levels than actually have valid IFDs, so a read_region call can fail with
+    // "Cannot set TIFF directory N".  When that happens we fall back to the next
+    // candidate rather than aborting.
+    let candidates: Vec<(u32, f64)> = if let Some((best_idx, best_ds)) = native_level {
+        // Start from the best native level, then try all lower-indexed levels
+        // (which are higher resolution) down to 0.
+        let mut v = vec![(best_idx, best_ds)];
+        for fallback_idx in (0..best_idx).rev() {
+            if let Ok(ds) = slide.get_level_downsample(fallback_idx) {
+                v.push((fallback_idx, ds));
+            }
+        }
+        v
+    } else {
+        // No suitable native level at all – try level 0 directly.
+        vec![(0, 1.0)]
+    };
+
+    for (candidate_idx, (native_idx, native_downsample)) in candidates.iter().enumerate() {
         let additional_scale = target_scale / native_downsample;
 
-        // Size to read from native level
+        // Size to read from this native level
         let read_width = (f64::from(tile_width) * additional_scale).ceil() as u32;
         let read_height = (f64::from(tile_height) * additional_scale).ceil() as u32;
 
         // Position in level-0 coordinates
-        let region = slide
-            .read_region(&openslide_rs::Region {
-                address: openslide_rs::Address {
-                    x: x0 as u32,
-                    y: y0 as u32,
-                },
-                level: native_idx,
-                size: Size {
-                    w: read_width,
-                    h: read_height,
-                },
-            })
-            .context("failed to read region from slide")?;
+        let region_result = slide.read_region(&openslide_rs::Region {
+            address: openslide_rs::Address {
+                x: x0 as u32,
+                y: y0 as u32,
+            },
+            level: *native_idx,
+            size: Size {
+                w: read_width,
+                h: read_height,
+            },
+        });
 
-        // Convert to RgbaImage
-        let img = rgba_buffer_from_openslide(&region, read_width, read_height)?;
+        match region_result {
+            Ok(region) => {
+                if candidate_idx > 0 {
+                    // We are using a fallback level – log it once per tile so
+                    // the operator knows downsampled data was synthesised.
+                    tracing::warn!(
+                        level = level,
+                        tile = format!("({tx}, {ty})"),
+                        failed_native = candidates[0].0,
+                        fallback_native = native_idx,
+                        "native level unreadable, computed mip from higher-res fallback"
+                    );
+                }
 
-        // Resize if needed
-        if additional_scale > 1.0 + f64::EPSILON {
-            Ok(resize_image(&img, tile_width, tile_height))
-        } else {
-            Ok(img)
+                let img = rgba_buffer_from_openslide(&region, read_width, read_height)?;
+
+                // Resize if needed (always needed when using a fallback)
+                return if additional_scale > 1.0 + f64::EPSILON {
+                    Ok(Some(resize_image(&img, tile_width, tile_height)))
+                } else {
+                    Ok(Some(img))
+                };
+            }
+            Err(e) => {
+                // Log the error and try the next candidate
+                tracing::error!(
+                    level = level,
+                    tile = format!("({tx}, {ty})"),
+                    native_level = native_idx,
+                    error = %e,
+                    "failed to read region from native level, trying fallback"
+                );
+            }
         }
-    } else {
-        // No suitable native level - need to compute from level 0 and downsample
-        tracing::warn!(
-            level = level,
-            tile = format!("({tx}, {ty})"),
-            "no suitable native level, computing mip manually"
-        );
-
-        // Read from level 0 and downsample
-        let read_width = (f64::from(tile_width) * target_scale).ceil() as u32;
-        let read_height = (f64::from(tile_height) * target_scale).ceil() as u32;
-
-        let region = slide
-            .read_region(&openslide_rs::Region {
-                address: openslide_rs::Address {
-                    x: x0 as u32,
-                    y: y0 as u32,
-                },
-                level: 0,
-                size: Size {
-                    w: read_width,
-                    h: read_height,
-                },
-            })
-            .context("failed to read region from slide")?;
-
-        let img = rgba_buffer_from_openslide(&region, read_width, read_height)?;
-        Ok(resize_image(&img, tile_width, tile_height))
     }
+
+    // All candidates exhausted – skip this tile entirely.
+    tracing::error!(
+        level = level,
+        tile = format!("({tx}, {ty})"),
+        "all native levels failed, skipping tile"
+    );
+    Ok(None)
 }
 
 /// Convert `OpenSlide` region buffer to `RgbaImage`
@@ -791,14 +820,19 @@ fn resize_image(img: &RgbaImage, new_width: u32, new_height: u32) -> RgbaImage {
     )
 }
 
-/// Check if a tile is entirely empty (all pixel channel values are zero).
-/// Sparse TIF files have large regions with no content that produce all-zero tiles.
-/// We skip storing these to save space and avoid rendering black squares in the client.
+/// Check if a tile is entirely empty (no meaningful RGB content).
+/// Sparse TIF files have large regions with no content that produce solid-black
+/// tiles.  OpenSlide may return these as transparent (RGBA 0,0,0,0) or as opaque
+/// black (RGBA 0,0,0,255).  We detect both by checking only the R, G, B channels
+/// and ignoring alpha.
 fn is_tile_empty(img: &RgbaImage) -> bool {
-    // Sum all pixel components. If the sum is zero, the tile is empty.
-    // Using u64 to avoid any overflow concerns.
-    let sum: u64 = img.as_raw().iter().map(|&b| u64::from(b)).sum();
-    sum == 0
+    let raw = img.as_raw();
+    // Stride through RGBA quads, summing only R+G+B and skipping A.
+    let rgb_sum: u64 = raw
+        .chunks_exact(4)
+        .map(|px| u64::from(px[0]) + u64::from(px[1]) + u64::from(px[2]))
+        .sum();
+    rgb_sum == 0
 }
 
 /// Encode a tile as WebP
