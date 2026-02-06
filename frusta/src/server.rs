@@ -29,13 +29,11 @@ use uuid::Uuid;
 use crate::{
     args::ServerArgs,
     protocol::{
-        MessageBuilder, MessageType, DPI_SIZE, IMAGE_DESC_SIZE, TILE_REQUEST_SIZE, UUID_SIZE,
-        VIEWPORT_SIZE,
+        MessageBuilder, MessageType, DPI_SIZE, IMAGE_DESC_SIZE, TILE_REQUEST_SIZE, VIEWPORT_SIZE,
     },
     viewport::{ImageDesc, RetrieveTileWork, TileMeta, ViewManager, Viewport},
     worker::worker_main,
 };
-use rustc_hash::FxHashMap;
 
 /// Shared application state
 #[derive(Clone)]
@@ -315,24 +313,20 @@ async fn handle_message(
         MessageType::Open => {
             tracing::debug!("handling Open message");
             ensure!(
-                data.len() >= DPI_SIZE + IMAGE_DESC_SIZE,
+                data.len() >= 1 + DPI_SIZE + IMAGE_DESC_SIZE,
                 "Open message too short"
             );
-            let dpi = f32::from_le_bytes(data[0..DPI_SIZE].try_into().unwrap());
-            let image = ImageDesc::from_slice(&data[DPI_SIZE..DPI_SIZE + IMAGE_DESC_SIZE])?;
-            let slot = session.open_slide(dpi, image)?;
-            let payload = MessageBuilder::open_response(slot, image.id);
-            send_tx
-                .send(Message::Binary(payload))
-                .await
-                .context("failed to send Open response")?;
+            let slot = data[0];
+            let dpi = f32::from_le_bytes(data[1..1 + DPI_SIZE].try_into().unwrap());
+            let image = ImageDesc::from_slice(&data[1 + DPI_SIZE..1 + DPI_SIZE + IMAGE_DESC_SIZE])?;
+            session.open_slide(slot, dpi, image)?;
             Ok(())
         }
         MessageType::Close => {
             tracing::debug!("handling Close message");
-            ensure!(data.len() >= UUID_SIZE, "Close message too short");
-            let id = Uuid::from_slice(&data[..UUID_SIZE])?;
-            session.close_slide(id).context("failed to close slide")
+            ensure!(data.len() >= 1, "Close message too short");
+            let slot = data[0];
+            session.close_slide(slot).context("failed to close slide")
         }
         MessageType::ClearCache => {
             tracing::debug!("handling ClearCache message");
@@ -492,10 +486,7 @@ pub struct Session {
     worker_tx: Sender<RetrieveTileWork>,
     slides: [Option<Uuid>; 256],
     viewports: Vec<Option<ViewManager>>,
-    free: Vec<u8>,
     send_tx: Sender<Bytes>,
-    /// O(1) lookup from UUID to slot index
-    uuid_to_slot: FxHashMap<Uuid, u8>,
     nats_client: NatsClient,
     rate_limiter: RateLimiter,
     client_ip: Option<String>,
@@ -519,9 +510,7 @@ impl Session {
             worker_tx,
             slides: [None; 256],
             viewports: (0..256).map(|_| None).collect(),
-            free: (0..=255u8).rev().collect(),
             send_tx,
-            uuid_to_slot: FxHashMap::default(),
             nats_client,
             rate_limiter,
             client_ip,
@@ -544,18 +533,14 @@ impl Session {
             .context("invalid slide slot")
     }
 
-    /// Allocate a slot for this slide ID. O(1).
-    pub fn open_slide(&mut self, dpi: f32, image: ImageDesc) -> Result<u8> {
-        // O(1) check if already open
-        if let Some(&slot) = self.uuid_to_slot.get(&image.id) {
-            return Ok(slot);
+    /// Place a slide into the client-specified slot.
+    pub fn open_slide(&mut self, slot: u8, dpi: f32, image: ImageDesc) -> Result<()> {
+        // If the slot is already occupied, close it first
+        if self.slides[slot as usize].is_some() {
+            self.close_slide(slot)?;
         }
 
-        // Allocate new slot
-        let slot = self.free.pop().context("no free slide slots available")?;
-
         self.slides[slot as usize] = Some(image.id);
-        self.uuid_to_slot.insert(image.id, slot);
         let manager = ViewManager::new(
             slot,
             dpi,
@@ -566,16 +551,18 @@ impl Session {
             self.client_ip.clone(),
         );
         self.viewports[slot as usize] = Some(manager);
-        Ok(slot)
+        Ok(())
     }
 
-    /// Free the slot for this slide ID. O(1).
-    pub fn close_slide(&mut self, id: Uuid) -> Result<()> {
-        let slot = self.uuid_to_slot.remove(&id).context("slide not found")?;
-
+    /// Free the given slot.
+    pub fn close_slide(&mut self, slot: u8) -> Result<()> {
+        ensure!(
+            self.slides[slot as usize].is_some(),
+            "slot {} is not open",
+            slot
+        );
         self.slides[slot as usize] = None;
         self.viewports[slot as usize] = None;
-        self.free.push(slot);
         Ok(())
     }
 }

@@ -73,11 +73,12 @@
   // Image state from server data
   let imageDesc = $state<ImageDesc | null>(null);
   let currentSlot = $state<number | null>(null);
-  let currentSlideId = $state<Uint8Array | null>(null);
   let loadError = $state<string | null>(null);
 
-  // Track last loaded slide ID to detect changes
-  let lastLoadedSlideId = $state<string | null>(null);
+  // Track the currently active tab handle (tabId) for the viewer
+  let activeTabHandle = $state<string | null>(null);
+  // The slide ID of the currently displayed slide (for URL sync and progress)
+  let activeSlideId = $state<string | null>(null);
 
   // Viewport state
   let viewport = $state<ViewportState>({
@@ -117,9 +118,9 @@
    * Uses replaceState so it doesn't create new history entries on every pan/zoom.
    */
   function syncUrlToViewport() {
-    if (!browser || !mounted || !lastLoadedSlideId) return;
+    if (!browser || !mounted || !activeSlideId) return;
     const params = new URLSearchParams();
-    params.set('slide', lastLoadedSlideId);
+    params.set('slide', activeSlideId);
     params.set('x', viewport.x.toFixed(1));
     params.set('y', viewport.y.toFixed(1));
     params.set('zoom', viewport.zoom.toPrecision(4));
@@ -192,43 +193,69 @@
    * Close the currently open slide over the WebSocket, freeing the slot.
    */
   function closeCurrentSlide() {
-    if (currentSlideId && client) {
-      client.closeSlide(currentSlideId);
-      console.log(`Slide closed: slot=${currentSlot}`);
+    if (currentSlot !== null && client) {
+      client.closeSlide(currentSlot);
+      console.log(`Slide closed: handle=${activeTabHandle}, slot=${currentSlot}`);
     }
     currentSlot = null;
-    currentSlideId = null;
   }
 
-  function loadSlide(slide: SlideInfo) {
-    const newImageDesc = slideInfoToImageDesc(slide);
+  /**
+   * Activate a tab: save the previous tab's viewport, close its slot,
+   * then set up the new tab's slide for viewing.
+   */
+  function activateTab(tab: Tab) {
+    const newImageDesc = slideInfoToImageDesc({
+      id: tab.slideId,
+      width: tab.width,
+      height: tab.height,
+      levels: computeLevels(tab.width, tab.height),
+      filename: tab.label,
+    });
     if (!newImageDesc) {
       loadError = 'Failed to parse slide info';
       return;
     }
 
-    // Close the previous slide if one is open
+    // Save the current tab's viewport before switching away
+    if (activeTabHandle && activeTabHandle !== tab.tabId) {
+      tabStore.saveViewport(activeTabHandle, {
+        x: viewport.x,
+        y: viewport.y,
+        zoom: viewport.zoom,
+      });
+    }
+
+    // Close the previous tab's slot
     closeCurrentSlide();
 
+    const sameSlide = activeSlideId === tab.slideId;
+
     imageDesc = newImageDesc;
-    lastLoadedSlideId = slide.id;
+    activeTabHandle = tab.tabId;
+    activeSlideId = tab.slideId;
     loadError = null;
 
     // Reset progress state for new slide
     progressSteps = 0;
     progressTotal = 0;
 
-    // Clear tile cache for new image
-    if (cache) {
+    // Only clear tile cache when switching to a different slide
+    if (!sameSlide && cache) {
       cache.clear();
       cacheSize = 0;
       tilesReceived = 0;
     }
 
-    // Center viewport on the new image, unless URL params override
-    if (container) {
+    // Restore saved viewport or center on the image
+    if (tab.savedViewport) {
+      viewport = { ...viewport, x: tab.savedViewport.x, y: tab.savedViewport.y, zoom: tab.savedViewport.zoom };
+      if (container) {
+        viewport = clampViewport(viewport, newImageDesc.width, newImageDesc.height);
+      }
+    } else if (container) {
       const rect = container.getBoundingClientRect();
-      viewport = centerViewport(rect.width, rect.height, imageDesc.width, imageDesc.height);
+      viewport = centerViewport(rect.width, rect.height, newImageDesc.width, newImageDesc.height);
 
       // On initial load, apply viewport from URL query if present
       if (!initialUrlApplied && browser) {
@@ -243,15 +270,15 @@
           const pz = parseFloat(uz);
           if (isFinite(px) && isFinite(py) && isFinite(pz) && pz > 0) {
             viewport = { ...viewport, x: px, y: py, zoom: pz };
-            viewport = clampViewport(viewport, imageDesc.width, imageDesc.height);
+            viewport = clampViewport(viewport, newImageDesc.width, newImageDesc.height);
           }
         }
       }
     }
 
     scheduleSyncUrl();
-    // openSlide() is handled by the reactive $effect that watches
-    // connectionState + imageDesc, so it fires regardless of ordering.
+    // Open the slide on the WebSocket if connected
+    openSlide();
   }
 
   /**
@@ -278,38 +305,29 @@
 
   $effect(() => {
     if (!activeTab) {
-      // No tab open — clear slide params from URL
-      if (browser && mounted && lastLoadedSlideId) {
+      // No tab open — close the current slide and clear URL
+      const hadSlide = !!activeSlideId;
+      closeCurrentSlide();
+      imageDesc = null;
+      activeTabHandle = null;
+      activeSlideId = null;
+      if (browser && mounted && hadSlide) {
         replaceState('/', {});
       }
       return;
     }
-    // Only load if this is a different slide than what's already displayed
-    if (activeTab.slideId !== lastLoadedSlideId) {
-      const slide: SlideInfo = {
-        id: activeTab.slideId,
-        width: activeTab.width,
-        height: activeTab.height,
-        levels: computeLevels(activeTab.width, activeTab.height),
-        filename: activeTab.label,
-      };
-      loadSlide(slide);
-    } else if (activeTab.savedViewport) {
-      // Switching back to an already-loaded slide's tab — restore viewport
-      viewport = { ...viewport, x: activeTab.savedViewport.x, y: activeTab.savedViewport.y, zoom: activeTab.savedViewport.zoom };
-      scheduleViewportUpdate();
-    } else {
-      // Same slide, no saved viewport — just sync URL in case tab switched back
-      scheduleSyncUrl();
+    // Activate if this is a different tab OR the active tab's slide changed
+    // (tabStore.open() replaces the active tab's slideId in-place)
+    if (activeTab.tabId !== activeTabHandle || activeTab.slideId !== activeSlideId) {
+      activateTab(activeTab);
     }
   });
 
-  // Reactive trigger: open the slide on the WebSocket whenever we have an
-  // imageDesc ready AND the connection is up, but no slot has been assigned yet.
-  // This eliminates the race between loadSlide() and connect() — whichever
-  // completes last will satisfy the condition and kick off the open.
+  // Reactive trigger: open the slide on the WebSocket when connection comes up
+  // after activateTab() has already set imageDesc. This handles the race where
+  // activateTab() fires before the WebSocket is connected.
   $effect(() => {
-    if (connectionState === 'connected' && imageDesc && currentSlot === null) {
+    if (connectionState === 'connected' && imageDesc && activeTabHandle && currentSlot === null) {
       openSlide();
     }
   });
@@ -349,17 +367,10 @@
         tilesReceived++;
         handleTileReceived(tile);
       },
-      onOpenResponse: (response) => {
-        currentSlot = response.slot;
-        currentSlideId = response.id;
-        console.log(`Slide opened: slot=${response.slot}, id=${formatUuid(response.id)}`);
-        // Send initial viewport update
-        sendViewportUpdate();
-      },
       onProgress: (event: ProgressEvent) => {
         const eventSlideId = formatUuid(event.slideId);
         // Update local progress display if this event is for the currently viewed slide
-        if (eventSlideId === lastLoadedSlideId) {
+        if (eventSlideId === activeSlideId) {
           progressSteps = event.progressSteps;
           progressTotal = event.progressTotal;
           progressUpdateTrigger++;
@@ -387,14 +398,6 @@
           receivedAt: Date.now(),
         });
       },
-      onSlotReassigned: (id, oldSlot, newSlot) => {
-        console.log(`Slot reassigned: old=${oldSlot} new=${newSlot}, id=${formatUuid(id)}`);
-        // If this is the slide we currently have open, update our slot reference
-        if (currentSlideId && currentSlideId.length === id.length &&
-            currentSlideId.every((b, i) => b === id[i])) {
-          currentSlot = newSlot;
-        }
-      },
       onError: (error) => {
         const msg = error instanceof Error ? error.message : 'Connection error';
         lastError = msg;
@@ -410,7 +413,15 @@
     if (!client || !imageDesc) return;
 
     const dpi = window.devicePixelRatio * 96;
-    client.openSlide(dpi, imageDesc);
+    const slot = client.openSlide(dpi, imageDesc);
+    if (slot === -1) {
+      loadError = 'No free slots available';
+      return;
+    }
+    currentSlot = slot;
+    console.log(`Slide opened: handle=${activeTabHandle}, slot=${slot}`);
+    // Send initial viewport update now that slot is assigned
+    sendViewportUpdate();
   }
 
   async function handleTileReceived(tile: TileData) {

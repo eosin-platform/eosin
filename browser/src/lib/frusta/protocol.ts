@@ -59,12 +59,6 @@ export interface TileData {
   data: Uint8Array;
 }
 
-/** Open response from the server */
-export interface OpenResponse {
-  slot: number;
-  id: Uint8Array;
-}
-
 /** Progress event from the server */
 export interface ProgressEvent {
   slideId: Uint8Array; // 16-byte UUID
@@ -84,19 +78,20 @@ export interface SlideCreatedEvent {
 
 /**
  * Create an Open message.
- * Format: [type: u8][dpi: f32 le][uuid: 16 bytes][width: u32 le][height: u32 le][levels: u32 le]
+ * Format: [type: u8][slot: u8][dpi: f32 le][uuid: 16 bytes][width: u32 le][height: u32 le][levels: u32 le]
  */
-export function buildOpenMessage(dpi: number, image: ImageDesc): ArrayBuffer {
-  const buffer = new ArrayBuffer(1 + DPI_SIZE + IMAGE_DESC_SIZE);
+export function buildOpenMessage(slot: number, dpi: number, image: ImageDesc): ArrayBuffer {
+  const buffer = new ArrayBuffer(1 + 1 + DPI_SIZE + IMAGE_DESC_SIZE);
   const view = new DataView(buffer);
   const bytes = new Uint8Array(buffer);
 
   view.setUint8(0, MessageType.Open);
-  view.setFloat32(1, dpi, true); // little-endian
-  bytes.set(image.id, 1 + DPI_SIZE);
-  view.setUint32(1 + DPI_SIZE + UUID_SIZE, image.width, true);
-  view.setUint32(1 + DPI_SIZE + UUID_SIZE + 4, image.height, true);
-  view.setUint32(1 + DPI_SIZE + UUID_SIZE + 8, image.levels, true);
+  view.setUint8(1, slot);
+  view.setFloat32(2, dpi, true); // little-endian
+  bytes.set(image.id, 2 + DPI_SIZE);
+  view.setUint32(2 + DPI_SIZE + UUID_SIZE, image.width, true);
+  view.setUint32(2 + DPI_SIZE + UUID_SIZE + 4, image.height, true);
+  view.setUint32(2 + DPI_SIZE + UUID_SIZE + 8, image.levels, true);
 
   return buffer;
 }
@@ -122,14 +117,14 @@ export function buildUpdateMessage(slot: number, viewport: Viewport): ArrayBuffe
 
 /**
  * Create a Close message.
- * Format: [type: u8][uuid: 16 bytes]
+ * Format: [type: u8][slot: u8]
  */
-export function buildCloseMessage(id: Uint8Array): ArrayBuffer {
-  const buffer = new ArrayBuffer(1 + UUID_SIZE);
-  const bytes = new Uint8Array(buffer);
+export function buildCloseMessage(slot: number): ArrayBuffer {
+  const buffer = new ArrayBuffer(2);
+  const view = new DataView(buffer);
 
-  bytes[0] = MessageType.Close;
-  bytes.set(id, 1);
+  view.setUint8(0, MessageType.Close);
+  view.setUint8(1, slot);
 
   return buffer;
 }
@@ -166,21 +161,6 @@ export function buildRequestTileMessage(slot: number, x: number, y: number, leve
 }
 
 /**
- * Parse an Open response message.
- * Format: [type: u8][slot: u8][uuid: 16 bytes]
- */
-export function parseOpenResponse(data: ArrayBuffer): OpenResponse | null {
-  const bytes = new Uint8Array(data);
-  if (bytes.length < 2 + UUID_SIZE) return null;
-  if (bytes[0] !== MessageType.Open) return null;
-
-  return {
-    slot: bytes[1],
-    id: bytes.slice(2, 2 + UUID_SIZE),
-  };
-}
-
-/**
  * Parse incoming tile data.
  * Format: [slot: u8][x: u32 le][y: u32 le][level: u32 le][data: bytes]
  */
@@ -199,17 +179,6 @@ export function parseTileData(data: ArrayBuffer): TileData | null {
     },
     data: bytes.slice(TILE_HEADER_SIZE),
   };
-}
-
-/**
- * Check if a binary message is an Open response (starts with MessageType.Open)
- */
-export function isOpenResponse(data: ArrayBuffer): boolean {
-  const bytes = new Uint8Array(data);
-  // Open responses have a fixed size.
-  // Tile frames begin with a slot byte (no type byte), so require exact length
-  // to avoid misclassifying tile frames for slot==MessageType.Open.
-  return bytes.length === 2 + UUID_SIZE && bytes[0] === MessageType.Open;
 }
 
 /**

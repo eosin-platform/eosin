@@ -4,7 +4,7 @@
 
 export { FrustaClient, createFrustaClient } from './client';
 export type { FrustaClientOptions, ConnectionState } from './client';
-export type { ImageDesc, Viewport, TileData, TileMeta, OpenResponse, ProgressEvent, SlideCreatedEvent } from './protocol';
+export type { ImageDesc, Viewport, TileData, TileMeta, ProgressEvent, SlideCreatedEvent } from './protocol';
 export {
   MessageType,
   UUID_SIZE,
@@ -13,7 +13,6 @@ export {
   buildCloseMessage,
   buildClearCacheMessage,
   buildRequestTileMessage,
-  parseOpenResponse,
   parseTileData,
   parseProgressEvent,
   isProgressEvent,

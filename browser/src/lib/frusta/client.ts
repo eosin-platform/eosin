@@ -6,7 +6,6 @@ import {
   type ImageDesc,
   type Viewport,
   type TileData,
-  type OpenResponse,
   type ProgressEvent,
   type SlideCreatedEvent,
   buildOpenMessage,
@@ -14,11 +13,9 @@ import {
   buildCloseMessage,
   buildClearCacheMessage,
   buildRequestTileMessage,
-  parseOpenResponse,
   parseTileData,
   parseProgressEvent,
   parseSlideCreated,
-  isOpenResponse,
   isProgressEvent,
   isRateLimited,
   isSlideCreated,
@@ -39,8 +36,6 @@ export interface FrustaClientOptions {
   onStateChange?: (state: ConnectionState) => void;
   /** Called when a tile is received */
   onTile?: (tile: TileData) => void;
-  /** Called when an open response is received */
-  onOpenResponse?: (response: OpenResponse) => void;
   /** Called when a progress event is received */
   onProgress?: (event: ProgressEvent) => void;
   /** Called when a slide created event is received */
@@ -49,18 +44,13 @@ export interface FrustaClientOptions {
   onRateLimited?: () => void;
   /** Called on error */
   onError?: (error: Event | Error) => void;
-  /**
-   * Called when a slide's slot is reassigned after reconnection.
-   * The consumer must update any references to the old slot.
-   */
-  onSlotReassigned?: (id: Uint8Array, oldSlot: number, newSlot: number) => void;
 }
 
 /** Internal record of an open slide for reconnection. */
 interface TrackedSlide {
+  slot: number;
   dpi: number;
   image: ImageDesc;
-  slot: number;
 }
 
 export class FrustaClient {
@@ -75,9 +65,11 @@ export class FrustaClient {
   private rateLimitCooldownTimeout: ReturnType<typeof setTimeout> | null = null;
   /**
    * Slides currently considered open by the client.
-   * Key is the hex-encoded UUID for easy comparison.
+   * Key is the client-assigned slot number.
    */
-  private openSlides = new Map<string, TrackedSlide>();
+  private openSlides = new Map<number, TrackedSlide>();
+  /** Free slot numbers available for allocation (stack, pop from end). */
+  private freeSlots: number[] = [];
   /** True while we are re-opening slides after a reconnect. */
   private _reconnecting = false;
 
@@ -88,14 +80,16 @@ export class FrustaClient {
       connectTimeout: 10000,
       onStateChange: () => {},
       onTile: () => {},
-      onOpenResponse: () => {},
       onProgress: () => {},
       onSlideCreated: () => {},
       onRateLimited: () => {},
       onError: () => {},
-      onSlotReassigned: () => {},
       ...options,
     };
+    // Initialize all 256 slots as free (push in reverse so slot 0 is popped first)
+    for (let i = 255; i >= 0; i--) {
+      this.freeSlots.push(i);
+    }
   }
 
   /** Current connection state */
@@ -118,13 +112,6 @@ export class FrustaClient {
   /** Whether the client is currently re-opening slides after a reconnection */
   get reconnecting(): boolean {
     return this._reconnecting;
-  }
-
-  /** Convert a UUID Uint8Array to a hex string key for the openSlides map. */
-  private static idToKey(id: Uint8Array): string {
-    return Array.from(id)
-      .map((b) => b.toString(16).padStart(2, '0'))
-      .join('');
   }
 
   /** Enter rate-limited state for 5 seconds */
@@ -214,6 +201,10 @@ export class FrustaClient {
     }
     this._rateLimited = false;
     this.openSlides.clear();
+    this.freeSlots = [];
+    for (let i = 255; i >= 0; i--) {
+      this.freeSlots.push(i);
+    }
     this._reconnecting = false;
     if (this.ws) {
       this.ws.close();
@@ -225,18 +216,16 @@ export class FrustaClient {
   /**
    * Re-open all tracked slides after a reconnection.
    * Called automatically when the WebSocket connects/reconnects.
+   * Slots are preserved — the client is authoritative for slot assignment.
    */
   private reopenTrackedSlides(): void {
     if (this.openSlides.size === 0) return;
     this._reconnecting = true;
     for (const tracked of this.openSlides.values()) {
-      this.send(buildOpenMessage(tracked.dpi, tracked.image));
+      this.send(buildOpenMessage(tracked.slot, tracked.dpi, tracked.image));
     }
-    // _reconnecting is cleared once all OpenResponses arrive,
-    // but as a safety net clear it after a short delay.
-    setTimeout(() => {
-      this._reconnecting = false;
-    }, 5000);
+    // No server response to wait for — clear immediately
+    this._reconnecting = false;
   }
 
   private handleReconnect(): void {
@@ -262,26 +251,6 @@ export class FrustaClient {
       this.enterRateLimitCooldown();
       this.options.onRateLimited();
       return;
-    }
-
-    // Check if this is an Open response (message type byte is first)
-    if (isOpenResponse(data)) {
-      const response = parseOpenResponse(data);
-      if (response) {
-        const key = FrustaClient.idToKey(response.id);
-        const tracked = this.openSlides.get(key);
-        if (tracked) {
-          const oldSlot = tracked.slot;
-          tracked.slot = response.slot;
-          // Only fire onSlotReassigned when a previously-assigned slot changes
-          // (oldSlot === -1 means this is the first assignment, not a reassignment)
-          if (oldSlot !== -1 && oldSlot !== response.slot) {
-            this.options.onSlotReassigned(response.id, oldSlot, response.slot);
-          }
-        }
-        this.options.onOpenResponse(response);
-        return;
-      }
     }
 
     // Check if this is a Progress event
@@ -322,17 +291,17 @@ export class FrustaClient {
 
   /**
    * Open a slide for viewing.
+   * The client allocates a slot and tells the server which slot to use.
    * @param dpi Device DPI for tile scaling
    * @param image Image descriptor with UUID and dimensions
+   * @returns The allocated slot number, or -1 if no slots are available
    */
-  openSlide(dpi: number, image: ImageDesc): boolean {
-    const sent = this.send(buildOpenMessage(dpi, image));
-    // Track regardless of send success — if disconnected, will be re-opened on reconnect
-    const key = FrustaClient.idToKey(image.id);
-    if (!this.openSlides.has(key)) {
-      this.openSlides.set(key, { dpi, image, slot: -1 });
-    }
-    return sent;
+  openSlide(dpi: number, image: ImageDesc): number {
+    if (this.freeSlots.length === 0) return -1;
+    const slot = this.freeSlots.pop()!;
+    this.openSlides.set(slot, { slot, dpi, image });
+    this.send(buildOpenMessage(slot, dpi, image));
+    return slot;
   }
 
   /**
@@ -345,12 +314,14 @@ export class FrustaClient {
   }
 
   /**
-   * Close a slide.
-   * @param id The UUID of the slide to close
+   * Close a slide by its slot number.
+   * @param slot The slot returned from openSlide()
    */
-  closeSlide(id: Uint8Array): boolean {
-    this.openSlides.delete(FrustaClient.idToKey(id));
-    return this.send(buildCloseMessage(id));
+  closeSlide(slot: number): boolean {
+    if (!this.openSlides.has(slot)) return false;
+    this.openSlides.delete(slot);
+    this.freeSlots.push(slot);
+    return this.send(buildCloseMessage(slot));
   }
 
   /**

@@ -9,7 +9,6 @@ use crate::viewport::TileMeta;
 /// Message header sizes
 pub const DPI_SIZE: usize = 4;
 pub const IMAGE_DESC_SIZE: usize = 28;
-pub const UUID_SIZE: usize = 16;
 pub const VIEWPORT_SIZE: usize = 20;
 /// Tile payload header: 1 byte slot + 4 bytes x + 4 bytes y + 4 bytes level
 pub const TILE_HEADER_SIZE: usize = 13;
@@ -63,16 +62,6 @@ impl MessageBuilder {
         Self {
             buf: Vec::with_capacity(capacity),
         }
-    }
-
-    /// Build an Open response message.
-    /// Format: [type: u8][slot: u8][uuid: 16 bytes]
-    pub fn open_response(slot: u8, id: Uuid) -> Bytes {
-        let mut builder = Self::with_capacity(2 + UUID_SIZE);
-        builder.buf.push(MessageType::Open as u8);
-        builder.buf.push(slot);
-        builder.buf.extend_from_slice(id.as_bytes());
-        builder.into_bytes()
     }
 
     /// Build a tile data message.
