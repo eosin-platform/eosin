@@ -31,10 +31,8 @@ export interface RGB {
 export interface NormalizationParams {
   /** 3x2 stain matrix: columns are H and E stain vectors in OD space */
   stainMatrix: number[][];
-  /** Per-stain mean concentrations from the source slide */
-  stainMeans: number[];
-  /** Per-stain standard deviations from the source slide */
-  stainStds: number[];
+  /** Maximum stain concentrations (99th percentile) for each stain */
+  maxC: number[];
   /** Mode used to compute these params */
   mode: StainNormalizationMode;
 }
@@ -46,35 +44,40 @@ export interface NormalizationParams {
 /**
  * Reference stain matrix for Macenko normalization.
  * Columns are [Hematoxylin, Eosin] stain vectors in OD space.
- * These are typical values for well-stained H&E slides.
+ * Each column is a unit-normalized stain vector in OD (optical density) space.
+ * 
+ * In OD space, higher values mean MORE light absorption at that wavelength.
+ * The transmitted color is the inverse: high OD_R + OD_G but low OD_B → appears blue.
+ * 
+ * - Hematoxylin: [0.650, 0.704, 0.286] - Blue-purple stain
+ * - Eosin: [0.072, 0.990, 0.105] - Pink stain
  */
 const REFERENCE_STAIN_MATRIX_MACENKO: number[][] = [
-  [0.644211, 0.092789],  // OD_R
-  [0.716556, 0.954111],  // OD_G
-  [0.266844, 0.283111],  // OD_B
+  // [Hematoxylin, Eosin] - OD values per RGB channel
+  [0.650, 0.072],  // OD_R
+  [0.704, 0.990],  // OD_G
+  [0.286, 0.105],  // OD_B
 ];
 
-/** Reference stain concentration means for Macenko */
-const REFERENCE_STAIN_MEANS_MACENKO: number[] = [0.5, 0.5];
-
-/** Reference stain concentration standard deviations for Macenko */
-const REFERENCE_STAIN_STDS_MACENKO: number[] = [0.3, 0.3];
+/**
+ * Reference maximum stain concentrations for Macenko.
+ * These represent the 99th percentile of stain intensities in a well-stained reference slide.
+ * Used to scale concentrations to match the reference appearance.
+ */
+const REFERENCE_MAX_C_MACENKO: number[] = [1.9705, 1.0308];
 
 /**
  * Reference stain matrix for Vahadane normalization.
- * Can be tuned separately from Macenko; initially uses similar values.
+ * Uses the same reference as Macenko for consistency.
  */
 const REFERENCE_STAIN_MATRIX_VAHADANE: number[][] = [
-  [0.644211, 0.092789],
-  [0.716556, 0.954111],
-  [0.266844, 0.283111],
+  [0.650, 0.072],
+  [0.704, 0.990],
+  [0.286, 0.105],
 ];
 
-/** Reference stain concentration means for Vahadane */
-const REFERENCE_STAIN_MEANS_VAHADANE: number[] = [0.5, 0.5];
-
-/** Reference stain concentration standard deviations for Vahadane */
-const REFERENCE_STAIN_STDS_VAHADANE: number[] = [0.3, 0.3];
+/** Reference maximum stain concentrations for Vahadane */
+const REFERENCE_MAX_C_VAHADANE: number[] = [1.9705, 1.0308];
 
 // ============================================================================
 // Normalization Parameter Cache
@@ -254,6 +257,23 @@ function columnStd(data: number[][], means: number[]): number[] {
   }
 
   return stds;
+}
+
+/**
+ * Compute the percentile of each column in a 2D array.
+ */
+function columnPercentile(data: number[][], percentile: number): number[] {
+  if (data.length === 0) return [];
+  const numCols = data[0].length;
+  const result: number[] = [];
+  
+  for (let j = 0; j < numCols; j++) {
+    const column = data.map(row => row[j]).sort((a, b) => a - b);
+    const idx = Math.floor(column.length * percentile);
+    result.push(column[Math.min(idx, column.length - 1)]);
+  }
+  
+  return result;
 }
 
 /**
@@ -490,15 +510,22 @@ function estimateMacenkoStainMatrix(odSamples: number[][]): number[][] {
     Math.cos(angle2) * v1[2] + Math.sin(angle2) * v2[2],
   ]);
 
-  // Order stains so that Hematoxylin (more blue = higher OD_B) comes first
+  // Order stains: Hematoxylin first, then Eosin
+  // In OD space, Hematoxylin has higher red absorption (appears blue in RGB)
+  // while Eosin has higher blue absorption (appears pink in RGB)
+  // Compare the ratio of OD_R to OD_B to distinguish them
+  const ratio1 = Math.abs(stain1[0]) / (Math.abs(stain1[2]) + 1e-6);
+  const ratio2 = Math.abs(stain2[0]) / (Math.abs(stain2[2]) + 1e-6);
+  
   let hStain = stain1;
   let eStain = stain2;
-  if (stain1[2] < stain2[2]) {
+  // Hematoxylin has higher R/B ratio in OD (absorbs more red relative to blue)
+  if (ratio1 < ratio2) {
     hStain = stain2;
     eStain = stain1;
   }
 
-  // Build 3x2 stain matrix [H, E]
+  // Build 3x2 stain matrix [H, E] - ensure positive values
   return [
     [Math.abs(hStain[0]), Math.abs(eStain[0])],
     [Math.abs(hStain[1]), Math.abs(eStain[1])],
@@ -724,17 +751,13 @@ export function getOrComputeNormalizationParams(
     const refMatrix = mode === 'macenko' 
       ? REFERENCE_STAIN_MATRIX_MACENKO 
       : REFERENCE_STAIN_MATRIX_VAHADANE;
-    const refMeans = mode === 'macenko'
-      ? REFERENCE_STAIN_MEANS_MACENKO
-      : REFERENCE_STAIN_MEANS_VAHADANE;
-    const refStds = mode === 'macenko'
-      ? REFERENCE_STAIN_STDS_MACENKO
-      : REFERENCE_STAIN_STDS_VAHADANE;
+    const refMaxC = mode === 'macenko'
+      ? REFERENCE_MAX_C_MACENKO
+      : REFERENCE_MAX_C_VAHADANE;
 
     const params: NormalizationParams = {
       stainMatrix: refMatrix.map((row) => [...row]),
-      stainMeans: [...refMeans],
-      stainStds: [...refStds],
+      maxC: [...refMaxC],
       mode,
     };
     normalizationCache.set(cacheKey, params);
@@ -755,14 +778,12 @@ export function getOrComputeNormalizationParams(
     concentrations = nmfResult.concentrations;
   }
 
-  // Compute mean and std of concentrations
-  const means = columnMean(concentrations);
-  const stds = columnStd(concentrations, means);
+  // Compute 99th percentile of concentrations (max stain intensity)
+  const maxC = columnPercentile(concentrations, 0.99);
 
   const params: NormalizationParams = {
     stainMatrix,
-    stainMeans: means,
-    stainStds: stds,
+    maxC,
     mode,
   };
 
@@ -776,7 +797,7 @@ export function getOrComputeNormalizationParams(
  * The normalization process:
  * 1. Convert each pixel RGB → OD
  * 2. Compute stain concentrations: C = pinv(S_slide) * OD
- * 3. Standardize: C_norm = (C - slideMean) / slideStd * refStd + refMean
+ * 3. Scale concentrations: C_norm = C / slideMaxC * refMaxC
  * 4. Reconstruct with reference stain matrix: OD_ref = S_ref * C_norm
  * 5. Convert OD_ref → RGB
  *
@@ -797,15 +818,16 @@ export function applyStainNormalizationToTile(
   const refMatrix = mode === 'macenko'
     ? REFERENCE_STAIN_MATRIX_MACENKO
     : REFERENCE_STAIN_MATRIX_VAHADANE;
-  const refMeans = mode === 'macenko'
-    ? REFERENCE_STAIN_MEANS_MACENKO
-    : REFERENCE_STAIN_MEANS_VAHADANE;
-  const refStds = mode === 'macenko'
-    ? REFERENCE_STAIN_STDS_MACENKO
-    : REFERENCE_STAIN_STDS_VAHADANE;
+  const refMaxC = mode === 'macenko'
+    ? REFERENCE_MAX_C_MACENKO
+    : REFERENCE_MAX_C_VAHADANE;
 
   // Precompute pseudo-inverse of slide stain matrix
   const pinv = pseudoInverse3x2(params.stainMatrix);
+  
+  // Precompute scaling factors (refMaxC / slideMaxC)
+  const scale0 = params.maxC[0] > 1e-6 ? refMaxC[0] / params.maxC[0] : 1;
+  const scale1 = params.maxC[1] > 1e-6 ? refMaxC[1] / params.maxC[1] : 1;
 
   const numPixels = pixels.length / 4;
 
@@ -828,22 +850,16 @@ export function applyStainNormalizationToTile(
     const c0 = pinv[0][0] * od[0] + pinv[0][1] * od[1] + pinv[0][2] * od[2];
     const c1 = pinv[1][0] * od[0] + pinv[1][1] * od[1] + pinv[1][2] * od[2];
 
-    // Step 3: Standardize concentrations and map to reference distribution
-    // C_norm = (C - slideMean) / slideStd * refStd + refMean
-    const c0Norm = ((Math.max(0, c0) - params.stainMeans[0]) / params.stainStds[0]) 
-                   * refStds[0] + refMeans[0];
-    const c1Norm = ((Math.max(0, c1) - params.stainMeans[1]) / params.stainStds[1]) 
-                   * refStds[1] + refMeans[1];
-
-    // Clamp to non-negative (physical constraint)
-    const c0Final = Math.max(0, c0Norm);
-    const c1Final = Math.max(0, c1Norm);
+    // Step 3: Scale concentrations to match reference intensity
+    // C_norm = C / slideMaxC * refMaxC
+    const c0Norm = Math.max(0, c0) * scale0;
+    const c1Norm = Math.max(0, c1) * scale1;
 
     // Step 4: Reconstruct OD using reference stain matrix
     // OD_ref = S_ref * C_norm
-    const odRefR = refMatrix[0][0] * c0Final + refMatrix[0][1] * c1Final;
-    const odRefG = refMatrix[1][0] * c0Final + refMatrix[1][1] * c1Final;
-    const odRefB = refMatrix[2][0] * c0Final + refMatrix[2][1] * c1Final;
+    const odRefR = refMatrix[0][0] * c0Norm + refMatrix[0][1] * c1Norm;
+    const odRefG = refMatrix[1][0] * c0Norm + refMatrix[1][1] * c1Norm;
+    const odRefB = refMatrix[2][0] * c0Norm + refMatrix[2][1] * c1Norm;
 
     // Step 5: OD → RGB
     const rgb = odToRgb(odRefR, odRefG, odRefB);

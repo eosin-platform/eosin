@@ -293,12 +293,12 @@ import type { StainEnhancementMode, StainNormalization } from '$lib/stores/setti
     clearProcessedCache();
   }
   
-  /** Maximum concurrent enhancement operations to prevent overwhelming the main thread */
-  const MAX_CONCURRENT_ENHANCEMENTS = 4;
+  /** Maximum concurrent processing operations to prevent overwhelming the main thread */
+  const MAX_CONCURRENT_PROCESSING = 8;
   
   /**
-   * Prefetch and pre-enhance tiles in a margin around the visible viewport.
-   * This prepares tiles for smooth panning.
+   * Prefetch and pre-process tiles in a margin around the visible viewport.
+   * This prepares tiles for smooth panning without flickering.
    */
   function prefetchProcessing(
     idealLevel: number,
@@ -313,10 +313,10 @@ import type { StainEnhancementMode, StainNormalization } from '$lib/stores/setti
     if (normMode === 'none' && enhanceMode === 'none') return;
     
     // Limit concurrent processing to avoid overwhelming the thread
-    if (pendingProcessing.size >= MAX_CONCURRENT_ENHANCEMENTS) return;
+    if (pendingProcessing.size >= MAX_CONCURRENT_PROCESSING) return;
     
-    // Prefetch margin: 2 tiles in each direction
-    const margin = 2;
+    // Prefetch margin: 3 tiles in each direction for smoother panning
+    const margin = 3;
     
     const downsample = Math.pow(2, idealLevel);
     const pxPerTile = downsample * TILE_SIZE;
@@ -329,8 +329,8 @@ import type { StainEnhancementMode, StainNormalization } from '$lib/stores/setti
     const prefetchMaxTy = Math.min(tilesY, visibleMaxTy + margin);
     
     // Schedule processing for tiles in the prefetch zone but not visible
-    for (let ty = prefetchMinTy; ty < prefetchMaxTy && pendingProcessing.size < MAX_CONCURRENT_ENHANCEMENTS; ty++) {
-      for (let tx = prefetchMinTx; tx < prefetchMaxTx && pendingProcessing.size < MAX_CONCURRENT_ENHANCEMENTS; tx++) {
+    for (let ty = prefetchMinTy; ty < prefetchMaxTy && pendingProcessing.size < MAX_CONCURRENT_PROCESSING; ty++) {
+      for (let tx = prefetchMinTx; tx < prefetchMaxTx && pendingProcessing.size < MAX_CONCURRENT_PROCESSING; tx++) {
         // Skip tiles that are already visible (they're handled during render)
         if (tx >= visibleMinTx && tx < visibleMaxTx && ty >= visibleMinTy && ty < visibleMaxTy) {
           continue;
@@ -344,9 +344,6 @@ import type { StainEnhancementMode, StainNormalization } from '$lib/stores/setti
       }
     }
   }
-  
-  // Legacy alias for backward compatibility
-  const prefetchEnhancements = prefetchProcessing;
 
   /** Create a checkerboard transparency pattern (like Photoshop). */
   function createCheckerboardPattern(context: CanvasRenderingContext2D): CanvasPattern | null {
@@ -590,7 +587,50 @@ import type { StainEnhancementMode, StainNormalization } from '$lib/stores/setti
     
     // Prefetch processing for tiles just outside the viewport (smooth panning)
     if ((stainNormalization !== 'none' || stainEnhancement !== 'none') && idealTiles.length > 0) {
+      // Also pre-process coarser levels so fallbacks are ready
+      prefetchCoarseLevelProcessing(idealLevel, stainNormalization, stainEnhancement);
       prefetchProcessing(idealLevel, visibleMinTx, visibleMinTy, visibleMaxTx, visibleMaxTy, stainNormalization, stainEnhancement);
+    }
+  }
+  
+  /**
+   * Pre-process coarser fallback levels to ensure smooth transitions.
+   * This ensures fallback tiles are already processed when we need them.
+   */
+  function prefetchCoarseLevelProcessing(
+    idealLevel: number,
+    normMode: StainNormalizationMode,
+    enhanceMode: StainEnhancementMode
+  ): void {
+    if (normMode === 'none' && enhanceMode === 'none') return;
+    if (pendingProcessing.size >= MAX_CONCURRENT_PROCESSING) return;
+    
+    // Process tiles at coarser levels (up to 2 levels coarser)
+    for (let level = idealLevel + 1; level <= Math.min(idealLevel + 2, image.levels - 1); level++) {
+      const downsample = Math.pow(2, level);
+      const pxPerTile = downsample * TILE_SIZE;
+      const tilesX = Math.ceil(image.width / pxPerTile);
+      const tilesY = Math.ceil(image.height / pxPerTile);
+      
+      // Find tiles that cover the current viewport
+      const scale = Math.pow(2, level - idealLevel);
+      const minTx = Math.floor(viewport.x / pxPerTile);
+      const minTy = Math.floor(viewport.y / pxPerTile);
+      const maxTx = Math.ceil((viewport.x + viewport.width / viewport.zoom) / pxPerTile);
+      const maxTy = Math.ceil((viewport.y + viewport.height / viewport.zoom) / pxPerTile);
+      
+      for (let ty = Math.max(0, minTy); ty <= Math.min(tilesY - 1, maxTy) && pendingProcessing.size < MAX_CONCURRENT_PROCESSING; ty++) {
+        for (let tx = Math.max(0, minTx); tx <= Math.min(tilesX - 1, maxTx) && pendingProcessing.size < MAX_CONCURRENT_PROCESSING; tx++) {
+          const tile = cache.get(tx, ty, level);
+          if (tile?.bitmap) {
+            // Check if already processed
+            const cached = getProcessedBitmap(tile, normMode, enhanceMode);
+            if (!cached) {
+              scheduleProcessing(tile, normMode, enhanceMode, getSlideId());
+            }
+          }
+        }
+      }
     }
   }
 
@@ -800,7 +840,7 @@ import type { StainEnhancementMode, StainNormalization } from '$lib/stores/setti
   /**
    * Draw a tile's bitmap onto the canvas, applying stain normalization and enhancement if active.
    * Returns `true` if the tile was drawn, `false` if the bitmap isn't
-   * decoded yet (caller should fall back to a coarser tile).
+   * decoded yet or processed version isn't ready (caller should fall back to a coarser tile).
    */
   function renderTile(tile: CachedTile, rect: { x: number; y: number; width: number; height: number }): boolean {
     if (!ctx) return false;
@@ -817,9 +857,10 @@ import type { StainEnhancementMode, StainNormalization } from '$lib/stores/setti
         }
         
         // No cached version - schedule async processing
-        // Draw unprocessed tile immediately for smooth panning (processing pops in when ready)
+        // Return false to trigger fallback to coarser tiles (which may already be processed)
+        // This prevents flickering when panning by avoiding drawing unprocessed tiles
         scheduleProcessing(tile, stainNormalization, stainEnhancement, getSlideId());
-        ctx.drawImage(tile.bitmap, rect.x, rect.y, rect.width, rect.height);
+        return false;
       } else {
         // No processing — draw directly (fast path)
         ctx.drawImage(tile.bitmap, rect.x, rect.y, rect.width, rect.height);
