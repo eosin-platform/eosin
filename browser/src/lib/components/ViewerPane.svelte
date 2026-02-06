@@ -110,8 +110,16 @@
   let hudNotificationTimeout: ReturnType<typeof setTimeout> | null = null;
   let hudNotificationFading = $state(false);
 
-  // Help menu state (shown while holding '/' or '?' key)
-  let helpKeyPressed = $state(false);
+  // Help menu state (toggle with 'H' key or help button)
+  let showHelp = $state(false);
+
+  function toggleHelp() {
+    showHelp = !showHelp;
+  }
+
+  function hideHelp() {
+    showHelp = false;
+  }
 
   // Normalization modes for cycling with 'n' key
   const normalizationModes: StainNormalization[] = ['none', 'macenko', 'vahadane'];
@@ -191,22 +199,19 @@
     if (e.key === 'e' || e.key === 'E') {
       cycleEnhancement();
     }
-    if (e.key === '/' || e.key === '?' || e.key === 'h' || e.key === 'H') {
+    if (e.key === 'h' || e.key === 'H') {
       e.preventDefault();
-      e.stopPropagation();
-      helpKeyPressed = true;
+      toggleHelp();
     }
-  }
-
-  function handleKeyUp(e: KeyboardEvent) {
-    if (e.key === '/' || e.key === '?' || e.key === 'h' || e.key === 'H') {
-      helpKeyPressed = false;
+    // Escape closes help
+    if (e.key === 'Escape' && showHelp) {
+      hideHelp();
     }
   }
 
   function handleWindowBlur() {
-    // Reset help key state when window loses focus
-    helpKeyPressed = false;
+    // Reset help state when window loses focus
+    hideHelp();
   }
 
   // Zoom slider: convert linear slider value to logarithmic zoom
@@ -364,6 +369,9 @@
     activeTabHandle = tab.tabId;
     activeSlideId = tab.slideId;
     loadError = null;
+
+    // Hide help when changing slides
+    hideHelp();
 
     // Reset progress state for new slide
     progressSteps = 0;
@@ -594,6 +602,7 @@
     lastMouseX = e.clientX;
     lastMouseY = e.clientY;
     tabStore.setFocusedPane(paneId);
+    hideHelp();
     e.preventDefault();
   }
 
@@ -617,6 +626,7 @@
   function handleWheel(e: WheelEvent) {
     if (!imageDesc) return;
     e.preventDefault();
+    hideHelp();
 
     const rect = container.getBoundingClientRect();
     const mouseX = e.clientX - rect.left;
@@ -664,6 +674,7 @@
       lastTouchCenter = getTouchCenter(e.touches);
     }
     tabStore.setFocusedPane(paneId);
+    hideHelp();
     e.preventDefault();
   }
 
@@ -755,9 +766,7 @@
     registerHandler();
 
     window.addEventListener('mouseup', handleMouseUp);
-    // Use capture phase to intercept before browser quick-find
     window.addEventListener('keydown', handleKeyDown, true);
-    window.addEventListener('keyup', handleKeyUp, true);
     window.addEventListener('blur', handleWindowBlur);
   });
 
@@ -778,7 +787,6 @@
     if (browser) {
       window.removeEventListener('mouseup', handleMouseUp);
       window.removeEventListener('keydown', handleKeyDown, true);
-      window.removeEventListener('keyup', handleKeyUp, true);
       window.removeEventListener('blur', handleWindowBlur);
     }
   });
@@ -813,6 +821,8 @@
       zoom={viewport.zoom}
       onZoomChange={handleHudZoomChange}
       onFitView={handleHudFitView}
+      onHelpToggle={toggleHelp}
+      helpActive={showHelp}
     />
     
     <!-- Keyboard shortcut notification (center) -->
@@ -863,38 +873,51 @@
     </div>
   {/if}
 
-  <!-- Help menu HUD (shown while holding '/', '?', or 'h') -->
-  {#if helpKeyPressed}
-    <div class="help-overlay">
-      <div class="help-grid">
-        <div class="help-card">
-          <h3>Viewport Navigation</h3>
-          <div class="help-row"><kbd>Click + Drag</kbd><span>Pan the viewport</span></div>
-          <div class="help-row"><kbd>Scroll Wheel</kbd><span>Zoom in/out at cursor</span></div>
-          <div class="help-row"><kbd>Pinch</kbd><span>Zoom on touch devices</span></div>
-          <div class="help-row"><kbd>Dbl-click Gamma</kbd><span>Reset to 1.0</span></div>
+  <!-- Help menu (toggle with 'H' key or help button) -->
+  {#if showHelp}
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="help-overlay" onclick={hideHelp}>
+      <div class="help-modal" onclick={(e) => e.stopPropagation()}>
+        <div class="help-header">
+          <h2>Help</h2>
+          <button class="help-close" onclick={hideHelp} aria-label="Close help">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+              <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+            </svg>
+          </button>
         </div>
+        <div class="help-grid">
+          <div class="help-card">
+            <h3>Viewport Navigation</h3>
+            <div class="help-row"><kbd>Click + Drag</kbd><span>Pan the viewport</span></div>
+            <div class="help-row"><kbd>Scroll Wheel</kbd><span>Zoom in/out at cursor</span></div>
+            <div class="help-row"><kbd>Pinch</kbd><span>Zoom on touch devices</span></div>
+            <div class="help-row"><kbd>Dbl-click Gamma</kbd><span>Reset to 1.0</span></div>
+          </div>
 
-        <div class="help-card">
-          <h3>Keyboard Shortcuts</h3>
-          <div class="help-row"><kbd>H</kbd> <kbd>/</kbd> <kbd>?</kbd><span>Show help (hold)</span></div>
-          <div class="help-row"><kbd>N</kbd><span>Cycle normalization</span></div>
-          <div class="help-row"><kbd>E</kbd><span>Cycle enhancement</span></div>
-        </div>
+          <div class="help-card">
+            <h3>Keyboard Shortcuts</h3>
+            <div class="help-row"><kbd>H</kbd><span>Toggle this help</span></div>
+            <div class="help-row"><kbd>N</kbd><span>Cycle normalization</span></div>
+            <div class="help-row"><kbd>E</kbd><span>Cycle enhancement</span></div>
+            <div class="help-row"><kbd>Esc</kbd><span>Close help</span></div>
+          </div>
 
-        <div class="help-card">
-          <h3>Stain Normalization</h3>
-          <div class="help-row"><strong>None</strong><span>Original colors</span></div>
-          <div class="help-row"><strong>Macenko</strong><span>SVD-based separation</span></div>
-          <div class="help-row"><strong>Vahadane</strong><span>Sparse NMF-based</span></div>
-        </div>
+          <div class="help-card">
+            <h3>Stain Normalization</h3>
+            <div class="help-row"><strong>None</strong><span>Original colors</span></div>
+            <div class="help-row"><strong>Macenko</strong><span>SVD-based separation</span></div>
+            <div class="help-row"><strong>Vahadane</strong><span>Sparse NMF-based</span></div>
+          </div>
 
-        <div class="help-card">
-          <h3>Stain Enhancement</h3>
-          <div class="help-row"><strong>None</strong><span>No enhancement</span></div>
-          <div class="help-row"><strong>Gram</strong><span>Gram+/Gram− bacteria</span></div>
-          <div class="help-row"><strong>AFB</strong><span>Acid-Fast Bacilli</span></div>
-          <div class="help-row"><strong>GMS</strong><span>Grocott Silver stain</span></div>
+          <div class="help-card">
+            <h3>Stain Enhancement</h3>
+            <div class="help-row"><strong>None</strong><span>No enhancement</span></div>
+            <div class="help-row"><strong>Gram</strong><span>Gram+/Gram− bacteria</span></div>
+            <div class="help-row"><strong>AFB</strong><span>Acid-Fast Bacilli</span></div>
+            <div class="help-row"><strong>GMS</strong><span>Grocott Silver stain</span></div>
+          </div>
         </div>
       </div>
     </div>
@@ -1093,39 +1116,89 @@
     align-items: center;
     justify-content: center;
     padding: 24px;
-    background: rgba(0, 0, 0, 0.5);
+    background: rgba(0, 0, 0, 0.6);
     backdrop-filter: blur(4px);
     z-index: 100;
-    pointer-events: none;
+  }
+
+  /* Help modal container */
+  .help-modal {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    max-width: 900px;
+    max-height: 100%;
+    background: rgba(20, 20, 20, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+
+  .help-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    flex-shrink: 0;
+  }
+
+  .help-header h2 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+    color: #fff;
+  }
+
+  .help-close {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    background: rgba(255, 255, 255, 0.1);
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    color: rgba(255, 255, 255, 0.7);
+    transition: background 0.15s, color 0.15s;
+  }
+
+  .help-close:hover {
+    background: rgba(255, 255, 255, 0.2);
+    color: #fff;
+  }
+
+  .help-close svg {
+    width: 18px;
+    height: 18px;
   }
 
   /* Responsive card grid */
   .help-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
     gap: 16px;
-    width: 100%;
-    max-width: 900px;
-    max-height: 100%;
+    padding: 20px;
     overflow-y: auto;
+    flex: 1;
   }
 
   .help-card {
-    background: rgba(0, 0, 0, 0.7);
-    backdrop-filter: blur(8px);
-    border: 1px solid rgba(255, 255, 255, 0.15);
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 10px;
-    padding: 16px 20px;
+    padding: 16px 18px;
   }
 
   .help-card h3 {
     margin: 0 0 12px 0;
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 600;
-    color: rgba(255, 255, 255, 0.8);
+    color: rgba(255, 255, 255, 0.7);
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
     padding-bottom: 8px;
   }
 
@@ -1161,5 +1234,30 @@
   .help-row span {
     color: rgba(255, 255, 255, 0.6);
     line-height: 1.4;
+  }
+
+  /* Mobile: full-screen modal */
+  @media (max-width: 600px) {
+    .help-overlay {
+      padding: 0;
+    }
+
+    .help-modal {
+      max-width: 100%;
+      max-height: 100%;
+      height: 100%;
+      border-radius: 0;
+      border: none;
+    }
+
+    .help-grid {
+      grid-template-columns: 1fr;
+      gap: 12px;
+      padding: 16px;
+    }
+
+    .help-card {
+      padding: 14px 16px;
+    }
   }
 </style>

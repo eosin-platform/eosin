@@ -11,9 +11,13 @@
     onFitView: () => void;
     /** Current magnification (e.g., "10x", "40x") - optional */
     magnification?: string;
+    /** Callback to toggle help menu */
+    onHelpToggle?: () => void;
+    /** Whether help is currently active */
+    helpActive?: boolean;
   }
 
-  let { zoom, onZoomChange, onFitView, magnification }: Props = $props();
+  let { zoom, onZoomChange, onFitView, magnification, onHelpToggle, helpActive = false }: Props = $props();
 
   // Bind to settings store
   let brightness = $state($settings.image.brightness);
@@ -329,6 +333,21 @@
       <path d="M17 4.25a.75.75 0 01-.75.75h-5.5a.75.75 0 010-1.5h5.5a.75.75 0 01.75.75zM17 10a.75.75 0 01-.75.75h-10.5a.75.75 0 010-1.5h10.5a.75.75 0 01.75.75zM17 15.75a.75.75 0 01-.75.75h-5.5a.75.75 0 010-1.5h5.5a.75.75 0 01.75.75zM4.25 5.5a1.25 1.25 0 100-2.5 1.25 1.25 0 000 2.5zM4.25 11.25a1.25 1.25 0 100-2.5 1.25 1.25 0 000 2.5zM4.25 17a1.25 1.25 0 100-2.5 1.25 1.25 0 000 2.5z" />
     </svg>
   </button>
+
+  <!-- Help button -->
+  {#if onHelpToggle}
+    <button
+      onclick={onHelpToggle}
+      class="icon-btn"
+      class:active={helpActive}
+      title="Help (H)"
+    >
+      <!-- Question mark icon -->
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="icon">
+        <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM8.94 6.94a.75.75 0 11-1.061-1.061 3 3 0 112.871 5.026v.345a.75.75 0 01-1.5 0v-.5c0-.72.57-1.172 1.081-1.287A1.5 1.5 0 108.94 6.94zM10 15a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd" />
+      </svg>
+    </button>
+  {/if}
 
   <!-- More menu popover -->
   {#if $hudMoreMenuOpen}
