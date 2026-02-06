@@ -1,0 +1,973 @@
+<script lang="ts">
+  import { onMount, onDestroy } from 'svelte';
+  import { browser } from '$app/environment';
+  import {
+    settings,
+    settingsModalOpen,
+    DEFAULT_SETTINGS,
+    DEFAULT_COLOR_PALETTE,
+    type ColorProfile,
+    type StainNormalization,
+    type PrefetchLevel,
+    type StreamingQuality,
+  } from '$lib/stores/settings';
+
+  type TabId = 'image' | 'performance' | 'annotations' | 'privacy';
+
+  let activeTab = $state<TabId>('image');
+  let dialogElement: HTMLDivElement;
+
+  // Image settings
+  let colorProfile = $state<ColorProfile>($settings.image.colorProfile);
+  let sharpeningEnabled = $state($settings.image.sharpeningEnabled);
+  let sharpeningIntensity = $state($settings.image.sharpeningIntensity);
+  let stainNormalization = $state<StainNormalization>($settings.image.stainNormalization);
+
+  // Performance settings
+  let tileCacheSizeMb = $state($settings.performance.tileCacheSizeMb);
+  let prefetchLevel = $state<PrefetchLevel>($settings.performance.prefetchLevel);
+  let streamingQuality = $state<StreamingQuality>($settings.performance.streamingQuality);
+  let hardwareAccelerationEnabled = $state($settings.performance.hardwareAccelerationEnabled);
+
+  // Annotation settings
+  let showLabels = $state($settings.annotations.showLabels);
+  let autoClosePolygons = $state($settings.annotations.autoClosePolygons);
+  let defaultColorPalette = $state<string[]>([...$settings.annotations.defaultColorPalette]);
+
+  // Privacy settings
+  let phiMaskingEnabled = $state($settings.privacy.phiMaskingEnabled);
+  let screenshotsDisabled = $state($settings.privacy.screenshotsDisabled);
+  let autoLogoutMinutes = $state($settings.privacy.autoLogoutMinutes);
+
+  // Keep local state in sync with store
+  $effect(() => {
+    colorProfile = $settings.image.colorProfile;
+    sharpeningEnabled = $settings.image.sharpeningEnabled;
+    sharpeningIntensity = $settings.image.sharpeningIntensity;
+    stainNormalization = $settings.image.stainNormalization;
+    tileCacheSizeMb = $settings.performance.tileCacheSizeMb;
+    prefetchLevel = $settings.performance.prefetchLevel;
+    streamingQuality = $settings.performance.streamingQuality;
+    hardwareAccelerationEnabled = $settings.performance.hardwareAccelerationEnabled;
+    showLabels = $settings.annotations.showLabels;
+    autoClosePolygons = $settings.annotations.autoClosePolygons;
+    defaultColorPalette = [...$settings.annotations.defaultColorPalette];
+    phiMaskingEnabled = $settings.privacy.phiMaskingEnabled;
+    screenshotsDisabled = $settings.privacy.screenshotsDisabled;
+    autoLogoutMinutes = $settings.privacy.autoLogoutMinutes;
+  });
+
+  function handleKeydown(e: KeyboardEvent) {
+    if (e.key === 'Escape') {
+      closeModal();
+    }
+  }
+
+  function handleBackdropClick(e: MouseEvent) {
+    if (e.target === e.currentTarget) {
+      closeModal();
+    }
+  }
+
+  function closeModal() {
+    settingsModalOpen.set(false);
+  }
+
+  function resetToDefaults() {
+    if (confirm('Are you sure you want to reset all settings to defaults?')) {
+      settings.resetToDefaults();
+    }
+  }
+
+  function resetSection(section: TabId) {
+    const sectionMap: Record<TabId, keyof typeof DEFAULT_SETTINGS> = {
+      image: 'image',
+      performance: 'performance',
+      annotations: 'annotations',
+      privacy: 'privacy',
+    };
+    settings.resetSection(sectionMap[section]);
+  }
+
+  onMount(() => {
+    if (browser) {
+      document.addEventListener('keydown', handleKeydown);
+      // Trap focus
+      dialogElement?.focus();
+    }
+  });
+
+  onDestroy(() => {
+    if (browser) {
+      document.removeEventListener('keydown', handleKeydown);
+    }
+  });
+
+  // --- Image tab handlers ---
+  function handleColorProfileChange(e: Event) {
+    colorProfile = (e.target as HTMLSelectElement).value as ColorProfile;
+    settings.setSetting('image', 'colorProfile', colorProfile);
+  }
+
+  function toggleSharpening() {
+    sharpeningEnabled = !sharpeningEnabled;
+    settings.setSetting('image', 'sharpeningEnabled', sharpeningEnabled);
+  }
+
+  function handleSharpeningIntensityChange(e: Event) {
+    sharpeningIntensity = parseInt((e.target as HTMLInputElement).value);
+    settings.setSetting('image', 'sharpeningIntensity', sharpeningIntensity);
+  }
+
+  function handleStainNormalizationChange(value: StainNormalization) {
+    stainNormalization = value;
+    settings.setSetting('image', 'stainNormalization', value);
+  }
+
+  // --- Performance tab handlers ---
+  function handleCacheSizeChange(e: Event) {
+    tileCacheSizeMb = parseInt((e.target as HTMLInputElement).value);
+    settings.setSetting('performance', 'tileCacheSizeMb', tileCacheSizeMb);
+  }
+
+  function handlePrefetchLevelChange(e: Event) {
+    prefetchLevel = (e.target as HTMLSelectElement).value as PrefetchLevel;
+    settings.setSetting('performance', 'prefetchLevel', prefetchLevel);
+  }
+
+  function handleStreamingQualityChange(e: Event) {
+    streamingQuality = (e.target as HTMLSelectElement).value as StreamingQuality;
+    settings.setSetting('performance', 'streamingQuality', streamingQuality);
+  }
+
+  function toggleHardwareAcceleration() {
+    hardwareAccelerationEnabled = !hardwareAccelerationEnabled;
+    settings.setSetting('performance', 'hardwareAccelerationEnabled', hardwareAccelerationEnabled);
+  }
+
+  // --- Annotation tab handlers ---
+  function toggleShowLabels() {
+    showLabels = !showLabels;
+    settings.setSetting('annotations', 'showLabels', showLabels);
+  }
+
+  function toggleAutoClosePolygons() {
+    autoClosePolygons = !autoClosePolygons;
+    settings.setSetting('annotations', 'autoClosePolygons', autoClosePolygons);
+  }
+
+  function handleColorChange(index: number, e: Event) {
+    const newColor = (e.target as HTMLInputElement).value;
+    defaultColorPalette[index] = newColor;
+    settings.setSetting('annotations', 'defaultColorPalette', [...defaultColorPalette]);
+  }
+
+  function resetColorPalette() {
+    defaultColorPalette = [...DEFAULT_COLOR_PALETTE];
+    settings.setSetting('annotations', 'defaultColorPalette', [...DEFAULT_COLOR_PALETTE]);
+  }
+
+  // --- Privacy tab handlers ---
+  function togglePhiMasking() {
+    phiMaskingEnabled = !phiMaskingEnabled;
+    settings.setSetting('privacy', 'phiMaskingEnabled', phiMaskingEnabled);
+  }
+
+  function toggleScreenshotsDisabled() {
+    screenshotsDisabled = !screenshotsDisabled;
+    settings.setSetting('privacy', 'screenshotsDisabled', screenshotsDisabled);
+  }
+
+  function handleAutoLogoutChange(e: Event) {
+    autoLogoutMinutes = parseInt((e.target as HTMLSelectElement).value);
+    settings.setSetting('privacy', 'autoLogoutMinutes', autoLogoutMinutes);
+  }
+
+  const tabs: { id: TabId; label: string; icon: string }[] = [
+    { id: 'image', label: 'Image', icon: '🎨' },
+    { id: 'performance', label: 'Performance', icon: '⚡' },
+    { id: 'annotations', label: 'Annotations', icon: '✏️' },
+    { id: 'privacy', label: 'Privacy', icon: '🔒' },
+  ];
+
+  const colorProfileOptions: { value: ColorProfile; label: string }[] = [
+    { value: 'srgb', label: 'sRGB (Standard)' },
+    { value: 'scanner_native', label: 'Scanner Native' },
+    { value: 'he_clinical', label: 'H&E Clinical' },
+  ];
+
+  const stainNormOptions: { value: StainNormalization; label: string }[] = [
+    { value: 'none', label: 'None' },
+    { value: 'macenko', label: 'Macenko' },
+    { value: 'vahadane', label: 'Vahadane' },
+  ];
+
+  const prefetchOptions: { value: PrefetchLevel; label: string }[] = [
+    { value: 'low', label: 'Low' },
+    { value: 'medium', label: 'Medium' },
+    { value: 'high', label: 'High' },
+    { value: 'ludicrous', label: 'Ludicrous' },
+  ];
+
+  const qualityOptions: { value: StreamingQuality; label: string }[] = [
+    { value: 'auto', label: 'Auto' },
+    { value: 'full_res', label: 'Full Resolution' },
+    { value: 'low_res', label: 'Low Resolution' },
+  ];
+
+  const logoutOptions = [
+    { value: 5, label: '5 minutes' },
+    { value: 15, label: '15 minutes' },
+    { value: 30, label: '30 minutes' },
+    { value: 60, label: '1 hour' },
+    { value: 0, label: 'Never' },
+  ];
+</script>
+
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+<div
+  class="modal-backdrop"
+  onclick={handleBackdropClick}
+  onkeydown={handleKeydown}
+  role="presentation"
+>
+  <div
+    class="modal-dialog"
+    bind:this={dialogElement}
+    tabindex="-1"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="settings-title"
+  >
+    <!-- Header -->
+    <header class="modal-header">
+      <h2 id="settings-title">Settings</h2>
+      <button class="close-btn" onclick={closeModal} title="Close" aria-label="Close settings">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="icon">
+          <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+        </svg>
+      </button>
+    </header>
+
+    <!-- Content -->
+    <div class="modal-body">
+      <!-- Tab navigation -->
+      <div class="tab-nav" role="tablist">
+        {#each tabs as tab}
+          <button
+            class="tab-btn"
+            class:active={activeTab === tab.id}
+            onclick={() => (activeTab = tab.id)}
+            role="tab"
+            aria-selected={activeTab === tab.id}
+            aria-controls={`panel-${tab.id}`}
+          >
+            <span class="tab-icon">{tab.icon}</span>
+            <span class="tab-label">{tab.label}</span>
+          </button>
+        {/each}
+      </div>
+
+      <!-- Tab panels -->
+      <div class="tab-content">
+        <!-- Image / Rendering -->
+        {#if activeTab === 'image'}
+          <div class="panel" id="panel-image" role="tabpanel">
+            <div class="setting-group">
+              <h3>Color Profile</h3>
+              <select value={colorProfile} onchange={handleColorProfileChange} class="select-input">
+                {#each colorProfileOptions as opt}
+                  <option value={opt.value}>{opt.label}</option>
+                {/each}
+              </select>
+            </div>
+
+            <div class="setting-group">
+              <h3>Sharpening</h3>
+              <div class="toggle-row">
+                <span id="sharpening-label">Enable Sharpening</span>
+                <button
+                  class="toggle-btn"
+                  class:active={sharpeningEnabled}
+                  onclick={toggleSharpening}
+                  role="switch"
+                  aria-checked={sharpeningEnabled}
+                  aria-labelledby="sharpening-label"
+                >
+                  <span class="toggle-track">
+                    <span class="toggle-thumb"></span>
+                  </span>
+                </button>
+              </div>
+              {#if sharpeningEnabled}
+                <div class="slider-row">
+                  <span class="slider-label">Intensity</span>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={sharpeningIntensity}
+                    oninput={handleSharpeningIntensityChange}
+                    class="slider"
+                  />
+                  <span class="slider-value">{sharpeningIntensity}%</span>
+                </div>
+              {/if}
+            </div>
+
+            <div class="setting-group">
+              <h3>Stain Normalization</h3>
+              <div class="radio-group">
+                {#each stainNormOptions as opt}
+                  <label class="radio-label">
+                    <input
+                      type="radio"
+                      name="stainNorm"
+                      value={opt.value}
+                      checked={stainNormalization === opt.value}
+                      onchange={() => handleStainNormalizationChange(opt.value)}
+                    />
+                    <span>{opt.label}</span>
+                  </label>
+                {/each}
+              </div>
+            </div>
+
+            <button class="reset-btn" onclick={() => resetSection('image')}>
+              Reset Image Settings
+            </button>
+          </div>
+        {/if}
+
+        <!-- Performance -->
+        {#if activeTab === 'performance'}
+          <div class="panel" id="panel-performance" role="tabpanel">
+            <div class="setting-group">
+              <h3>Tile Cache Size</h3>
+              <div class="slider-row">
+                <input
+                  type="range"
+                  min="128"
+                  max="2048"
+                  step="128"
+                  value={tileCacheSizeMb}
+                  oninput={handleCacheSizeChange}
+                  class="slider"
+                />
+                <span class="slider-value">{tileCacheSizeMb} MB</span>
+              </div>
+              <p class="setting-hint">
+                Higher values use more memory but improve performance when navigating.
+              </p>
+            </div>
+
+            <div class="setting-group">
+              <h3>Prefetch Aggressiveness</h3>
+              <select value={prefetchLevel} onchange={handlePrefetchLevelChange} class="select-input">
+                {#each prefetchOptions as opt}
+                  <option value={opt.value}>{opt.label}</option>
+                {/each}
+              </select>
+              <p class="setting-hint">
+                Higher values load more tiles ahead of time, using more bandwidth.
+              </p>
+            </div>
+
+            <div class="setting-group">
+              <h3>Streaming Quality</h3>
+              <select value={streamingQuality} onchange={handleStreamingQualityChange} class="select-input">
+                {#each qualityOptions as opt}
+                  <option value={opt.value}>{opt.label}</option>
+                {/each}
+              </select>
+            </div>
+
+            <div class="setting-group">
+              <div class="toggle-row">
+                <span id="hw-accel-label">Hardware Acceleration</span>
+                <button
+                  class="toggle-btn"
+                  class:active={hardwareAccelerationEnabled}
+                  onclick={toggleHardwareAcceleration}
+                  role="switch"
+                  aria-checked={hardwareAccelerationEnabled}
+                  aria-labelledby="hw-accel-label"
+                >
+                  <span class="toggle-track">
+                    <span class="toggle-thumb"></span>
+                  </span>
+                </button>
+              </div>
+              <p class="setting-hint">
+                Uses GPU for rendering when available. Disable if you experience visual glitches.
+              </p>
+            </div>
+
+            <button class="reset-btn" onclick={() => resetSection('performance')}>
+              Reset Performance Settings
+            </button>
+          </div>
+        {/if}
+
+        <!-- Annotations -->
+        {#if activeTab === 'annotations'}
+          <div class="panel" id="panel-annotations" role="tabpanel">
+            <div class="setting-group">
+              <div class="toggle-row">
+                <span id="show-labels-label">Show Labels</span>
+                <button
+                  class="toggle-btn"
+                  class:active={showLabels}
+                  onclick={toggleShowLabels}
+                  role="switch"
+                  aria-checked={showLabels}
+                  aria-labelledby="show-labels-label"
+                >
+                  <span class="toggle-track">
+                    <span class="toggle-thumb"></span>
+                  </span>
+                </button>
+              </div>
+            </div>
+
+            <div class="setting-group">
+              <div class="toggle-row">
+                <span id="auto-close-label">Auto-close Polygons</span>
+                <button
+                  class="toggle-btn"
+                  class:active={autoClosePolygons}
+                  onclick={toggleAutoClosePolygons}
+                  role="switch"
+                  aria-checked={autoClosePolygons}
+                  aria-labelledby="auto-close-label"
+                >
+                  <span class="toggle-track">
+                    <span class="toggle-thumb"></span>
+                  </span>
+                </button>
+              </div>
+              <p class="setting-hint">
+                Automatically close polygon annotations when clicking near the starting point.
+              </p>
+            </div>
+
+            <div class="setting-group">
+              <h3>Default Color Palette</h3>
+              <div class="color-palette">
+                {#each defaultColorPalette as color, i}
+                  <label class="color-swatch">
+                    <input
+                      type="color"
+                      value={color}
+                      onchange={(e) => handleColorChange(i, e)}
+                    />
+                    <span class="swatch-preview" style="background-color: {color}"></span>
+                  </label>
+                {/each}
+              </div>
+              <button class="text-btn" onclick={resetColorPalette}>
+                Reset to default colors
+              </button>
+            </div>
+
+            <button class="reset-btn" onclick={() => resetSection('annotations')}>
+              Reset Annotation Settings
+            </button>
+          </div>
+        {/if}
+
+        <!-- Privacy / Compliance -->
+        {#if activeTab === 'privacy'}
+          <div class="panel" id="panel-privacy" role="tabpanel">
+            <div class="setting-group">
+              <div class="toggle-row">
+                <span id="phi-masking-label">PHI Masking</span>
+                <button
+                  class="toggle-btn"
+                  class:active={phiMaskingEnabled}
+                  onclick={togglePhiMasking}
+                  role="switch"
+                  aria-checked={phiMaskingEnabled}
+                  aria-labelledby="phi-masking-label"
+                >
+                  <span class="toggle-track">
+                    <span class="toggle-thumb"></span>
+                  </span>
+                </button>
+              </div>
+              <p class="setting-hint">
+                Automatically mask protected health information in slide labels and metadata.
+              </p>
+            </div>
+
+            <div class="setting-group">
+              <div class="toggle-row">
+                <span id="screenshots-label">Disable Screenshots</span>
+                <button
+                  class="toggle-btn"
+                  class:active={screenshotsDisabled}
+                  onclick={toggleScreenshotsDisabled}
+                  role="switch"
+                  aria-checked={screenshotsDisabled}
+                  aria-labelledby="screenshots-label"
+                >
+                  <span class="toggle-track">
+                    <span class="toggle-thumb"></span>
+                  </span>
+                </button>
+              </div>
+              <p class="setting-hint">
+                Prevents screenshot functionality to protect sensitive images.
+              </p>
+            </div>
+
+            <div class="setting-group">
+              <h3>Auto-Logout Timeout</h3>
+              <select value={autoLogoutMinutes} onchange={handleAutoLogoutChange} class="select-input">
+                {#each logoutOptions as opt}
+                  <option value={opt.value}>{opt.label}</option>
+                {/each}
+              </select>
+              <p class="setting-hint">
+                Automatically log out after period of inactivity.
+              </p>
+            </div>
+
+            <button class="reset-btn" onclick={() => resetSection('privacy')}>
+              Reset Privacy Settings
+            </button>
+          </div>
+        {/if}
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="modal-footer">
+      <button class="danger-btn" onclick={resetToDefaults}>
+        Reset All to Defaults
+      </button>
+      <button class="primary-btn" onclick={closeModal}>
+        Done
+      </button>
+    </footer>
+  </div>
+</div>
+
+<style>
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(4px);
+    padding: 1rem;
+  }
+
+  .modal-dialog {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    max-width: 640px;
+    max-height: calc(100vh - 2rem);
+    background: #1f1f1f;
+    border-radius: 1rem;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+    overflow: hidden;
+    outline: none;
+  }
+
+  .modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid #333;
+  }
+
+  .modal-header h2 {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: #f3f4f6;
+  }
+
+  .close-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
+    background: transparent;
+    border: none;
+    border-radius: 0.375rem;
+    color: #9ca3af;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .close-btn:hover {
+    background: #374151;
+    color: #f3f4f6;
+  }
+
+  .icon {
+    width: 1.25rem;
+    height: 1.25rem;
+  }
+
+  .modal-body {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  .tab-nav {
+    display: flex;
+    flex-direction: column;
+    width: 160px;
+    padding: 0.5rem;
+    background: #171717;
+    border-right: 1px solid #333;
+    flex-shrink: 0;
+  }
+
+  .tab-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.625rem 0.75rem;
+    background: transparent;
+    border: none;
+    border-radius: 0.5rem;
+    color: #9ca3af;
+    font-size: 0.875rem;
+    text-align: left;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .tab-btn:hover {
+    background: rgba(255, 255, 255, 0.05);
+    color: #e5e7eb;
+  }
+
+  .tab-btn.active {
+    background: #3b82f6;
+    color: white;
+  }
+
+  .tab-icon {
+    font-size: 1rem;
+  }
+
+  .tab-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 1.25rem;
+  }
+
+  .panel {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+
+  .setting-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .setting-group h3 {
+    margin: 0;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: #9ca3af;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .setting-hint {
+    margin: 0.25rem 0 0 0;
+    font-size: 0.75rem;
+    color: #6b7280;
+    line-height: 1.4;
+  }
+
+  .toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.5rem 0;
+    color: #e5e7eb;
+    font-size: 0.875rem;
+  }
+
+  .toggle-btn {
+    display: flex;
+    align-items: center;
+    padding: 0;
+    background: none;
+    border: none;
+    cursor: pointer;
+  }
+
+  .toggle-track {
+    position: relative;
+    width: 44px;
+    height: 24px;
+    background: #374151;
+    border-radius: 12px;
+    transition: background-color 0.2s;
+  }
+
+  .toggle-btn.active .toggle-track {
+    background: #3b82f6;
+  }
+
+  .toggle-thumb {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 20px;
+    height: 20px;
+    background: white;
+    border-radius: 50%;
+    transition: transform 0.2s;
+  }
+
+  .toggle-btn.active .toggle-thumb {
+    transform: translateX(20px);
+  }
+
+  .slider-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .slider-label {
+    font-size: 0.875rem;
+    color: #9ca3af;
+    min-width: 60px;
+  }
+
+  .slider {
+    flex: 1;
+    height: 6px;
+    background: #374151;
+    border-radius: 3px;
+    appearance: none;
+    cursor: pointer;
+  }
+
+  .slider::-webkit-slider-thumb {
+    appearance: none;
+    width: 18px;
+    height: 18px;
+    background: #3b82f6;
+    border-radius: 50%;
+    cursor: pointer;
+  }
+
+  .slider::-moz-range-thumb {
+    width: 18px;
+    height: 18px;
+    background: #3b82f6;
+    border: none;
+    border-radius: 50%;
+    cursor: pointer;
+  }
+
+  .slider-value {
+    font-size: 0.875rem;
+    color: #e5e7eb;
+    min-width: 60px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .select-input {
+    width: 100%;
+    padding: 0.625rem 0.75rem;
+    background: #374151;
+    border: 1px solid #4b5563;
+    border-radius: 0.5rem;
+    color: #e5e7eb;
+    font-size: 0.875rem;
+    cursor: pointer;
+    outline: none;
+  }
+
+  .select-input:hover {
+    border-color: #6b7280;
+  }
+
+  .select-input:focus {
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3);
+  }
+
+  .radio-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .radio-label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem;
+    background: #374151;
+    border-radius: 0.375rem;
+    color: #e5e7eb;
+    font-size: 0.875rem;
+    cursor: pointer;
+    transition: background-color 0.15s;
+  }
+
+  .radio-label:hover {
+    background: #4b5563;
+  }
+
+  .radio-label input[type="radio"] {
+    width: 1rem;
+    height: 1rem;
+    accent-color: #3b82f6;
+  }
+
+  .color-palette {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+
+  .color-swatch {
+    position: relative;
+    width: 32px;
+    height: 32px;
+    cursor: pointer;
+  }
+
+  .color-swatch input[type="color"] {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+  }
+
+  .swatch-preview {
+    display: block;
+    width: 100%;
+    height: 100%;
+    border-radius: 0.375rem;
+    border: 2px solid rgba(255, 255, 255, 0.2);
+  }
+
+  .text-btn {
+    background: none;
+    border: none;
+    color: #3b82f6;
+    font-size: 0.8125rem;
+    cursor: pointer;
+    padding: 0;
+    text-decoration: underline;
+  }
+
+  .text-btn:hover {
+    color: #60a5fa;
+  }
+
+  .reset-btn {
+    align-self: flex-start;
+    padding: 0.5rem 0.75rem;
+    background: #374151;
+    border: 1px solid #4b5563;
+    border-radius: 0.375rem;
+    color: #e5e7eb;
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: all 0.15s;
+    margin-top: 0.5rem;
+  }
+
+  .reset-btn:hover {
+    background: #4b5563;
+    border-color: #6b7280;
+  }
+
+  .modal-footer {
+    display: flex;
+    justify-content: space-between;
+    padding: 1rem 1.25rem;
+    border-top: 1px solid #333;
+  }
+
+  .danger-btn {
+    padding: 0.625rem 1rem;
+    background: transparent;
+    border: 1px solid #dc2626;
+    border-radius: 0.5rem;
+    color: #dc2626;
+    font-size: 0.875rem;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .danger-btn:hover {
+    background: #dc2626;
+    color: white;
+  }
+
+  .primary-btn {
+    padding: 0.625rem 1.5rem;
+    background: #3b82f6;
+    border: none;
+    border-radius: 0.5rem;
+    color: white;
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.15s;
+  }
+
+  .primary-btn:hover {
+    background: #2563eb;
+  }
+
+  /* Responsive */
+  @media (max-width: 640px) {
+    .modal-dialog {
+      max-height: 100vh;
+      border-radius: 0;
+    }
+
+    .modal-body {
+      flex-direction: column;
+    }
+
+    .tab-nav {
+      width: 100%;
+      flex-direction: row;
+      overflow-x: auto;
+      border-right: none;
+      border-bottom: 1px solid #333;
+    }
+
+    .tab-btn {
+      flex-direction: column;
+      gap: 0.25rem;
+      padding: 0.5rem 0.75rem;
+      flex-shrink: 0;
+    }
+
+    .tab-label {
+      font-size: 0.6875rem;
+    }
+  }
+</style>

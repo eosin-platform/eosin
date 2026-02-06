@@ -2,6 +2,7 @@
 	import './layout.css';
 	import favicon from '$lib/assets/favicon.svg';
 	import Sidebar from '$lib/components/Sidebar.svelte';
+	import AppHeader from '$lib/components/AppHeader.svelte';
 	import type { Snippet } from 'svelte';
 	import { onMount } from 'svelte';
 	import { browser } from '$app/environment';
@@ -105,19 +106,12 @@
 	</div>
 	
 	<div class="main-content">
-		<!-- Mobile header with menu button -->
-		{#if isMobile && sidebarCollapsed}
-			<header class="mobile-header">
-				<button class="menu-btn" onclick={toggleSidebar} aria-label="Open menu">
-					<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-						<line x1="3" y1="12" x2="21" y2="12"></line>
-						<line x1="3" y1="6" x2="21" y2="6"></line>
-						<line x1="3" y1="18" x2="21" y2="18"></line>
-					</svg>
-				</button>
-				<span class="mobile-title">Slides</span>
-			</header>
-		{/if}
+		<!-- App header with settings button -->
+		<AppHeader 
+			showMenuButton={isMobile && sidebarCollapsed}
+			onMenuClick={toggleSidebar}
+			title="Histion"
+		/>
 		{@render children()}
 	</div>
 </div>
@@ -178,43 +172,6 @@
 	.app-layout.mobile .sidebar-container.mobile-open :global(.sidebar) {
 		width: 280px;
 		min-width: 280px;
-	}
-
-	/* Mobile header */
-	.mobile-header {
-		display: flex;
-		align-items: center;
-		gap: 0.75rem;
-		padding: 0.75rem 1rem;
-		background: #141414;
-		border-bottom: 1px solid #333;
-		flex-shrink: 0;
-	}
-
-	.menu-btn {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		width: 40px;
-		height: 40px;
-		padding: 0;
-		background: transparent;
-		border: none;
-		color: #aaa;
-		cursor: pointer;
-		border-radius: 8px;
-		transition: background-color 0.15s, color 0.15s;
-	}
-
-	.menu-btn:hover {
-		background: #333;
-		color: #fff;
-	}
-
-	.mobile-title {
-		font-size: 1.125rem;
-		font-weight: 600;
-		color: #eee;
 	}
 
 	/* Responsive adjustments */

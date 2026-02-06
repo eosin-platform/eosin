@@ -20,9 +20,12 @@
   } from '$lib/frusta';
   import Minimap from '$lib/components/Minimap.svelte';
   import ActivityIndicator from '$lib/components/ActivityIndicator.svelte';
+  import ViewerHud from '$lib/components/viewer/ViewerHud.svelte';
+  import ScaleBar from '$lib/components/viewer/ScaleBar.svelte';
   import { tabStore, type Tab } from '$lib/stores/tabs';
   import { acquireCache, releaseCache } from '$lib/stores/slideCache';
   import { updatePerformanceMetrics } from '$lib/stores/metrics';
+  import { settings, navigationSettings, imageSettings } from '$lib/stores/settings';
 
   interface Props {
     /** The pane ID this viewer belongs to */
@@ -87,6 +90,38 @@
   let progressSteps = $state(0);
   let progressTotal = $state(0);
   let progressUpdateTrigger = $state(0);
+
+  // Settings-derived values for zoom/pan sensitivity
+  const sensitivityMap = { low: 0.5, medium: 1.0, high: 2.0 };
+  let zoomSensitivityFactor = $derived(sensitivityMap[$navigationSettings.zoomSensitivity] || 1.0);
+  let panSensitivityFactor = $derived(sensitivityMap[$navigationSettings.panSensitivity] || 1.0);
+  let minimapVisible = $derived($navigationSettings.minimapVisible);
+
+  // Image adjustment settings - compute CSS filter string
+  // Brightness: -100 to 100 maps to CSS brightness 0 to 2 (0 = black, 1 = normal, 2 = double)
+  // Contrast: -100 to 100 maps to CSS contrast 0 to 2
+  // Gamma: applied via a combination of brightness adjustment (approximation)
+  let imageFilter = $derived(() => {
+    const b = $imageSettings.brightness;
+    const c = $imageSettings.contrast;
+    const g = $imageSettings.gamma;
+    
+    // Map -100..100 to 0..2 for brightness and contrast
+    const brightness = 1 + (b / 100);
+    const contrast = 1 + (c / 100);
+    
+    // Gamma is approximated using brightness adjustment
+    // gamma < 1 = brighter midtones, gamma > 1 = darker midtones
+    // We'll use a subtle additional brightness shift
+    const gammaBrightness = g !== 1 ? Math.pow(0.5, g - 1) : 1;
+    
+    const filters: string[] = [];
+    if (brightness !== 1) filters.push(`brightness(${brightness.toFixed(2)})`);
+    if (contrast !== 1) filters.push(`contrast(${contrast.toFixed(2)})`);
+    if (gammaBrightness !== 1) filters.push(`brightness(${gammaBrightness.toFixed(2)})`);
+    
+    return filters.length > 0 ? filters.join(' ') : 'none';
+  });
 
   // React to progressInfo changes for our slide
   $effect(() => {
@@ -420,7 +455,8 @@
     lastMouseX = e.clientX;
     lastMouseY = e.clientY;
 
-    viewport = pan(viewport, deltaX, deltaY, imageDesc.width, imageDesc.height);
+    // Apply pan sensitivity from settings
+    viewport = pan(viewport, deltaX * panSensitivityFactor, deltaY * panSensitivityFactor, imageDesc.width, imageDesc.height);
     scheduleViewportUpdate();
   }
 
@@ -436,8 +472,37 @@
     const mouseX = e.clientX - rect.left;
     const mouseY = e.clientY - rect.top;
 
-    const zoomFactor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+    // Apply zoom sensitivity from settings
+    const baseZoom = 1.15;
+    const sensitiveZoom = 1 + (baseZoom - 1) * zoomSensitivityFactor;
+    const zoomFactor = e.deltaY < 0 ? sensitiveZoom : 1 / sensitiveZoom;
     viewport = zoomAround(viewport, mouseX, mouseY, zoomFactor, imageDesc.width, imageDesc.height);
+    scheduleViewportUpdate();
+  }
+
+  // HUD zoom controls - zoom centered on viewport
+  function handleHudZoomIn() {
+    if (!imageDesc || !container) return;
+    const rect = container.getBoundingClientRect();
+    const centerX = rect.width / 2;
+    const centerY = rect.height / 2;
+    const zoomFactor = 1.5; // Larger step for button click
+    viewport = zoomAround(viewport, centerX, centerY, zoomFactor, imageDesc.width, imageDesc.height);
+    scheduleViewportUpdate();
+  }
+
+  function handleHudZoomOut() {
+    if (!imageDesc || !container) return;
+    const rect = container.getBoundingClientRect();
+    const centerX = rect.width / 2;
+    const centerY = rect.height / 2;
+    const zoomFactor = 1 / 1.5;
+    viewport = zoomAround(viewport, centerX, centerY, zoomFactor, imageDesc.width, imageDesc.height);
+    scheduleViewportUpdate();
+  }
+
+  function handleHudFitView() {
+    centerOnImage();
     scheduleViewportUpdate();
   }
 
@@ -582,14 +647,32 @@
   aria-label="Tile viewer - use mouse to pan, scroll to zoom"
 >
   {#if imageDesc && cache}
-    <TileRenderer image={imageDesc} {viewport} {cache} {renderTrigger} client={client ?? undefined} slot={currentSlot ?? undefined} onMetrics={handleRenderMetrics} />
-    <Minimap
-      image={imageDesc}
-      {viewport}
-      {cache}
-      {renderTrigger}
-      onViewportChange={handleMinimapViewportChange}
+    <!-- Image layer with brightness/contrast/gamma filters applied -->
+    <div class="image-layer" style="filter: {imageFilter()}">
+      <TileRenderer image={imageDesc} {viewport} {cache} {renderTrigger} client={client ?? undefined} slot={currentSlot ?? undefined} onMetrics={handleRenderMetrics} />
+    </div>
+    
+    <!-- Scale bar (bottom-left) - controlled by settings -->
+    <ScaleBar {viewport} />
+    
+    <!-- Viewer HUD overlay (top-left) -->
+    <ViewerHud
+      zoom={viewport.zoom}
+      onZoomIn={handleHudZoomIn}
+      onZoomOut={handleHudZoomOut}
+      onFitView={handleHudFitView}
     />
+    
+    <!-- Minimap (bottom-right) - controlled by settings -->
+    {#if minimapVisible}
+      <Minimap
+        image={imageDesc}
+        {viewport}
+        {cache}
+        {renderTrigger}
+        onViewportChange={handleMinimapViewportChange}
+      />
+    {/if}
   {:else}
     <div class="no-image">
       <h2>No Image Loaded</h2>
@@ -628,6 +711,13 @@
 
   .viewer-container:active {
     cursor: grabbing;
+  }
+
+  /* Image layer wrapper for applying CSS filters (brightness/contrast/gamma) */
+  .image-layer {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
   }
 
   .no-image {
