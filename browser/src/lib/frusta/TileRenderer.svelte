@@ -11,7 +11,7 @@
   } from './viewport';
   import { TileRetryManager } from './retryManager';
   import type { FrustaClient } from './client';
-  import { applyStainEnhancementToImageData, createEnhancedBitmap } from './stainEnhancement';
+  import { createEnhancedBitmap } from './stainEnhancement';
   import type { StainEnhancementMode } from '$lib/stores/settings';
 
   /** Performance metrics exposed via callback */
@@ -59,10 +59,6 @@
   const FPS_SAMPLE_SIZE = 30;
   let retryManager: TileRetryManager | null = null;
   let checkerboardPattern: CanvasPattern | null = null;
-
-  // Helper canvas for stain enhancement processing (reused to avoid GC)
-  let enhancementCanvas: OffscreenCanvas | HTMLCanvasElement | null = null;
-  let enhancementCtx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null = null;
 
   // ============================================================================
   // Enhanced Bitmap Cache
@@ -174,22 +170,55 @@
     enhancedBitmapCache.clear();
     pendingEnhancements.clear();
   }
-
-  /** Initialize or resize the enhancement canvas helper */
-  function ensureEnhancementCanvas(width: number, height: number): void {
-    if (enhancementCanvas && enhancementCanvas.width >= width && enhancementCanvas.height >= height) {
-      return; // Already large enough
-    }
+  
+  /** Maximum concurrent enhancement operations to prevent overwhelming the main thread */
+  const MAX_CONCURRENT_ENHANCEMENTS = 4;
+  
+  /**
+   * Prefetch and pre-enhance tiles in a margin around the visible viewport.
+   * This prepares tiles for smooth panning.
+   */
+  function prefetchEnhancements(
+    idealLevel: number,
+    visibleMinTx: number,
+    visibleMinTy: number,
+    visibleMaxTx: number,
+    visibleMaxTy: number,
+    mode: StainEnhancementMode
+  ): void {
+    if (mode === 'none') return;
     
-    // Use OffscreenCanvas if available for better performance
-    if (typeof OffscreenCanvas !== 'undefined') {
-      enhancementCanvas = new OffscreenCanvas(width, height);
-    } else {
-      enhancementCanvas = document.createElement('canvas');
-      enhancementCanvas.width = width;
-      enhancementCanvas.height = height;
+    // Limit concurrent enhancements to avoid overwhelming the thread
+    if (pendingEnhancements.size >= MAX_CONCURRENT_ENHANCEMENTS) return;
+    
+    // Prefetch margin: 2 tiles in each direction
+    const margin = 2;
+    
+    const downsample = Math.pow(2, idealLevel);
+    const pxPerTile = downsample * TILE_SIZE;
+    const tilesX = Math.ceil(image.width / pxPerTile);
+    const tilesY = Math.ceil(image.height / pxPerTile);
+    
+    const prefetchMinTx = Math.max(0, visibleMinTx - margin);
+    const prefetchMinTy = Math.max(0, visibleMinTy - margin);
+    const prefetchMaxTx = Math.min(tilesX, visibleMaxTx + margin);
+    const prefetchMaxTy = Math.min(tilesY, visibleMaxTy + margin);
+    
+    // Schedule enhancements for tiles in the prefetch zone but not visible
+    for (let ty = prefetchMinTy; ty < prefetchMaxTy && pendingEnhancements.size < MAX_CONCURRENT_ENHANCEMENTS; ty++) {
+      for (let tx = prefetchMinTx; tx < prefetchMaxTx && pendingEnhancements.size < MAX_CONCURRENT_ENHANCEMENTS; tx++) {
+        // Skip tiles that are already visible (they're handled during render)
+        if (tx >= visibleMinTx && tx < visibleMaxTx && ty >= visibleMinTy && ty < visibleMaxTy) {
+          continue;
+        }
+        
+        // Check if tile is in cache and has a decoded bitmap
+        const tile = cache.get(tx, ty, idealLevel);
+        if (tile?.bitmap) {
+          scheduleEnhancement(tile, mode);
+        }
+      }
     }
-    enhancementCtx = enhancementCanvas.getContext('2d');
   }
 
   /** Create a checkerboard transparency pattern (like Photoshop). */
@@ -363,6 +392,16 @@
     // Get visible tiles at the ideal level only (for retries, we only request at screen resolution)
     const idealTiles = visibleTilesForLevel(viewport, image, idealLevel);
 
+    // Compute visible tile bounds for prefetching (derive from idealTiles)
+    let visibleMinTx = Infinity, visibleMinTy = Infinity;
+    let visibleMaxTx = -Infinity, visibleMaxTy = -Infinity;
+    for (const t of idealTiles) {
+      if (t.x < visibleMinTx) visibleMinTx = t.x;
+      if (t.y < visibleMinTy) visibleMinTy = t.y;
+      if (t.x >= visibleMaxTx) visibleMaxTx = t.x + 1;
+      if (t.y >= visibleMaxTy) visibleMaxTy = t.y + 1;
+    }
+
     // Get visible tiles at finer level for 2x DPI requests
     const finerTiles = finerLevel < idealLevel ? visibleTilesForLevel(viewport, image, finerLevel) : [];
 
@@ -419,6 +458,11 @@
         fallbackTiles,
         placeholderTiles,
       });
+    }
+    
+    // Prefetch enhancements for tiles just outside the viewport (smooth panning)
+    if (stainEnhancement !== 'none' && idealTiles.length > 0) {
+      prefetchEnhancements(idealLevel, visibleMinTx, visibleMinTy, visibleMaxTx, visibleMaxTy, stainEnhancement);
     }
   }
 
@@ -644,24 +688,10 @@
           return true;
         }
         
-        // No cached version - schedule async enhancement for next frame
+        // No cached version - schedule async enhancement
+        // Draw unenhanced tile immediately for smooth panning (enhancement pops in when ready)
         scheduleEnhancement(tile, stainEnhancement);
-        
-        // Fall back to synchronous enhancement for this frame
-        // This only happens once per tile until the async version is cached
-        ensureEnhancementCanvas(tile.bitmap.width, tile.bitmap.height);
-        if (!enhancementCtx) return false;
-
-        // Draw tile to enhancement canvas
-        enhancementCtx.drawImage(tile.bitmap, 0, 0);
-        
-        // Get image data and apply enhancement
-        const imageData = enhancementCtx.getImageData(0, 0, tile.bitmap.width, tile.bitmap.height);
-        applyStainEnhancementToImageData(imageData, stainEnhancement);
-        enhancementCtx.putImageData(imageData, 0, 0);
-
-        // Draw enhanced result to main canvas
-        ctx.drawImage(enhancementCanvas!, 0, 0, tile.bitmap.width, tile.bitmap.height, rect.x, rect.y, rect.width, rect.height);
+        ctx.drawImage(tile.bitmap, rect.x, rect.y, rect.width, rect.height);
       } else {
         // No enhancement — draw directly (fast path)
         ctx.drawImage(tile.bitmap, rect.x, rect.y, rect.width, rect.height);
@@ -722,20 +752,11 @@
         return true;
       }
       
-      // No cached version - schedule async enhancement for next frame
+      // No cached version - schedule async enhancement
+      // Draw unenhanced tile immediately for smooth panning (enhancement pops in when ready)
       scheduleEnhancement(fallbackTile, stainEnhancement);
-      
-      // Fall back to synchronous enhancement for this frame
-      ensureEnhancementCanvas(fallbackTile.bitmap.width, fallbackTile.bitmap.height);
-      if (!enhancementCtx) return false;
-
-      enhancementCtx.drawImage(fallbackTile.bitmap, 0, 0);
-      const imageData = enhancementCtx.getImageData(0, 0, fallbackTile.bitmap.width, fallbackTile.bitmap.height);
-      applyStainEnhancementToImageData(imageData, stainEnhancement);
-      enhancementCtx.putImageData(imageData, 0, 0);
-
       ctx.drawImage(
-        enhancementCanvas!,
+        fallbackTile.bitmap,
         srcX,
         srcY,
         srcSize,
