@@ -31,6 +31,8 @@ export interface CachedTile {
   meta: TileMeta;
   /** Decoded image blob URL for rendering */
   blobUrl: string;
+  /** Pre-decoded ImageBitmap ready for immediate canvas drawing (no async load needed) */
+  bitmap: ImageBitmap | null;
   /** Timestamp when this tile was last accessed */
   lastAccessed: number;
   /** Original WebP data size in bytes */
@@ -74,24 +76,33 @@ export class TileCache {
 
   /**
    * Store a tile in the cache from WebP data.
-   * Creates a blob URL for rendering.
+   * Creates a blob URL and pre-decodes an ImageBitmap for flicker-free rendering.
    */
   async set(meta: TileMeta, data: Uint8Array): Promise<CachedTile> {
     const key = tileKeyFromMeta(meta);
 
-    // Revoke old blob URL if replacing
+    // Revoke old resources if replacing
     const existing = this.cache.get(key);
     if (existing) {
       URL.revokeObjectURL(existing.blobUrl);
+      existing.bitmap?.close();
     }
 
-    // Create blob URL from WebP data
+    // Create blob from WebP data and pre-decode to ImageBitmap
     const blob = new Blob([data.slice().buffer], { type: 'image/webp' });
     const blobUrl = URL.createObjectURL(blob);
+
+    let bitmap: ImageBitmap | null = null;
+    try {
+      bitmap = await createImageBitmap(blob);
+    } catch (e) {
+      console.error('Failed to decode tile bitmap:', meta, e);
+    }
 
     const tile: CachedTile = {
       meta,
       blobUrl,
+      bitmap,
       lastAccessed: Date.now(),
       dataSize: data.length,
     };
@@ -114,6 +125,7 @@ export class TileCache {
   clear(): void {
     for (const tile of this.cache.values()) {
       URL.revokeObjectURL(tile.blobUrl);
+      tile.bitmap?.close();
     }
     this.cache.clear();
   }
@@ -123,6 +135,7 @@ export class TileCache {
     for (const [key, tile] of this.cache.entries()) {
       if (tile.meta.level === level) {
         URL.revokeObjectURL(tile.blobUrl);
+        tile.bitmap?.close();
         this.cache.delete(key);
       }
     }
@@ -189,6 +202,7 @@ export class TileCache {
     for (let i = 0; i < toRemove && i < entries.length; i++) {
       const [key, tile] = entries[i];
       URL.revokeObjectURL(tile.blobUrl);
+      tile.bitmap?.close();
       this.cache.delete(key);
     }
   }

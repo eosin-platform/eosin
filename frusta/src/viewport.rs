@@ -159,6 +159,7 @@ impl ViewManager {
             async move {
                 if let Err(e) = tile_subscription_task(
                     slot,
+                    dpi,
                     image,
                     worker_tx,
                     send_tx,
@@ -380,32 +381,8 @@ impl ViewManager {
     }
 
     /// Compute the minimum mip level worth fetching for the current viewport.
-    ///
-    /// When the user is zoomed out, fetching high-resolution tiles is wasteful
-    /// because the display cannot render that level of detail. This function
-    /// returns the lowest (finest) mip level that provides useful detail given
-    /// the current zoom and client DPI.
-    ///
-    /// The calculation uses a baseline of 96 DPI. Higher DPI displays can
-    /// benefit from slightly finer mip levels.
     fn compute_min_level(&self, viewport: &Viewport) -> u32 {
-        const BASE_DPI: f32 = 96.0;
-
-        if self.image.levels == 0 {
-            return 0;
-        }
-
-        let dpi_scale = self.dpi / BASE_DPI;
-        let effective_scale = viewport.safe_zoom() * dpi_scale;
-
-        let min_level = if effective_scale >= 1.0 {
-            0
-        } else {
-            let raw = -effective_scale.log2();
-            raw.max(0.0).ceil() as u32
-        };
-
-        min_level.min(self.image.levels - 1)
+        compute_min_level(viewport, self.dpi, self.image.levels)
     }
 
     /// Request a specific tile from the client.
@@ -485,6 +462,40 @@ impl Drop for ViewManager {
     }
 }
 
+/// Compute the minimum mip level worth fetching for the given viewport.
+///
+/// When the user is zoomed out, fetching high-resolution tiles is wasteful
+/// because the display cannot render that level of detail. This function
+/// returns the lowest (finest) mip level that provides useful detail given
+/// the current zoom and client DPI.
+///
+/// The calculation mirrors the browser's `computeIdealLevel` in viewport.ts:
+///   idealLevel = ceil(-log2(zoom * dpiScale))
+/// The browser only requests tiles from `idealLevel - 1` (for HiDPI) to the
+/// coarsest level. We subtract 1 here so the server also covers the finer
+/// HiDPI level the browser may request.
+fn compute_min_level(viewport: &Viewport, dpi: f32, levels: u32) -> u32 {
+    const BASE_DPI: f32 = 96.0;
+
+    if levels == 0 {
+        return 0;
+    }
+
+    let dpi_scale = dpi / BASE_DPI;
+    let effective_scale = viewport.safe_zoom() * dpi_scale;
+
+    let ideal_level = if effective_scale >= 1.0 {
+        0u32
+    } else {
+        let raw = -effective_scale.log2();
+        raw.max(0.0).ceil() as u32
+    };
+
+    // Allow one level finer than ideal for HiDPI (matches browser's finerLevel).
+    let min_level = ideal_level.saturating_sub(1);
+    min_level.min(levels - 1)
+}
+
 /// Compute which tiles (x, y) at a given level intersect the viewport.
 fn visible_tiles_for_level(viewport: &Viewport, image: &ImageDesc, level: u32) -> Vec<TileMeta> {
     let downsample = 2f32.powi(level as i32);
@@ -552,6 +563,7 @@ fn is_tile_in_viewport(viewport: &Viewport, image: &ImageDesc, x: u32, y: u32, l
 /// dispatches work to fetch and send it to the client.
 async fn tile_subscription_task(
     slot: u8,
+    dpi: f32,
     image: ImageDesc,
     worker_tx: Sender<RetrieveTileWork>,
     send_tx: Sender<Bytes>,
@@ -612,6 +624,21 @@ async fn tile_subscription_task(
                 drop(viewport_guard);
 
                 if !is_tile_in_viewport(&viewport, &image, x, y, level) {
+                    continue;
+                }
+
+                // Check if the tile's mip level is appropriate for the current zoom.
+                // The browser only uses tiles from (idealLevel - 1) to the coarsest
+                // level. Tiles finer than that are wasteful to send.
+                let min_level = compute_min_level(&viewport, dpi, image.levels);
+                if level < min_level {
+                    tracing::debug!(
+                        x = x,
+                        y = y,
+                        level = level,
+                        min_level = min_level,
+                        "skipping tile: mip level too fine for current zoom"
+                    );
                     continue;
                 }
 

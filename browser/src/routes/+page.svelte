@@ -62,6 +62,7 @@
   // Image state from server data
   let imageDesc = $state<ImageDesc | null>(null);
   let currentSlot = $state<number | null>(null);
+  let currentSlideId = $state<Uint8Array | null>(null);
   let loadError = $state<string | null>(null);
 
   // Track last loaded slide ID to detect changes
@@ -81,7 +82,7 @@
   let renderTrigger = $state(0);
 
   // Client instance
-  let client: ReturnType<typeof createFrustaClient> | null = null;
+  let client = $state<ReturnType<typeof createFrustaClient> | null>(null);
 
   // Container ref for sizing
   let container: HTMLDivElement;
@@ -148,14 +149,26 @@
   }
 
   /**
-   * Load a new slide - updates imageDesc, centers viewport, and opens via WebSocket.
+   * Close the currently open slide over the WebSocket, freeing the slot.
    */
+  function closeCurrentSlide() {
+    if (currentSlideId && client) {
+      client.closeSlide(currentSlideId);
+      console.log(`Slide closed: slot=${currentSlot}`);
+    }
+    currentSlot = null;
+    currentSlideId = null;
+  }
+
   function loadSlide(slide: SlideInfo) {
     const newImageDesc = slideInfoToImageDesc(slide);
     if (!newImageDesc) {
       loadError = 'Failed to parse slide info';
       return;
     }
+
+    // Close the previous slide if one is open
+    closeCurrentSlide();
 
     imageDesc = newImageDesc;
     lastLoadedSlideId = slide.id;
@@ -209,7 +222,13 @@
       onStateChange: (state) => {
         connectionState = state;
 
-        // Auto-open slide when connected
+        if (state === 'disconnected' || state === 'error') {
+          // Server session is gone — reset local slot state
+          currentSlot = null;
+          currentSlideId = null;
+        }
+
+        // Auto-open slide when (re)connected
         if (state === 'connected' && imageDesc) {
           openSlide();
         }
@@ -220,6 +239,7 @@
       },
       onOpenResponse: (response) => {
         currentSlot = response.slot;
+        currentSlideId = response.id;
         console.log(`Slide opened: slot=${response.slot}, id=${formatUuid(response.id)}`);
         // Send initial viewport update
         sendViewportUpdate();
@@ -438,6 +458,7 @@
   });
 
   onDestroy(() => {
+    closeCurrentSlide();
     client?.disconnect();
     cache?.clear();
     if (viewportUpdateTimeout) {
@@ -503,7 +524,7 @@
     aria-label="Tile viewer - use mouse to pan, scroll to zoom"
   >
     {#if imageDesc && cache}
-      <TileRenderer image={imageDesc} {viewport} {cache} {renderTrigger} />
+      <TileRenderer image={imageDesc} {viewport} {cache} {renderTrigger} client={client ?? undefined} slot={currentSlot ?? undefined} />
       <Minimap
         image={imageDesc}
         {viewport}

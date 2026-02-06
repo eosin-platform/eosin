@@ -28,9 +28,8 @@
 
   let canvas: HTMLCanvasElement;
   let ctx: CanvasRenderingContext2D | null = null;
-  let imageCache = new Map<string, HTMLImageElement>();
-  let pendingImages = new Set<string>();
   let animationFrameId: number | null = null;
+  let renderScheduled = false;
   let retryManager: TileRetryManager | null = null;
   let checkerboardPattern: CanvasPattern | null = null;
 
@@ -103,19 +102,27 @@
     }
   });
 
+  /** Schedule a render on the next animation frame, coalescing multiple requests. */
+  function scheduleRender() {
+    if (renderScheduled) return;
+    renderScheduled = true;
+    animationFrameId = requestAnimationFrame(() => {
+      renderScheduled = false;
+      render();
+    });
+  }
+
   onMount(() => {
     ctx = canvas.getContext('2d');
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
-    render();
+    scheduleRender();
   });
 
   onDestroy(() => {
     if (animationFrameId !== null) {
       cancelAnimationFrame(animationFrameId);
     }
-    // Clear image cache
-    imageCache.clear();
     // Clear retry manager
     retryManager?.clear();
     window.removeEventListener('keydown', handleKeyDown);
@@ -131,7 +138,7 @@
     void mouseX;
     void mouseY;
     void forcedMipLevel;
-    render();
+    scheduleRender();
   });
 
   function render() {
@@ -428,11 +435,11 @@
   function renderTile(tile: CachedTile, rect: { x: number; y: number; width: number; height: number }) {
     if (!ctx) return;
 
-    const img = getOrLoadImage(tile);
-    if (img && img.complete && img.naturalWidth > 0) {
-      ctx.drawImage(img, rect.x, rect.y, rect.width, rect.height);
+    if (tile.bitmap) {
+      // Use pre-decoded ImageBitmap — instant, no async loading, no flicker
+      ctx.drawImage(tile.bitmap, rect.x, rect.y, rect.width, rect.height);
     } else {
-      // Image still loading - show placeholder
+      // Bitmap not yet decoded (shouldn't happen normally) — show placeholder
       renderPlaceholder(rect);
     }
   }
@@ -446,8 +453,7 @@
   ) {
     if (!ctx) return;
 
-    const img = getOrLoadImage(fallbackTile);
-    if (!img || !img.complete || img.naturalWidth === 0) {
+    if (!fallbackTile.bitmap) {
       renderPlaceholder(targetRect);
       return;
     }
@@ -465,7 +471,7 @@
     const srcY = subY * srcSize;
 
     ctx.drawImage(
-      img,
+      fallbackTile.bitmap,
       srcX,
       srcY,
       srcSize,
@@ -496,39 +502,7 @@
     ctx.strokeRect(rect.x + 0.5, rect.y + 0.5, rect.width - 1, rect.height - 1);
   }
 
-  function getOrLoadImage(tile: CachedTile): HTMLImageElement | null {
-    const key = tile.blobUrl;
 
-    // Return cached HTMLImageElement if available
-    const existing = imageCache.get(key);
-    if (existing) {
-      return existing;
-    }
-
-    // Don't start duplicate loads
-    if (pendingImages.has(key)) {
-      return null;
-    }
-
-    // Start loading the image
-    pendingImages.add(key);
-    const img = new Image();
-
-    img.onload = () => {
-      pendingImages.delete(key);
-      imageCache.set(key, img);
-      // Trigger re-render
-      render();
-    };
-
-    img.onerror = () => {
-      pendingImages.delete(key);
-      console.error('Failed to load tile image:', key);
-    };
-
-    img.src = tile.blobUrl;
-    return null;
-  }
 </script>
 
 <canvas
