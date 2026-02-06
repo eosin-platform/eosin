@@ -249,6 +249,32 @@ pub async fn mark_level_complete(
     Ok(())
 }
 
+/// Check whether a mip level has been fully completed.
+/// Returns `true` when a checkpoint row exists with `completed_up_to >= total_tiles`.
+pub async fn is_level_complete(pool: &Pool, slide_id: Uuid, level: u32) -> Result<bool> {
+    let client = pool.get().await.context("failed to get db connection")?;
+
+    let row = client
+        .query_opt(
+            r"
+            SELECT completed_up_to, total_tiles FROM compiler_tile_progress
+            WHERE slide_id = $1 AND level = $2
+            ",
+            &[&slide_id, &(level as i32)],
+        )
+        .await
+        .context("failed to query level completion")?;
+
+    match row {
+        Some(r) => {
+            let completed: i32 = r.get(0);
+            let total: i32 = r.get(1);
+            Ok(total > 0 && completed >= total)
+        }
+        None => Ok(false),
+    }
+}
+
 /// Clear all checkpoints for a slide (e.g., when fully complete).
 pub async fn clear_all_tile_checkpoints(pool: &Pool, slide_id: Uuid) -> Result<()> {
     let client = pool.get().await.context("failed to get db connection")?;

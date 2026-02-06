@@ -14,7 +14,7 @@ use uuid::Uuid;
 
 use crate::db::{
     CHECKPOINT_INTERVAL, CHECKPOINT_MIN_TILES, clear_all_tile_checkpoints, get_tile_checkpoint,
-    mark_level_complete, update_tile_checkpoint,
+    is_level_complete, mark_level_complete, update_tile_checkpoint,
 };
 use crate::meta_client::MetaClient;
 
@@ -265,6 +265,26 @@ async fn process_level(
     let tiles_y = level_height.div_ceil(TILE_SIZE);
     let total_tiles = tiles_x as usize * tiles_y as usize;
 
+    // Check if the entire level was already completed on a previous run.
+    // This works for levels of any size (including those below the
+    // CHECKPOINT_MIN_TILES threshold) so we never redo a finished level.
+    if let Some(pool) = pg_pool {
+        match is_level_complete(pool, slide_id, level).await {
+            Ok(true) => {
+                tracing::info!(
+                    level = level,
+                    total_tiles = total_tiles,
+                    "level already complete, skipping"
+                );
+                return Ok(());
+            }
+            Ok(false) => {}
+            Err(e) => {
+                tracing::warn!(level = level, error = ?e, "failed to check level completion");
+            }
+        }
+    }
+
     // Check if checkpointing is enabled for this level
     let use_checkpoint = pg_pool.is_some() && total_tiles > CHECKPOINT_MIN_TILES;
 
@@ -290,16 +310,6 @@ async fn process_level(
     } else {
         0
     };
-
-    // If we've already completed all tiles, skip this level
-    if start_index >= total_tiles {
-        tracing::info!(
-            level = level,
-            total_tiles = total_tiles,
-            "level already complete, skipping"
-        );
-        return Ok(());
-    }
 
     tracing::info!(
         level = level,
@@ -362,7 +372,8 @@ async fn process_level(
                 let slide = handle_ref.as_ref().unwrap();
 
                 // Extract the tile (returns None if the tile should be skipped)
-                let tile = match extract_tile(slide, &metadata_clone, level, tx, ty, native_level)? {
+                let tile = match extract_tile(slide, &metadata_clone, level, tx, ty, native_level)?
+                {
                     Some(t) => t,
                     None => {
                         tx_channel

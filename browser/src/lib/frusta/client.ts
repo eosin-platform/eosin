@@ -195,6 +195,7 @@ export class FrustaClient {
     // Check if this is a Progress event
     if (isProgressEvent(data)) {
       const event = parseProgressEvent(data);
+      console.log('Received progress event', { event });
       if (event) {
         this.options.onProgress(event);
         return;
