@@ -13,8 +13,8 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use crate::db::{
-    CHECKPOINT_INTERVAL, CHECKPOINT_MIN_TILES, clear_all_tile_checkpoints, get_tile_checkpoint,
-    is_level_complete, mark_level_complete, update_tile_checkpoint,
+    CHECKPOINT_INTERVAL, CHECKPOINT_MIN_TILES, get_tile_checkpoint, is_level_complete,
+    mark_level_complete, update_tile_checkpoint,
 };
 use crate::meta_client::MetaClient;
 
@@ -190,13 +190,6 @@ pub async fn process_slide(
             last_reported_step.clone(),
         )
         .await?;
-    }
-
-    // Clear all checkpoints for this slide since processing is complete
-    if let Some(pool) = pg_pool {
-        if let Err(e) = clear_all_tile_checkpoints(pool, slide_id).await {
-            tracing::warn!(error = ?e, "failed to clear tile checkpoints after completion");
-        }
     }
 
     // Report final progress: progress_steps = progress_total to signal 100%

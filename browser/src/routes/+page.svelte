@@ -38,10 +38,13 @@
 
   // Toast notification state
   let toastMessage = $state<string | null>(null);
+  let toastType = $state<'error' | 'success'>('error');
   let toastTimeout: ReturnType<typeof setTimeout> | null = null;
+  let hasBeenConnected = false;
 
-  function showToast(message: string, duration = 5000) {
+  function showToast(message: string, duration = 5000, type: 'error' | 'success' = 'error') {
     toastMessage = message;
+    toastType = type;
     if (toastTimeout) {
       clearTimeout(toastTimeout);
     }
@@ -233,8 +236,14 @@
         }
 
         // Auto-open slide when (re)connected
-        if (state === 'connected' && imageDesc) {
-          openSlide();
+        if (state === 'connected') {
+          if (hasBeenConnected) {
+            showToast('Reconnected.', 3000, 'success');
+          }
+          hasBeenConnected = true;
+          if (imageDesc) {
+            openSlide();
+          }
         }
       },
       onTile: (tile: TileData) => {
@@ -561,7 +570,7 @@
   </div>
 
   {#if toastMessage}
-    <div class="toast" role="alert">
+    <div class="toast {toastType === 'success' ? 'toast-success' : ''}" role="alert">
       <span class="toast-message">{toastMessage}</span>
       <button class="toast-dismiss" onclick={dismissToast} aria-label="Dismiss">
         ×
@@ -615,6 +624,10 @@
       opacity: 1;
       transform: translateX(-50%) translateY(0);
     }
+  }
+
+  .toast-success {
+    background: #16a34a;
   }
 
   .toast-message {
