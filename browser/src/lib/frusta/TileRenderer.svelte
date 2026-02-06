@@ -366,9 +366,8 @@
     // Try to find the best available tile
     // First check the ideal level
     let cachedTile = cache.get(targetCoord.x, targetCoord.y, targetCoord.level);
-    let tileLevel = targetCoord.level;
 
-    // If found at ideal level, mark as received in retry manager and render
+    // If found at ideal level, mark as received in retry manager and render.
     if (cachedTile) {
       if (retryManager) {
         retryManager.tileReceived(targetCoord.x, targetCoord.y, targetCoord.level);
@@ -377,40 +376,12 @@
       return;
     }
 
-    // Tile not found at ideal level - request it from the server and track for retry
-    if (client && slot !== undefined && targetCoord.level === idealLevel) {
-      // Check if we've already recently requested this tile (avoid spamming)
-      if (!retryManager || !retryManager.isTracking(targetCoord.x, targetCoord.y, targetCoord.level)) {
-        console.log(
-          `[TileRequest] Requesting tile (${targetCoord.x}, ${targetCoord.y}) level=${targetCoord.level}`
-        );
-        client.requestTile(slot, targetCoord.x, targetCoord.y, targetCoord.level);
-      }
-    }
+    // Tile not found at ideal level — track it for retry.
+    // We do NOT explicitly request tiles here; the server determines which tiles
+    // to send based on viewport updates. The retry manager will re-request via
+    // RequestTile only if the tile doesn't arrive within the timeout.
     if (retryManager && targetCoord.level === idealLevel) {
       retryManager.trackTile(targetCoord);
-    }
-
-    // Also request and track finer level tiles (up to 2x screen DPI) when ideal tile is missing
-    if (finerLevel < idealLevel) {
-      const scale = Math.pow(2, idealLevel - finerLevel);
-      for (let dy = 0; dy < scale; dy++) {
-        for (let dx = 0; dx < scale; dx++) {
-          const finerX = targetCoord.x * scale + dx;
-          const finerY = targetCoord.y * scale + dy;
-          if (client && slot !== undefined) {
-            if (!retryManager || !retryManager.isTracking(finerX, finerY, finerLevel)) {
-              console.log(
-                `[TileRequest] Requesting finer tile (${finerX}, ${finerY}) level=${finerLevel}`
-              );
-              client.requestTile(slot, finerX, finerY, finerLevel);
-            }
-          }
-          if (retryManager) {
-            retryManager.trackTile({ x: finerX, y: finerY, level: finerLevel });
-          }
-        }
-      }
     }
 
     // If not found at ideal level, look for coarser fallbacks

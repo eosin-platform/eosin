@@ -333,11 +333,21 @@ async fn handle_message(
         }
         MessageType::RequestTile => {
             tracing::debug!("handling RequestTile message");
+            // Fast path: if we're in a cooldown period, silently drop without hitting Redis
+            if let Some(until) = session.rate_limit_until {
+                if Instant::now() < until {
+                    return Ok(());
+                }
+                // Cooldown expired, clear it
+                session.rate_limit_until = None;
+            }
             // Rate limit tile requests by client IP
             if let Some(ref ip) = session.client_ip {
                 let key = format!("ip:{}", ip);
                 if !session.rate_limiter.check(&key).await {
                     tracing::warn!(ip = %ip, "rate limited tile request");
+                    // Enter 5-second cooldown: silently drop all tile requests
+                    session.rate_limit_until = Some(Instant::now() + Duration::from_secs(5));
                     // Notify the client at most once every 10 seconds
                     let should_notify = match session.last_rate_limit_notify {
                         Some(last) => last.elapsed() >= Duration::from_secs(10),
@@ -348,7 +358,7 @@ async fn handle_message(
                         let payload = MessageBuilder::rate_limited();
                         let _ = send_tx.try_send(Message::Binary(payload));
                     }
-                    bail!("rate limited");
+                    return Ok(());
                 }
             }
             ensure!(
@@ -388,6 +398,9 @@ pub struct Session {
     /// Last time we sent a RateLimited notification to the client.
     /// Throttled to at most once per 10 seconds.
     last_rate_limit_notify: Option<Instant>,
+    /// When set, all tile requests are silently dropped until this instant.
+    /// Activated for 5 seconds after a rate limit hit to avoid hammering Redis.
+    rate_limit_until: Option<Instant>,
 }
 
 impl Session {
@@ -409,6 +422,7 @@ impl Session {
             rate_limiter,
             client_ip,
             last_rate_limit_notify: None,
+            rate_limit_until: None,
         }
     }
 

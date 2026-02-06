@@ -51,6 +51,8 @@ export class FrustaClient {
   private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
   private _state: ConnectionState = 'disconnected';
   private intentionalClose = false;
+  private _rateLimited = false;
+  private rateLimitCooldownTimeout: ReturnType<typeof setTimeout> | null = null;
 
   constructor(options: FrustaClientOptions) {
     this.options = {
@@ -76,6 +78,23 @@ export class FrustaClient {
       this._state = state;
       this.options.onStateChange(state);
     }
+  }
+
+  /** Whether the client is currently rate-limited (5-second cooldown after server notification) */
+  get rateLimited(): boolean {
+    return this._rateLimited;
+  }
+
+  /** Enter rate-limited state for 5 seconds */
+  private enterRateLimitCooldown(): void {
+    this._rateLimited = true;
+    if (this.rateLimitCooldownTimeout) {
+      clearTimeout(this.rateLimitCooldownTimeout);
+    }
+    this.rateLimitCooldownTimeout = setTimeout(() => {
+      this._rateLimited = false;
+      this.rateLimitCooldownTimeout = null;
+    }, 5000);
   }
 
   /** Connect to the frusta WebSocket server */
@@ -127,6 +146,11 @@ export class FrustaClient {
       clearTimeout(this.reconnectTimeout);
       this.reconnectTimeout = null;
     }
+    if (this.rateLimitCooldownTimeout) {
+      clearTimeout(this.rateLimitCooldownTimeout);
+      this.rateLimitCooldownTimeout = null;
+    }
+    this._rateLimited = false;
     if (this.ws) {
       this.ws.close();
       this.ws = null;
@@ -154,6 +178,7 @@ export class FrustaClient {
   private handleMessage(data: ArrayBuffer): void {
     // Check if this is a RateLimited notification
     if (isRateLimited(data)) {
+      this.enterRateLimitCooldown();
       this.options.onRateLimited();
       return;
     }
@@ -235,6 +260,7 @@ export class FrustaClient {
    * @param level Mip level
    */
   requestTile(slot: number, x: number, y: number, level: number): boolean {
+    if (this._rateLimited) return false;
     return this.send(buildRequestTileMessage(slot, x, y, level));
   }
 }
