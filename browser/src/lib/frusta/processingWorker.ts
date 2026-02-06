@@ -32,7 +32,19 @@ export interface CancelRequest {
   ids: string[];
 }
 
-export type WorkerRequest = ProcessTileRequest | CancelRequest;
+/**
+ * Message to update sharpening settings in the worker.
+ * Sent from the main thread when user changes settings.
+ */
+export interface UpdateSettingsRequest {
+  type: 'updateSettings';
+  payload: {
+    sharpeningEnabled: boolean;
+    sharpeningIntensity: number; // 0 to 100
+  };
+}
+
+export type WorkerRequest = ProcessTileRequest | CancelRequest | UpdateSettingsRequest;
 export type WorkerResponse = ProcessTileResponse;
 
 // ============================================================================
@@ -333,8 +345,160 @@ function applyEnhancement(
 
 const cancelledIds = new Set<string>();
 
+// ============================================================================
+// Sharpening Settings (Worker-Local State)
+// ============================================================================
+
+/**
+ * Worker-local sharpening configuration.
+ * Updated via 'updateSettings' messages from main thread.
+ */
+let sharpeningEnabled = false;
+let sharpeningIntensity = 50; // 0 to 100
+
+// ============================================================================
+// Luminance-Only Unsharp Mask Sharpening
+// ============================================================================
+
+/**
+ * Apply luminance-only unsharp mask sharpening to RGBA pixel data.
+ * 
+ * This algorithm sharpens by enhancing local contrast in the luminance channel
+ * while preserving original color ratios. This approach is preferred for
+ * histology images because:
+ * 
+ * 1. It avoids color fringing artifacts that occur when sharpening RGB channels
+ *    independently
+ * 2. It preserves stain colors accurately, which is critical for diagnosis
+ * 3. It enhances structural details (cell boundaries, tissue architecture)
+ *    without altering the perceived stain intensity ratios
+ * 
+ * Algorithm:
+ * 1. Extract luminance from each pixel using standard weights
+ * 2. Blur luminance with a 3x3 Gaussian-like kernel
+ * 3. Compute detail = original_luminance - blurred_luminance
+ * 4. Add scaled detail back: sharpened_luminance = original + amount * detail
+ * 5. Scale RGB proportionally to match the new luminance
+ * 
+ * @param pixels - RGBA pixel data (modified in-place)
+ * @param width - Image width in pixels
+ * @param height - Image height in pixels
+ * @param intensity - Sharpening intensity from 0 to 100
+ */
+function applyUnsharpMaskLuminance(
+  pixels: Uint8ClampedArray,
+  width: number,
+  height: number,
+  intensity: number
+): void {
+  // Map intensity [0, 100] to internal amount [0.0, 0.4]
+  // Conservative max to avoid over-sharpening histology images
+  const amount = 0.4 * (intensity / 100);
+  
+  if (amount <= 0) return;
+
+  // Luminance weights (Rec. 601 luma)
+  const wR = 0.299;
+  const wG = 0.587;
+  const wB = 0.114;
+
+  const numPixels = width * height;
+
+  // Step 1: Compute original luminance for all pixels
+  const luminance = new Float32Array(numPixels);
+  for (let i = 0; i < numPixels; i++) {
+    const offset = i * 4;
+    const r = pixels[offset];
+    const g = pixels[offset + 1];
+    const b = pixels[offset + 2];
+    luminance[i] = wR * r + wG * g + wB * b;
+  }
+
+  // Step 2: Compute blurred luminance using 3x3 Gaussian-like kernel
+  // Kernel: [1,2,1; 2,4,2; 1,2,1] / 16
+  const kernel = [1, 2, 1, 2, 4, 2, 1, 2, 1];
+  const blurred = new Float32Array(numPixels);
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      let acc = 0;
+      let wSum = 0;
+
+      // Apply 3x3 kernel
+      for (let ky = -1; ky <= 1; ky++) {
+        for (let kx = -1; kx <= 1; kx++) {
+          const ix = x + kx;
+          const iy = y + ky;
+
+          // Skip out-of-bounds pixels (edge handling)
+          if (ix < 0 || ix >= width || iy < 0 || iy >= height) continue;
+
+          const weight = kernel[(ky + 1) * 3 + (kx + 1)];
+          const srcIdx = iy * width + ix;
+
+          acc += luminance[srcIdx] * weight;
+          wSum += weight;
+        }
+      }
+
+      blurred[y * width + x] = acc / (wSum || 1);
+    }
+  }
+
+  // Step 3 & 4: Apply unsharp mask and scale RGB
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const idx1D = y * width + x;
+      const offset = idx1D * 4;
+
+      const origY = luminance[idx1D];
+      const blurY = blurred[idx1D];
+      
+      // Detail is the high-frequency component
+      const detail = origY - blurY;
+
+      // Sharpened luminance with unsharp mask formula
+      let ySharp = origY + amount * detail;
+
+      // Clamp to valid luminance range
+      if (ySharp < 0) ySharp = 0;
+      if (ySharp > 255) ySharp = 255;
+
+      // Step 5: Scale RGB proportionally to preserve color ratios
+      const r = pixels[offset];
+      const g = pixels[offset + 1];
+      const b = pixels[offset + 2];
+
+      // Avoid division by zero for very dark pixels
+      const yOrigSafe = origY > 0.001 ? origY : 0.001;
+      const scale = ySharp / yOrigSafe;
+
+      // Apply scale and clamp
+      let rNew = r * scale;
+      let gNew = g * scale;
+      let bNew = b * scale;
+
+      if (rNew < 0) rNew = 0; if (rNew > 255) rNew = 255;
+      if (gNew < 0) gNew = 0; if (gNew > 255) gNew = 255;
+      if (bNew < 0) bNew = 0; if (bNew > 255) bNew = 255;
+
+      pixels[offset] = rNew;
+      pixels[offset + 1] = gNew;
+      pixels[offset + 2] = bNew;
+      // Alpha channel remains unchanged
+    }
+  }
+}
+
 self.onmessage = (event: MessageEvent<WorkerRequest>) => {
   const request = event.data;
+
+  // Handle settings update messages
+  if (request.type === 'updateSettings') {
+    sharpeningEnabled = request.payload.sharpeningEnabled;
+    sharpeningIntensity = Math.max(0, Math.min(100, request.payload.sharpeningIntensity));
+    return;
+  }
 
   if (request.type === 'cancel') {
     for (const id of request.ids) {
@@ -362,6 +526,23 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
     }
 
     applyEnhancement(imageData.data, enhanceMode);
+
+    // Check cancellation before sharpening
+    if (cancelledIds.has(id)) {
+      cancelledIds.delete(id);
+      return;
+    }
+
+    // Apply sharpening as final step (after normalization and enhancement)
+    // This preserves the stain color accuracy while enhancing structural details
+    if (sharpeningEnabled && sharpeningIntensity > 0) {
+      applyUnsharpMaskLuminance(
+        imageData.data,
+        imageData.width,
+        imageData.height,
+        sharpeningIntensity
+      );
+    }
 
     // Send back with transferable
     const response: ProcessTileResponse = {

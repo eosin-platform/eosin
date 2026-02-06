@@ -11,7 +11,8 @@
 
 import type { StainNormalizationMode, NormalizationParams } from './stainNormalization';
 import type { StainEnhancementMode } from '$lib/stores/settings';
-import type { ProcessTileRequest, ProcessTileResponse, CancelRequest } from './processingWorker';
+import type { ProcessTileRequest, ProcessTileResponse, CancelRequest, UpdateSettingsRequest } from './processingWorker';
+import { settings } from '$lib/stores/settings';
 
 // Vite worker import
 import ProcessingWorker from './processingWorker?worker';
@@ -108,6 +109,24 @@ export class ProcessingWorkerPool {
       // Resume processing queue
       this.processNextTask();
     }, 150); // 150ms debounce after zoom ends
+  }
+
+  /**
+   * Update sharpening settings on all workers.
+   * Called when user changes sharpening enabled/intensity in settings.
+   */
+  updateSharpeningSettings(enabled: boolean, intensity: number): void {
+    const message: UpdateSettingsRequest = {
+      type: 'updateSettings',
+      payload: {
+        sharpeningEnabled: enabled,
+        sharpeningIntensity: intensity,
+      },
+    };
+    
+    for (const worker of this.workers) {
+      worker.postMessage(message);
+    }
   }
 
   /**
@@ -302,13 +321,25 @@ export class ProcessingWorkerPool {
 
 // Singleton instance for the application
 let poolInstance: ProcessingWorkerPool | null = null;
+let settingsUnsubscribe: (() => void) | null = null;
 
 /**
  * Get the shared processing worker pool instance.
+ * Automatically subscribes to settings changes for sharpening updates.
  */
 export function getProcessingPool(): ProcessingWorkerPool {
   if (!poolInstance) {
     poolInstance = new ProcessingWorkerPool();
+    
+    // Subscribe to settings changes to update worker sharpening configuration
+    settingsUnsubscribe = settings.subscribe(($settings) => {
+      if (poolInstance) {
+        poolInstance.updateSharpeningSettings(
+          $settings.image.sharpeningEnabled,
+          $settings.image.sharpeningIntensity
+        );
+      }
+    });
   }
   return poolInstance;
 }
@@ -317,6 +348,10 @@ export function getProcessingPool(): ProcessingWorkerPool {
  * Destroy the shared processing worker pool (for cleanup).
  */
 export function destroyProcessingPool(): void {
+  if (settingsUnsubscribe) {
+    settingsUnsubscribe();
+    settingsUnsubscribe = null;
+  }
   if (poolInstance) {
     poolInstance.destroy();
     poolInstance = null;
