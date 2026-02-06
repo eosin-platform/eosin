@@ -1,7 +1,9 @@
 <script lang="ts">
   import { page } from '$app/stores';
   import { browser } from '$app/environment';
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
+  import { liveProgress, type SlideProgress } from '$lib/stores/progress';
+  import ActivityIndicator from './ActivityIndicator.svelte';
 
   interface SlideListItem {
     id: string;
@@ -34,6 +36,27 @@
 
   let scrollContainer: HTMLElement;
   let sentinel: HTMLDivElement;
+
+  // Live progress from WebSocket (shared store)
+  let currentLiveProgress = $state<SlideProgress | null>(null);
+  const unsubscribe = liveProgress.subscribe((value) => {
+    currentLiveProgress = value;
+    // Also update the matching slide in the list so the percentage stays in sync
+    if (value) {
+      const idx = slides.findIndex((s) => s.id === value.slideId);
+      if (idx !== -1) {
+        slides[idx] = {
+          ...slides[idx],
+          progress_steps: value.progressSteps,
+          progress_total: value.progressTotal,
+        };
+      }
+    }
+  });
+
+  onDestroy(() => {
+    unsubscribe();
+  });
 
   // Get current slide ID from URL
   let currentSlideId = $derived($page.url.searchParams.get('id'));
@@ -171,7 +194,12 @@
           <div class="slide-row">
             <span class="slide-name">{getSlideLabel(slide)}</span>
             {#if progress}
-              <span class="slide-progress">{progress}</span>
+              <span class="slide-progress">
+                {#if currentLiveProgress && currentLiveProgress.slideId === slide.id}
+                  <ActivityIndicator trigger={currentLiveProgress.lastUpdate} />
+                {/if}
+                {progress}
+              </span>
             {/if}
           </div>
           <span class="slide-meta">
@@ -360,6 +388,9 @@
     color: #f59e0b;
     font-weight: 500;
     flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
   }
 
   .slide-item.active .slide-progress {

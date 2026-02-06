@@ -18,6 +18,8 @@
     centerViewport,
   } from '$lib/frusta';
   import Minimap from '$lib/components/Minimap.svelte';
+  import ActivityIndicator from '$lib/components/ActivityIndicator.svelte';
+  import { liveProgress } from '$lib/stores/progress';
   import type { SlideInfo } from './+page.server';
 
   // Server-provided data
@@ -32,6 +34,7 @@
   // Progress state
   let progressSteps = $state(0);
   let progressTotal = $state(0);
+  let progressUpdateTrigger = $state(0);
 
   // Toast notification state
   let toastMessage = $state<string | null>(null);
@@ -247,6 +250,16 @@
       onProgress: (event: ProgressEvent) => {
         progressSteps = event.progressSteps;
         progressTotal = event.progressTotal;
+        progressUpdateTrigger++;
+        // Publish to shared store so sidebar can display live progress
+        if (lastLoadedSlideId) {
+          liveProgress.set({
+            slideId: lastLoadedSlideId,
+            progressSteps: event.progressSteps,
+            progressTotal: event.progressTotal,
+            lastUpdate: Date.now(),
+          });
+        }
       },
       onError: (error) => {
         const msg = error instanceof Error ? error.message : 'Connection error';
@@ -499,7 +512,7 @@
         <span>Image: {imageDesc.width}×{imageDesc.height} ({imageDesc.levels} levels)</span>
       {/if}
       {#if progressTotal > 0 && progressSteps < progressTotal}
-        <span class="progress-indicator">Processing: {((progressSteps / progressTotal) * 100).toFixed(0)}%</span>
+        <span class="progress-indicator"><ActivityIndicator trigger={progressUpdateTrigger} />Processing: {((progressSteps / progressTotal) * 100).toFixed(0)}%</span>
       {/if}
     </div>
 
@@ -646,6 +659,9 @@
   .progress-indicator {
     color: #f59e0b;
     font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
   }
 
   .spinner {
