@@ -158,6 +158,13 @@
     window.removeEventListener('keyup', handleKeyUp);
   });
 
+  // Keep the cache's viewport context up-to-date for smart eviction
+  // This protects coarse tiles (higher mip levels) intersecting the viewport
+  // from being evicted, ensuring smooth zoom-out behavior
+  $effect(() => {
+    cache.setViewportContext(viewport, image);
+  });
+
   // Re-render when viewport, renderTrigger, or debug state changes
   $effect(() => {
     // Access reactive dependencies

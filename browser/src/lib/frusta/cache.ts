@@ -4,8 +4,8 @@
  * Supports cancellation of pending decodes for tiles that leave the viewport.
  */
 
-import type { TileMeta } from './protocol';
-import type { TileCoord } from './viewport';
+import type { TileMeta, ImageDesc } from './protocol';
+import type { TileCoord, ViewportState } from './viewport';
 
 /** Tile size in pixels (must match server TILE_SIZE) */
 export const TILE_SIZE = 512;
@@ -75,6 +75,9 @@ export class TileCache {
   private currentMemoryBytes: number = 0;
   private onTileCached: (meta: TileMeta) => void;
 
+  /** Current viewport context for protecting coarse tiles during eviction */
+  private viewportContext: { viewport: ViewportState; image: ImageDesc } | null = null;
+
   /** Default memory limit: 384MB */
   static readonly DEFAULT_MAX_MEMORY_BYTES = 384 * 1024 * 1024;
 
@@ -82,6 +85,22 @@ export class TileCache {
     this.maxTiles = options.maxTiles ?? 1000;
     this.maxMemoryBytes = options.maxMemoryBytes ?? TileCache.DEFAULT_MAX_MEMORY_BYTES;
     this.onTileCached = options.onTileCached ?? (() => {});
+  }
+
+  /**
+   * Update the current viewport context.
+   * This is used during eviction to protect coarse tiles (higher mip levels)
+   * that intersect the viewport, ensuring smooth zoom-out behavior.
+   */
+  setViewportContext(viewport: ViewportState, image: ImageDesc): void {
+    this.viewportContext = { viewport, image };
+  }
+
+  /**
+   * Clear the viewport context (e.g., when switching slides).
+   */
+  clearViewportContext(): void {
+    this.viewportContext = null;
   }
 
   /** Get a tile from the cache, updating its access time */
@@ -371,12 +390,62 @@ export class TileCache {
     return null;
   }
 
+  /**
+   * Compute the set of tile keys that should be protected from eviction.
+   * These are tiles at higher mip levels (coarser resolution) that intersect
+   * the current viewport. Protecting them ensures smooth zoom-out behavior.
+   */
+  private computeProtectedTileKeys(): Set<bigint> {
+    const protectedKeys = new Set<bigint>();
+    
+    if (!this.viewportContext) {
+      return protectedKeys;
+    }
+    
+    const { viewport, image } = this.viewportContext;
+    const zoom = Math.max(viewport.zoom, 1e-6);
+    
+    // Viewport bounds in level-0 pixels
+    const viewX0 = viewport.x;
+    const viewY0 = viewport.y;
+    const viewX1 = viewport.x + viewport.width / zoom;
+    const viewY1 = viewport.y + viewport.height / zoom;
+    
+    // Protect tiles at all mip levels (from level 0 to the coarsest level)
+    // that intersect the current viewport
+    for (let level = 0; level < image.levels; level++) {
+      const downsample = Math.pow(2, level);
+      const pxPerTile = downsample * TILE_SIZE;
+      
+      // Convert viewport bounds to tile indices at this level
+      const tilesX = Math.ceil(image.width / pxPerTile);
+      const tilesY = Math.ceil(image.height / pxPerTile);
+      
+      const minTx = Math.max(0, Math.floor(viewX0 / pxPerTile));
+      const minTy = Math.max(0, Math.floor(viewY0 / pxPerTile));
+      const maxTx = Math.min(tilesX, Math.ceil(viewX1 / pxPerTile));
+      const maxTy = Math.min(tilesY, Math.ceil(viewY1 / pxPerTile));
+      
+      // Add all tiles at this level that intersect the viewport
+      for (let ty = minTy; ty < maxTy; ty++) {
+        for (let tx = minTx; tx < maxTx; tx++) {
+          protectedKeys.add(tileKey(tx, ty, level));
+        }
+      }
+    }
+    
+    return protectedKeys;
+  }
+
   private evictIfNeeded(): void {
     // Check both tile count and memory limits
     const overTileLimit = this.cache.size > this.maxTiles;
     const overMemoryLimit = this.currentMemoryBytes > this.maxMemoryBytes;
     
     if (!overTileLimit && !overMemoryLimit) return;
+
+    // Build a set of protected tile keys (coarse tiles intersecting viewport)
+    const protectedKeys = this.computeProtectedTileKeys();
 
     // Collect entries sorted by last accessed time (oldest first)
     const entries = Array.from(this.cache.entries()).sort(
@@ -392,6 +461,11 @@ export class TileCache {
       // Stop if we're under both limits
       if (this.cache.size <= targetTileCount && this.currentMemoryBytes <= targetMemoryBytes) {
         break;
+      }
+
+      // Skip protected tiles (coarse tiles intersecting viewport)
+      if (protectedKeys.has(key)) {
+        continue;
       }
 
       // Cancel any pending decode for this tile
