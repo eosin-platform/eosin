@@ -255,14 +255,26 @@ impl ViewManager {
         let cancel = CancellationToken::new();
         if let Some(old_cancel) = self.cancel_update.replace(cancel.clone()) {
             old_cancel.cancel();
-            // The previous update was cancelled before all its tiles could
-            // be fetched & sent.  Remove the dispatched keys from the sent
-            // cache so the tiles are eligible for re-dispatch in this new
-            // update (instead of being stuck behind the 30 s dedup window).
+            // The previous update was cancelled.  Instead of removing keys
+            // outright (which causes the server to re-send tiles the client
+            // already decoded, producing flicker), shorten the dedup window
+            // to 2 s so they become eligible again soon but don't cause an
+            // immediate redundant dispatch on the very next update.
             if !self.last_dispatched_keys.is_empty() {
+                let cutoff = chrono::Utc::now().timestamp_millis() - 28_000;
                 let mut sent = self.sent.write();
                 for key in self.last_dispatched_keys.drain(..) {
-                    sent.remove(&key);
+                    if let Some(info) = sent.get_mut(&key) {
+                        // Pull the timestamp back so only ~2 s remain on
+                        // the 30 s dedup window.  If the tile was already
+                        // delivered to the client, the next update will
+                        // skip it (it's still in sent).  If it wasn't,
+                        // the 2 s cooldown prevents the rapid cancel→
+                        // redispatch cycle from flooding the client.
+                        if info.last_requested_at > cutoff {
+                            info.last_requested_at = cutoff;
+                        }
+                    }
                 }
             }
         }

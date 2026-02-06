@@ -91,11 +91,19 @@ export class TileCache {
   set(meta: TileMeta, data: Uint8Array): { tile: CachedTile; bitmapReady: Promise<void> } {
     const key = tileKeyFromMeta(meta);
 
-    // Revoke old resources if replacing
+    // If this tile already exists with a decoded bitmap, keep it — the
+    // existing version is strictly better than starting a fresh decode.
+    // Without this guard, re-sent tiles cause a crisp→blurry→crisp
+    // flicker because the decoded bitmap is destroyed and re-decoded.
     const existing = this.cache.get(key);
+    if (existing?.bitmap) {
+      existing.lastAccessed = Date.now();
+      return { tile: existing, bitmapReady: Promise.resolve() };
+    }
+
+    // Revoke old resources if replacing (tile exists but bitmap is null)
     if (existing) {
       URL.revokeObjectURL(existing.blobUrl);
-      existing.bitmap?.close();
     }
 
     // Create blob from WebP data

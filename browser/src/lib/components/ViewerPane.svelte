@@ -257,7 +257,13 @@
     currentSlot = slot;
     // Re-register with updated slot
     registerHandler();
-    sendViewportUpdate();
+    // Use debounced update instead of immediate — setting currentSlot
+    // (a $state variable) will re-trigger the $effect above, which also
+    // calls scheduleViewportUpdate().  The two calls coalesce via the
+    // shared timeout, so the server receives exactly one Update message
+    // instead of two back-to-back (which would cause the second to cancel
+    // the first's tile dispatches).
+    scheduleViewportUpdate();
   }
 
   function handleTileReceived(tile: TileData) {
