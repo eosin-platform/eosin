@@ -9,6 +9,8 @@
 import { TileCache, type TileCacheOptions } from '$lib/frusta';
 
 const DEFAULT_MAX_TILES = 2000;
+/** Default memory limit: 384MB */
+const DEFAULT_MAX_MEMORY_BYTES = 384 * 1024 * 1024;
 
 interface CacheEntry {
   cache: TileCache;
@@ -27,7 +29,11 @@ export function acquireCache(slideId: string, opts?: TileCacheOptions): TileCach
     entry.refCount++;
     return entry.cache;
   }
-  const cache = new TileCache({ maxTiles: DEFAULT_MAX_TILES, ...opts });
+  const cache = new TileCache({ 
+    maxTiles: DEFAULT_MAX_TILES, 
+    maxMemoryBytes: DEFAULT_MAX_MEMORY_BYTES,
+    ...opts 
+  });
   caches.set(slideId, { cache, refCount: 1 });
   return cache;
 }

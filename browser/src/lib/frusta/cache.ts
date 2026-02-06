@@ -54,6 +54,8 @@ export interface CachedTile {
 export interface TileCacheOptions {
   /** Maximum number of tiles to cache (default: 2000) */
   maxTiles?: number;
+  /** Maximum memory usage in bytes (default: 384MB) */
+  maxMemoryBytes?: number;
   /** Called when a new tile is cached */
   onTileCached?: (meta: TileMeta) => void;
 }
@@ -67,10 +69,18 @@ export class TileCache {
   /** Track pending decode operations for cancellation */
   private pendingDecodes = new Map<bigint, PendingDecode>();
   private maxTiles: number;
+  /** Maximum memory usage in bytes (default: 384MB) */
+  private maxMemoryBytes: number;
+  /** Cached memory usage to avoid recalculating on every insert */
+  private currentMemoryBytes: number = 0;
   private onTileCached: (meta: TileMeta) => void;
+
+  /** Default memory limit: 384MB */
+  static readonly DEFAULT_MAX_MEMORY_BYTES = 384 * 1024 * 1024;
 
   constructor(options: TileCacheOptions = {}) {
     this.maxTiles = options.maxTiles ?? 1000;
+    this.maxMemoryBytes = options.maxMemoryBytes ?? TileCache.DEFAULT_MAX_MEMORY_BYTES;
     this.onTileCached = options.onTileCached ?? (() => {});
   }
 
@@ -130,6 +140,8 @@ export class TileCache {
 
     // Revoke old resources if replacing (tile exists but bitmap is null)
     if (existing) {
+      // Subtract old tile's memory before replacing
+      this.currentMemoryBytes -= this.getTileMemorySize(existing);
       URL.revokeObjectURL(existing.blobUrl);
     }
 
@@ -149,6 +161,9 @@ export class TileCache {
     };
 
     this.cache.set(key, tile);
+
+    // Track memory for the new tile (just the compressed data for now)
+    this.currentMemoryBytes += tile.dataSize;
 
     // Track this pending decode so it can be cancelled if the tile
     // leaves the viewport before decoding completes
@@ -178,7 +193,11 @@ export class TileCache {
         // decoding — only update if it's still the same object.
         const current = this.cache.get(key);
         if (current === tile) {
+          // Add the decoded bitmap memory (RGBA, 4 bytes per pixel)
+          this.currentMemoryBytes += TILE_SIZE * TILE_SIZE * 4;
           tile.bitmap = bitmap;
+          // Evict if the new bitmap pushed us over the limit
+          this.evictIfNeeded();
           this.onTileCached(meta);
         } else {
           bitmap.close();
@@ -240,16 +259,27 @@ export class TileCache {
 
   /** Get total memory usage in bytes (approximate) */
   getMemoryUsage(): number {
+    return this.currentMemoryBytes;
+  }
+
+  /** Recalculate memory usage from scratch (for debugging/verification) */
+  private recalculateMemoryUsage(): number {
     let total = 0;
     for (const tile of this.cache.values()) {
-      // dataSize is the compressed WebP size
-      total += tile.dataSize;
-      // Each decoded ImageBitmap is ~4 bytes per pixel (RGBA)
-      if (tile.bitmap) {
-        total += TILE_SIZE * TILE_SIZE * 4;
-      }
+      total += this.getTileMemorySize(tile);
     }
     return total;
+  }
+
+  /** Get the memory size of a single tile */
+  private getTileMemorySize(tile: CachedTile): number {
+    // dataSize is the compressed WebP size (kept in memory as blob)
+    let size = tile.dataSize;
+    // Each decoded ImageBitmap is ~4 bytes per pixel (RGBA)
+    if (tile.bitmap) {
+      size += TILE_SIZE * TILE_SIZE * 4;
+    }
+    return size;
   }
 
   /** Get count of tiles that have decoded bitmaps ready */
@@ -276,16 +306,22 @@ export class TileCache {
       tile.bitmap?.close();
     }
     this.cache.clear();
+    this.currentMemoryBytes = 0;
   }
 
   /** Clear tiles for a specific level */
   clearLevel(level: number): void {
     for (const [key, tile] of this.cache.entries()) {
       if (tile.meta.level === level) {
+        this.currentMemoryBytes -= this.getTileMemorySize(tile);
         URL.revokeObjectURL(tile.blobUrl);
         tile.bitmap?.close();
         this.cache.delete(key);
       }
+    }
+    // Ensure memory tracking doesn't go negative
+    if (this.currentMemoryBytes < 0) {
+      this.currentMemoryBytes = 0;
     }
   }
 
@@ -336,22 +372,46 @@ export class TileCache {
   }
 
   private evictIfNeeded(): void {
-    if (this.cache.size <= this.maxTiles) return;
+    // Check both tile count and memory limits
+    const overTileLimit = this.cache.size > this.maxTiles;
+    const overMemoryLimit = this.currentMemoryBytes > this.maxMemoryBytes;
+    
+    if (!overTileLimit && !overMemoryLimit) return;
 
     // Collect entries sorted by last accessed time (oldest first)
     const entries = Array.from(this.cache.entries()).sort(
       (a, b) => a[1].lastAccessed - b[1].lastAccessed
     );
 
-    // Remove oldest entries until we're at 80% capacity
-    const targetSize = Math.floor(this.maxTiles * 0.8);
-    const toRemove = this.cache.size - targetSize;
+    // Calculate target thresholds (80% of limits)
+    const targetTileCount = Math.floor(this.maxTiles * 0.8);
+    const targetMemoryBytes = Math.floor(this.maxMemoryBytes * 0.8);
 
-    for (let i = 0; i < toRemove && i < entries.length; i++) {
-      const [key, tile] = entries[i];
+    // Evict tiles until we're under both thresholds
+    for (const [key, tile] of entries) {
+      // Stop if we're under both limits
+      if (this.cache.size <= targetTileCount && this.currentMemoryBytes <= targetMemoryBytes) {
+        break;
+      }
+
+      // Cancel any pending decode for this tile
+      const pendingDecode = this.pendingDecodes.get(key);
+      if (pendingDecode) {
+        pendingDecode.cancelled = true;
+        this.pendingDecodes.delete(key);
+      }
+
+      // Update memory tracking before removing
+      this.currentMemoryBytes -= this.getTileMemorySize(tile);
+
       URL.revokeObjectURL(tile.blobUrl);
       tile.bitmap?.close();
       this.cache.delete(key);
+    }
+
+    // Ensure memory tracking doesn't go negative due to rounding
+    if (this.currentMemoryBytes < 0) {
+      this.currentMemoryBytes = 0;
     }
   }
 }
