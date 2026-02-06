@@ -1,9 +1,10 @@
 <script lang="ts">
-  import { page } from '$app/stores';
   import { browser } from '$app/environment';
   import { onMount, onDestroy } from 'svelte';
   import { liveProgress, type SlideProgress } from '$lib/stores/progress';
+  import { tabStore } from '$lib/stores/tabs';
   import ActivityIndicator from './ActivityIndicator.svelte';
+  import ContextMenu from './ContextMenu.svelte';
 
   interface SlideListItem {
     id: string;
@@ -69,9 +70,6 @@
   onDestroy(() => {
     unsubscribe();
   });
-
-  // Get current slide ID from URL
-  let currentSlideId = $derived($page.url.searchParams.get('id'));
 
   // Initialize and reset state when initialSlides changes
   $effect(() => {
@@ -170,6 +168,83 @@
       onToggle();
     }
   }
+
+  // Context menu state
+  let contextMenuVisible = $state(false);
+  let contextMenuX = $state(0);
+  let contextMenuY = $state(0);
+  let contextMenuSlide = $state<SlideListItem | null>(null);
+
+  // Long press state for mobile
+  let longPressTimer: ReturnType<typeof setTimeout> | null = null;
+  const LONG_PRESS_MS = 500;
+
+  function showContextMenu(x: number, y: number, slide: SlideListItem) {
+    contextMenuX = x;
+    contextMenuY = y;
+    contextMenuSlide = slide;
+    contextMenuVisible = true;
+  }
+
+  function handleContextMenu(e: MouseEvent, slide: SlideListItem) {
+    e.preventDefault();
+    e.stopPropagation();
+    showContextMenu(e.clientX, e.clientY, slide);
+  }
+
+  function handleSlideClick(slide: SlideListItem) {
+    // Default click opens in current tab
+    contextMenuVisible = false;
+    tabStore.open(slide.id, getSlideLabel(slide), slide.width, slide.height);
+  }
+
+  function handleTouchStartSlide(e: TouchEvent, slide: SlideListItem) {
+    longPressTimer = setTimeout(() => {
+      longPressTimer = null;
+      const touch = e.touches[0];
+      showContextMenu(touch.clientX, touch.clientY, slide);
+    }, LONG_PRESS_MS);
+  }
+
+  function handleTouchEndSlide() {
+    if (longPressTimer) {
+      clearTimeout(longPressTimer);
+      longPressTimer = null;
+    }
+  }
+
+  function handleTouchMoveSlide() {
+    // Cancel long press if finger moves
+    if (longPressTimer) {
+      clearTimeout(longPressTimer);
+      longPressTimer = null;
+    }
+  }
+
+  function handleContextMenuOpen() {
+    if (!contextMenuSlide) return;
+    tabStore.open(contextMenuSlide.id, getSlideLabel(contextMenuSlide), contextMenuSlide.width, contextMenuSlide.height);
+  }
+
+  function handleContextMenuOpenInNewTab() {
+    if (!contextMenuSlide) return;
+    tabStore.openInNewTab(contextMenuSlide.id, getSlideLabel(contextMenuSlide), contextMenuSlide.width, contextMenuSlide.height);
+  }
+
+  function handleContextMenuClose() {
+    contextMenuVisible = false;
+    contextMenuSlide = null;
+  }
+
+  // Track the active tab's slideId for highlighting
+  let activeSlideId = $state<string | null>(null);
+  const unsubActiveTab = tabStore.activeTab.subscribe((tab) => {
+    activeSlideId = tab?.slideId ?? null;
+  });
+
+  onDestroy(() => {
+    unsubActiveTab();
+  });
 </script>
 
 <aside class="sidebar" class:collapsed bind:this={scrollContainer}>
@@ -194,11 +269,20 @@
   <nav class="slide-list">
     {#each slides as slide (slide.id)}
       {@const progress = formatProgress(slide)}
-      <a 
-        href="/?id={slide.id}" 
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <div
         class="slide-item"
-        class:active={currentSlideId === slide.id}
+        class:active={activeSlideId === slide.id}
         title={collapsed ? `${getSlideLabel(slide)} - ${formatDimensions(slide.width, slide.height)} - ${formatSize(slide.full_size)}${progress ? ` - ${progress}` : ''}` : undefined}
+        onclick={() => handleSlideClick(slide)}
+        onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleSlideClick(slide); }}
+        oncontextmenu={(e) => handleContextMenu(e, slide)}
+        ontouchstart={(e) => handleTouchStartSlide(e, slide)}
+        ontouchend={handleTouchEndSlide}
+        ontouchmove={handleTouchMoveSlide}
+        role="button"
+        tabindex="0"
       >
         {#if collapsed}
           <span class="slide-icon">{(slide.filename || slide.id).slice(0, 2).toUpperCase()}</span>
@@ -219,7 +303,7 @@
             <span class="slide-size">{formatSize(slide.full_size)}</span>
           </span>
         {/if}
-      </a>
+      </div>
     {/each}
 
     {#if slides.length === 0 && !loading}
@@ -246,6 +330,15 @@
     </div>
   </nav>
 </aside>
+
+<ContextMenu
+  x={contextMenuX}
+  y={contextMenuY}
+  visible={contextMenuVisible}
+  onOpen={handleContextMenuOpen}
+  onOpenInNewTab={handleContextMenuOpenInNewTab}
+  onClose={handleContextMenuClose}
+/>
 
 <style>
   .sidebar {
@@ -337,10 +430,12 @@
     flex-direction: column;
     padding: 0.75rem;
     border-radius: 6px;
-    text-decoration: none;
     color: #ccc;
     transition: background-color 0.15s, color 0.15s;
     gap: 0.25rem;
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
   }
 
   .sidebar.collapsed .slide-item {

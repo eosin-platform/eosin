@@ -2,6 +2,7 @@
 	import './layout.css';
 	import favicon from '$lib/assets/favicon.svg';
 	import Sidebar from '$lib/components/Sidebar.svelte';
+	import TabBar from '$lib/components/TabBar.svelte';
 	import type { Snippet } from 'svelte';
 	import { onMount } from 'svelte';
 	import { browser } from '$app/environment';
@@ -101,6 +102,7 @@
 				<span class="mobile-title">Slides</span>
 			</header>
 		{/if}
+		<TabBar />
 		{@render children()}
 	</div>
 </div>
