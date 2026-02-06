@@ -391,9 +391,9 @@ function applyUnsharpMaskLuminance(
   height: number,
   intensity: number
 ): void {
-  // Map intensity [0, 100] to internal amount [0.0, 0.4]
-  // Conservative max to avoid over-sharpening histology images
-  const amount = 0.4 * (intensity / 100);
+  // Map intensity [0, 100] to internal amount [0.0, 0.8]
+  // Allows stronger sharpening for histology images when needed
+  const amount = 0.8 * (intensity / 100);
   
   if (amount <= 0) return;
 

@@ -18,7 +18,7 @@ import {
   type NormalizationParams,
   type StainNormalizationMode,
 } from './stainNormalization';
-import type { StainEnhancementMode, StainNormalization } from '$lib/stores/settings';
+import { settings, type StainEnhancementMode, type StainNormalization } from '$lib/stores/settings';
 import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
   /** Performance metrics exposed via callback */
   export interface RenderMetrics {
@@ -115,14 +115,22 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
   let cachedNormSlideId: string | null = null;
   let cachedNormMode: StainNormalizationMode | null = null;
   
+  // Sharpening settings from store (reactive)
+  let sharpeningEnabled = $derived($settings.image.sharpeningEnabled);
+  let sharpeningIntensity = $derived($settings.image.sharpeningIntensity);
+  
   /** Generate cache key for processed bitmap (includes slideId to avoid cross-slide collisions) */
   function processedCacheKey(
     tileKey: bigint,
     normMode: StainNormalizationMode,
     enhanceMode: StainEnhancementMode,
-    slideId: string
+    slideId: string,
+    sharpeningEnabled: boolean,
+    sharpeningIntensity: number
   ): string {
-    return `${slideId}_${tileKey}_${normMode}_${enhanceMode}`;
+    // Include sharpening in key so tiles are re-processed when sharpening settings change
+    const sharpenKey = sharpeningEnabled ? `sharp${sharpeningIntensity}` : 'nosharp';
+    return `${slideId}_${tileKey}_${normMode}_${enhanceMode}_${sharpenKey}`;
   }
   
   /** Get cached processed bitmap if available */
@@ -132,7 +140,14 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
     enhanceMode: StainEnhancementMode,
     slideId: string
   ): ImageBitmap | null {
-    const key = processedCacheKey(tileKeyFromMeta(tile.meta), normMode, enhanceMode, slideId);
+    const key = processedCacheKey(
+      tileKeyFromMeta(tile.meta),
+      normMode,
+      enhanceMode,
+      slideId,
+      sharpeningEnabled,
+      sharpeningIntensity
+    );
     const entry = processedBitmapCache.get(key);
     if (entry && entry.normMode === normMode && entry.enhanceMode === enhanceMode) {
       entry.lastAccessed = Date.now();
@@ -196,7 +211,7 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
     return Math.sqrt(dx * dx + dy * dy);
   }
 
-  /** Start async processing computation for a tile (normalization + enhancement) */
+  /** Start async processing computation for a tile (normalization + enhancement + sharpening) */
   function scheduleProcessing(
     tile: CachedTile,
     normMode: StainNormalizationMode,
@@ -205,11 +220,20 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
   ): void {
     if (!tile.bitmap) return;
     
-    // Skip if no processing needed
-    if (normMode === 'none' && enhanceMode === 'none') return;
+    // Skip if no processing needed (no normalization, enhancement, or sharpening)
+    const needsProcessing = normMode !== 'none' || enhanceMode !== 'none' || 
+      (sharpeningEnabled && sharpeningIntensity > 0);
+    if (!needsProcessing) return;
     
     const tileKey = tileKeyFromMeta(tile.meta);
-    const key = processedCacheKey(tileKey, normMode, enhanceMode, slideId);
+    const key = processedCacheKey(
+      tileKey,
+      normMode,
+      enhanceMode,
+      slideId,
+      sharpeningEnabled,
+      sharpeningIntensity
+    );
     
     // Skip if already cached or in progress
     if (processedBitmapCache.has(key) || pendingProcessing.has(key)) {
@@ -574,13 +598,15 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
     }
   });
 
-  // Re-render when viewport, renderTrigger, stainNormalization, stainEnhancement, or debug state changes
+  // Re-render when viewport, renderTrigger, stainNormalization, stainEnhancement, sharpening, or debug state changes
   $effect(() => {
     // Access reactive dependencies
     void viewport;
     void renderTrigger;
     void stainNormalization;
     void stainEnhancement;
+    void sharpeningEnabled;
+    void sharpeningIntensity;
     void dKeyHeld;
     void mouseX;
     void mouseY;
@@ -964,8 +990,11 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
     if (!ctx) return false;
 
     if (tile.bitmap) {
-      // Apply stain normalization and/or enhancement if enabled
-      if (stainNormalization !== 'none' || stainEnhancement !== 'none') {
+      // Apply stain normalization, enhancement, and/or sharpening if enabled
+      const needsProcessing = stainNormalization !== 'none' || stainEnhancement !== 'none' ||
+        (sharpeningEnabled && sharpeningIntensity > 0);
+      
+      if (needsProcessing) {
         // Check for cached processed bitmap first (fast path)
         const cachedProcessed = getProcessedBitmap(tile, stainNormalization, stainEnhancement, getSlideId());
         if (cachedProcessed) {
@@ -1019,8 +1048,11 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
     const srcX = subX * srcSize;
     const srcY = subY * srcSize;
 
-    // Apply stain normalization and/or enhancement if enabled
-    if (stainNormalization !== 'none' || stainEnhancement !== 'none') {
+    // Apply stain normalization, enhancement, and/or sharpening if enabled
+    const needsProcessing = stainNormalization !== 'none' || stainEnhancement !== 'none' ||
+      (sharpeningEnabled && sharpeningIntensity > 0);
+    
+    if (needsProcessing) {
       // Check for cached processed bitmap first (fast path)
       const cachedProcessed = getProcessedBitmap(fallbackTile, stainNormalization, stainEnhancement, getSlideId());
       if (cachedProcessed) {

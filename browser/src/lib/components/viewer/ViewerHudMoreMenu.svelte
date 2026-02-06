@@ -8,6 +8,7 @@
     type MeasurementUnit,
     type ThemeMode,
     type StainEnhancementMode,
+    type StainNormalization,
   } from '$lib/stores/settings';
 
   // Local state bound to settings
@@ -18,6 +19,8 @@
   let minimapVisible = $state($settings.navigation.minimapVisible);
   let theme = $state<ThemeMode>($settings.ui.theme);
   let stainEnhancement = $state<StainEnhancementMode>($settings.image.stainEnhancement);
+  let sharpeningIntensity = $state($settings.image.sharpeningIntensity);
+  let stainNormalization = $state<StainNormalization>($settings.image.stainNormalization);
 
   // Keep local state in sync with store
   $effect(() => {
@@ -28,6 +31,8 @@
     minimapVisible = $settings.navigation.minimapVisible;
     theme = $settings.ui.theme;
     stainEnhancement = $settings.image.stainEnhancement;
+    sharpeningIntensity = $settings.image.sharpeningIntensity;
+    stainNormalization = $settings.image.stainNormalization;
   });
 
   let menuElement: HTMLDivElement;
@@ -76,6 +81,11 @@
     }, 50);
   }
 
+  function resetGamma() {
+    gamma = 1.0;
+    settings.setSetting('image', 'gamma', gamma);
+  }
+
   function handleUnitsChange(e: Event) {
     const target = e.target as HTMLSelectElement;
     measurementUnits = target.value as MeasurementUnit;
@@ -108,6 +118,29 @@
     settings.setSetting('image', 'stainEnhancement', value);
   }
 
+  // Debounce for sharpening slider
+  let sharpeningTimeout: ReturnType<typeof setTimeout> | null = null;
+
+  function handleSharpeningChange(e: Event) {
+    const target = e.target as HTMLInputElement;
+    sharpeningIntensity = parseInt(target.value, 10);
+    
+    // Update sharpeningEnabled based on intensity
+    const enabled = sharpeningIntensity > 0;
+    
+    if (sharpeningTimeout) clearTimeout(sharpeningTimeout);
+    sharpeningTimeout = setTimeout(() => {
+      settings.setSetting('image', 'sharpeningIntensity', sharpeningIntensity);
+      settings.setSetting('image', 'sharpeningEnabled', enabled);
+    }, 50);
+  }
+
+  // Handle stain normalization mode change
+  function handleStainNormalizationChange(value: StainNormalization) {
+    stainNormalization = value;
+    settings.setSetting('image', 'stainNormalization', value);
+  }
+
   const sensitivityOptions: SensitivityLevel[] = ['low', 'medium', 'high'];
   const themeOptions: { value: ThemeMode; label: string }[] = [
     { value: 'light', label: '☀️' },
@@ -127,6 +160,13 @@
     { value: 'um', label: 'µm' },
     { value: 'mm', label: 'mm' },
     { value: 'in', label: 'in' },
+  ];
+
+  // Stain normalization options
+  const stainNormalizationOptions: { value: StainNormalization; label: string; title: string }[] = [
+    { value: 'none', label: 'None', title: 'No stain normalization' },
+    { value: 'macenko', label: 'Macenko', title: 'Macenko stain normalization' },
+    { value: 'vahadane', label: 'Vahadane', title: 'Vahadane stain normalization' },
   ];
 
   // Stop mouse/touch events from propagating to the viewer (prevents panning)
@@ -160,10 +200,63 @@
         step="0.1"
         value={gamma}
         oninput={handleGammaChange}
+        ondblclick={resetGamma}
         class="slider"
         aria-labelledby="gamma-label"
       />
       <span class="slider-value">{gamma.toFixed(1)}</span>
+    </div>
+  </div>
+
+  <!-- Sharpening slider (0 = disabled) -->
+  <div class="menu-section">
+    <span class="menu-label" id="sharpening-label">Sharpness</span>
+    <div class="slider-row">
+      <input
+        type="range"
+        min="0"
+        max="100"
+        step="1"
+        value={sharpeningIntensity}
+        oninput={handleSharpeningChange}
+        class="slider"
+        aria-labelledby="sharpening-label"
+      />
+      <span class="slider-value">{sharpeningIntensity === 0 ? 'Off' : sharpeningIntensity}</span>
+    </div>
+  </div>
+
+  <!-- Stain Normalization -->
+  <div class="menu-section">
+    <span class="menu-label" id="stain-normalization-label">Stain Normalization</span>
+    <div class="segmented-control" role="group" aria-labelledby="stain-normalization-label">
+      {#each stainNormalizationOptions as opt}
+        <button
+          class="segment"
+          class:active={stainNormalization === opt.value}
+          onclick={() => handleStainNormalizationChange(opt.value)}
+          title={opt.title}
+        >
+          {opt.label}
+        </button>
+      {/each}
+    </div>
+  </div>
+
+  <!-- Stain Enhancement (post-processing) -->
+  <div class="menu-section">
+    <span class="menu-label" id="stain-enhancement-label">Stain Enhancement</span>
+    <div class="segmented-control stain-enhancement-control" role="group" aria-labelledby="stain-enhancement-label">
+      {#each stainEnhancementOptions as opt}
+        <button
+          class="segment"
+          class:active={stainEnhancement === opt.value}
+          onclick={() => handleStainEnhancementChange(opt.value)}
+          title={opt.title}
+        >
+          {opt.label}
+        </button>
+      {/each}
     </div>
   </div>
 
@@ -223,23 +316,6 @@
         <span class="toggle-thumb"></span>
       </span>
     </button>
-  </div>
-
-  <!-- Stain Enhancement (post-processing) -->
-  <div class="menu-section">
-    <span class="menu-label" id="stain-enhancement-label">Stain Enhancement</span>
-    <div class="segmented-control stain-enhancement-control" role="group" aria-labelledby="stain-enhancement-label">
-      {#each stainEnhancementOptions as opt}
-        <button
-          class="segment"
-          class:active={stainEnhancement === opt.value}
-          onclick={() => handleStainEnhancementChange(opt.value)}
-          title={opt.title}
-        >
-          {opt.label}
-        </button>
-      {/each}
-    </div>
   </div>
 
   <!-- Theme toggle -->
