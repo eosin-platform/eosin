@@ -95,9 +95,19 @@
     { value: 'zn_afb', label: 'ZN/AFB' },
     { value: 'gms', label: 'GMS' },
   ];
+  // Stop mouse/touch events from propagating to the viewer (prevents panning)
+  function stopPropagation(e: Event) {
+    e.stopPropagation();
+  }
 </script>
 
-<div class="viewer-hud">
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div 
+  class="viewer-hud"
+  onmousedown={stopPropagation}
+  ontouchstart={stopPropagation}
+  onwheel={stopPropagation}
+>
   <!-- Image adjustments section -->
   <div class="hud-section">
     <div class="slider-control">
@@ -239,10 +249,11 @@
     flex-direction: column;
     gap: 0.5rem;
     padding: 0.75rem;
-    background: rgba(20, 20, 20, 0.85);
-    backdrop-filter: blur(8px);
+    background: rgba(20, 20, 20, 0.75);
+    backdrop-filter: blur(12px);
     border-radius: 0.75rem;
     border: 1px solid rgba(255, 255, 255, 0.1);
+    overflow: visible;
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
     max-width: 280px;
   }
@@ -258,6 +269,7 @@
     align-items: center;
     gap: 0.375rem;
     width: 100%;
+    min-width: 0;
   }
 
   .slider-label {
@@ -278,6 +290,7 @@
     background: #374151;
     border-radius: 2px;
     appearance: none;
+    min-width: 0;
     cursor: pointer;
     min-width: 80px;
   }

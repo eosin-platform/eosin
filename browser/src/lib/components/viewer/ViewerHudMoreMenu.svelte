@@ -118,9 +118,23 @@
     { value: 'mm', label: 'mm' },
     { value: 'in', label: 'in' },
   ];
+
+  // Stop mouse/touch events from propagating to the viewer (prevents panning)
+  function stopPropagation(e: Event) {
+    e.stopPropagation();
+  }
 </script>
 
-<div class="more-menu" bind:this={menuElement} role="menu" tabindex="-1">
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div 
+  class="more-menu" 
+  bind:this={menuElement} 
+  role="menu" 
+  tabindex="-1"
+  onmousedown={stopPropagation}
+  ontouchstart={stopPropagation}
+  onwheel={stopPropagation}
+>
   <div class="menu-header">
     <span>More Settings</span>
   </div>
