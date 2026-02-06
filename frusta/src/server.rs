@@ -19,6 +19,7 @@ use histion_common::{
     shutdown::shutdown_signal,
 };
 use histion_storage::client::StorageClient;
+use std::time::Instant;
 use std::{net::SocketAddr, time::Duration};
 use tokio_util::sync::CancellationToken;
 use tower_http::cors::{Any, CorsLayer};
@@ -337,6 +338,16 @@ async fn handle_message(
                 let key = format!("ip:{}", ip);
                 if !session.rate_limiter.check(&key).await {
                     tracing::warn!(ip = %ip, "rate limited tile request");
+                    // Notify the client at most once every 10 seconds
+                    let should_notify = match session.last_rate_limit_notify {
+                        Some(last) => last.elapsed() >= Duration::from_secs(10),
+                        None => true,
+                    };
+                    if should_notify {
+                        session.last_rate_limit_notify = Some(Instant::now());
+                        let payload = MessageBuilder::rate_limited();
+                        let _ = send_tx.try_send(Message::Binary(payload));
+                    }
                     bail!("rate limited");
                 }
             }
@@ -355,6 +366,11 @@ async fn handle_message(
                 .await
                 .context("failed to request tile")
         }
+        MessageType::RateLimited => {
+            // RateLimited messages are server-to-client only, not expected from client
+            tracing::warn!("received unexpected RateLimited message from client");
+            Ok(())
+        }
     }
 }
 
@@ -369,6 +385,9 @@ pub struct Session {
     nats_client: NatsClient,
     rate_limiter: RateLimiter,
     client_ip: Option<String>,
+    /// Last time we sent a RateLimited notification to the client.
+    /// Throttled to at most once per 10 seconds.
+    last_rate_limit_notify: Option<Instant>,
 }
 
 impl Session {
@@ -389,6 +408,7 @@ impl Session {
             nats_client,
             rate_limiter,
             client_ip,
+            last_rate_limit_notify: None,
         }
     }
 

@@ -16,6 +16,8 @@ pub const TILE_HEADER_SIZE: usize = 13;
 pub const PROGRESS_SIZE: usize = 10;
 /// Tile request size (after message type): 1 byte slot + 4 bytes x + 4 bytes y + 4 bytes level
 pub const TILE_REQUEST_SIZE: usize = 13;
+/// Rate limited message size: 1 byte type only (no payload)
+pub const RATE_LIMITED_SIZE: usize = 1;
 
 /// WebSocket message types for the frusta protocol.
 #[repr(u8)]
@@ -27,6 +29,7 @@ pub enum MessageType {
     ClearCache = 3,
     Progress = 4,
     RequestTile = 5,
+    RateLimited = 6,
 }
 
 impl TryFrom<u8> for MessageType {
@@ -40,6 +43,7 @@ impl TryFrom<u8> for MessageType {
             3 => Ok(MessageType::ClearCache),
             4 => Ok(MessageType::Progress),
             5 => Ok(MessageType::RequestTile),
+            6 => Ok(MessageType::RateLimited),
             _ => Err(()),
         }
     }
@@ -88,6 +92,14 @@ impl MessageBuilder {
         builder.buf.push(slot);
         builder.buf.extend_from_slice(&progress_steps.to_le_bytes());
         builder.buf.extend_from_slice(&progress_total.to_le_bytes());
+        builder.into_bytes()
+    }
+
+    /// Build a RateLimited notification message.
+    /// Format: [type: u8]
+    pub fn rate_limited() -> Bytes {
+        let mut builder = Self::with_capacity(RATE_LIMITED_SIZE);
+        builder.buf.push(MessageType::RateLimited as u8);
         builder.into_bytes()
     }
 

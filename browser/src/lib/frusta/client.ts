@@ -18,6 +18,7 @@ import {
   parseProgressEvent,
   isOpenResponse,
   isProgressEvent,
+  isRateLimited,
 } from './protocol';
 
 export type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'error';
@@ -37,6 +38,8 @@ export interface FrustaClientOptions {
   onOpenResponse?: (response: OpenResponse) => void;
   /** Called when a progress event is received */
   onProgress?: (event: ProgressEvent) => void;
+  /** Called when the server signals the client is being rate limited */
+  onRateLimited?: () => void;
   /** Called on error */
   onError?: (error: Event | Error) => void;
 }
@@ -57,6 +60,7 @@ export class FrustaClient {
       onTile: () => {},
       onOpenResponse: () => {},
       onProgress: () => {},
+      onRateLimited: () => {},
       onError: () => {},
       ...options,
     };
@@ -148,6 +152,12 @@ export class FrustaClient {
   }
 
   private handleMessage(data: ArrayBuffer): void {
+    // Check if this is a RateLimited notification
+    if (isRateLimited(data)) {
+      this.options.onRateLimited();
+      return;
+    }
+
     // Check if this is an Open response (message type byte is first)
     if (isOpenResponse(data)) {
       const response = parseOpenResponse(data);

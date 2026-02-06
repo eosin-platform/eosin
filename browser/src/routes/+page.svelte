@@ -261,6 +261,9 @@
           });
         }
       },
+      onRateLimited: () => {
+        showToast('You are being rate limited. Please slow down.', 5000);
+      },
       onError: (error) => {
         const msg = error instanceof Error ? error.message : 'Connection error';
         lastError = msg;

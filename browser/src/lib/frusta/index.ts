@@ -17,6 +17,7 @@ export {
   parseTileData,
   parseProgressEvent,
   isProgressEvent,
+  isRateLimited,
 } from './protocol';
 
 export { TileCache, TILE_SIZE, tileKey, tileKeyFromMeta } from './cache';

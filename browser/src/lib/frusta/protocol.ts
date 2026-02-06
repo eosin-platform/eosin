@@ -13,6 +13,8 @@ export const TILE_HEADER_SIZE = 13;
 export const PROGRESS_SIZE = 10;
 /** Tile request size: 1 byte type + 1 byte slot + 4 bytes x + 4 bytes y + 4 bytes level */
 export const TILE_REQUEST_SIZE = 14;
+/** Rate limited message size: 1 byte type only */
+export const RATE_LIMITED_SIZE = 1;
 
 /** WebSocket message types for the frusta protocol */
 export enum MessageType {
@@ -22,6 +24,7 @@ export enum MessageType {
   ClearCache = 3,
   Progress = 4,
   RequestTile = 5,
+  RateLimited = 6,
 }
 
 /** Image descriptor sent when opening a slide */
@@ -219,4 +222,12 @@ export function parseProgressEvent(data: ArrayBuffer): ProgressEvent | null {
     progressSteps: view.getInt32(2, true),
     progressTotal: view.getInt32(6, true),
   };
+}
+
+/**
+ * Check if a binary message is a RateLimited notification (starts with MessageType.RateLimited)
+ */
+export function isRateLimited(data: ArrayBuffer): boolean {
+  const bytes = new Uint8Array(data);
+  return bytes.length >= RATE_LIMITED_SIZE && bytes[0] === MessageType.RateLimited;
 }
