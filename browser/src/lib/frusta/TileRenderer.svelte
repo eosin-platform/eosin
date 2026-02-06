@@ -75,15 +75,15 @@
   }
 
   // Debug mode state
-  let shiftHeld = $state(false);
+  let dKeyHeld = $state(false);
   let mouseX = $state(0);
   let mouseY = $state(0);
   // Forced mip level for debugging (null = normal behavior, 0-9 = force that level)
   let forcedMipLevel: number | null = $state(null);
 
   function handleKeyDown(e: KeyboardEvent) {
-    if (e.key === 'Shift') {
-      shiftHeld = true;
+    if (e.key === 'd' || e.key === 'D') {
+      dKeyHeld = true;
     }
     // Number keys 0-9 force that mip level for debugging
     if (e.key >= '0' && e.key <= '9') {
@@ -92,8 +92,8 @@
   }
 
   function handleKeyUp(e: KeyboardEvent) {
-    if (e.key === 'Shift') {
-      shiftHeld = false;
+    if (e.key === 'd' || e.key === 'D') {
+      dKeyHeld = false;
     }
     // Release forced mip level when number key is released
     if (e.key >= '0' && e.key <= '9' && forcedMipLevel === parseInt(e.key, 10)) {
@@ -163,7 +163,7 @@
     // Access reactive dependencies
     void viewport;
     void renderTrigger;
-    void shiftHeld;
+    void dKeyHeld;
     void mouseX;
     void mouseY;
     void forcedMipLevel;
@@ -238,8 +238,8 @@
       else if (result === 'placeholder') placeholderTiles++;
     }
 
-    // Debug overlay when shift is held or mip level is forced
-    if (shiftHeld || forcedMipLevel !== null) {
+    // Debug overlay when 'd' is held or mip level is forced
+    if (dKeyHeld || forcedMipLevel !== null) {
       renderDebugOverlay(idealTiles, idealLevel);
     }
 
