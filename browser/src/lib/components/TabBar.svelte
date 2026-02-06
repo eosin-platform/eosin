@@ -1,6 +1,7 @@
 <script lang="ts">
   import { tabStore, type Tab, type SplitState } from '$lib/stores/tabs';
   import { liveProgress, type SlideProgress } from '$lib/stores/progress';
+  import { settings } from '$lib/stores/settings';
   import ActivityIndicator from './ActivityIndicator.svelte';
   import TabContextMenu from './TabContextMenu.svelte';
 
@@ -295,6 +296,11 @@
       params.set('x', tab.savedViewport.x.toFixed(2));
       params.set('y', tab.savedViewport.y.toFixed(2));
       params.set('zoom', tab.savedViewport.zoom.toFixed(6));
+    }
+    // Include stain enhancement if not 'none'
+    const currentSettings = settings.get();
+    if (currentSettings.image.stainEnhancement !== 'none') {
+      params.set('enhance', currentSettings.image.stainEnhancement);
     }
     const url = `${window.location.origin}?${params.toString()}`;
     navigator.clipboard.writeText(url);

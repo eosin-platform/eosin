@@ -15,6 +15,7 @@
   import { newSlides } from '$lib/stores/newSlides';
   import { tabStore, type Tab } from '$lib/stores/tabs';
   import { performanceMetrics, type PerformanceMetrics } from '$lib/stores/metrics';
+  import { settings } from '$lib/stores/settings';
   import type { SlideInfo } from './+page.server';
 
   // Server-provided data
@@ -192,6 +193,10 @@
         data.slide.height,
         data.slide.viewport,
       );
+      // Apply stain enhancement from URL if present
+      if (data.slide.stainEnhancement) {
+        settings.setSetting('image', 'stainEnhancement', data.slide.stainEnhancement);
+      }
     }
 
     connect();

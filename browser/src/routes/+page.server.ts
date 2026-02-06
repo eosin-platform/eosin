@@ -26,6 +26,8 @@ export interface SlideInfo {
   filename: string;
   /** Optional viewport from permalink */
   viewport: { x: number; y: number; zoom: number } | null;
+  /** Optional stain enhancement from permalink */
+  stainEnhancement: 'none' | 'gram' | 'afb' | 'gms' | null;
 }
 
 /**
@@ -41,6 +43,17 @@ function parseViewport(url: URL): { x: number; y: number; zoom: number } | null 
   const zoom = parseFloat(zoomStr);
   if (!isFinite(x) || !isFinite(y) || !isFinite(zoom) || zoom <= 0) return null;
   return { x, y, zoom };
+}
+
+/**
+ * Parse stain enhancement mode from URL if present and valid.
+ */
+function parseStainEnhancement(url: URL): 'none' | 'gram' | 'afb' | 'gms' | null {
+  const value = url.searchParams.get('enhance');
+  if (value === 'none' || value === 'gram' || value === 'afb' || value === 'gms') {
+    return value;
+  }
+  return null;
 }
 
 export const load = async ({ url }: { url: URL }) => {
@@ -81,6 +94,7 @@ export const load = async ({ url }: { url: URL }) => {
       levels: computeLevels(data.width, data.height),
       filename: data.filename || data.id.slice(0, 8),
       viewport: parseViewport(url),
+      stainEnhancement: parseStainEnhancement(url),
     };
 
     return { slide, error: null };

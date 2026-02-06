@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { settings, hudMoreMenuOpen, type StainMode } from '$lib/stores/settings';
+  import { settings, hudMoreMenuOpen, type StainEnhancementMode } from '$lib/stores/settings';
   import ViewerHudMoreMenu from './ViewerHudMoreMenu.svelte';
 
   interface Props {
@@ -18,7 +18,7 @@
   // Bind to settings store
   let brightness = $state($settings.image.brightness);
   let contrast = $state($settings.image.contrast);
-  let stainMode = $state<StainMode>($settings.image.stainMode);
+  let stainEnhancement = $state<StainEnhancementMode>($settings.image.stainEnhancement);
   let scaleBarVisible = $state($settings.image.scaleBarVisible);
   let annotationsVisible = $state($settings.annotations.visible);
 
@@ -26,7 +26,7 @@
   $effect(() => {
     brightness = $settings.image.brightness;
     contrast = $settings.image.contrast;
-    stainMode = $settings.image.stainMode;
+    stainEnhancement = $settings.image.stainEnhancement;
     scaleBarVisible = $settings.image.scaleBarVisible;
     annotationsVisible = $settings.annotations.visible;
   });
@@ -71,10 +71,10 @@
     settings.setSetting('image', 'contrast', 0);
   }
 
-  function handleStainModeChange(e: Event) {
+  function handleStainEnhancementChange(e: Event) {
     const target = e.target as HTMLSelectElement;
-    stainMode = target.value as StainMode;
-    settings.setSetting('image', 'stainMode', stainMode);
+    stainEnhancement = target.value as StainEnhancementMode;
+    settings.setSetting('image', 'stainEnhancement', stainEnhancement);
   }
 
   function toggleScaleBar() {
@@ -163,14 +163,11 @@
     }
   }
 
-  // Stain mode options
-  const stainModes: { value: StainMode; label: string }[] = [
-    { value: 'he', label: 'H&E' },
-    { value: 'ihc_dab', label: 'IHC-DAB' },
-    { value: 'ihc_hema', label: 'IHC-Hema' },
-    { value: 'fluorescence', label: 'Fluor' },
+  // Stain enhancement options
+  const stainEnhancementOptions: { value: StainEnhancementMode; label: string }[] = [
+    { value: 'none', label: 'None' },
     { value: 'gram', label: 'Gram' },
-    { value: 'zn_afb', label: 'ZN/AFB' },
+    { value: 'afb', label: 'AFB' },
     { value: 'gms', label: 'GMS' },
   ];
   // Stop mouse/touch events from propagating to the viewer (prevents panning)
@@ -249,14 +246,14 @@
   <!-- Divider -->
   <div class="hud-divider"></div>
 
-  <!-- Stain mode selector -->
+  <!-- Stain enhancement selector -->
   <select
-    value={stainMode}
-    onchange={handleStainModeChange}
+    value={stainEnhancement}
+    onchange={handleStainEnhancementChange}
     class="stain-select"
-    title="Stain Mode"
+    title="Stain Enhancement"
   >
-    {#each stainModes as mode}
+    {#each stainEnhancementOptions as mode}
       <option value={mode.value}>{mode.label}</option>
     {/each}
   </select>
