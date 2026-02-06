@@ -312,9 +312,7 @@
       if (clampedLevel === idealLevel) {
         // Forced level matches ideal - render directly if available
         const cachedTile = cache.get(targetCoord.x, targetCoord.y, targetCoord.level);
-        if (cachedTile) {
-          renderTile(cachedTile, rect);
-        } else {
+        if (!cachedTile || !renderTile(cachedTile, rect)) {
           renderPlaceholder(rect);
         }
       } else if (clampedLevel > idealLevel) {
@@ -323,9 +321,7 @@
         const coarseX = Math.floor(targetCoord.x / scale);
         const coarseY = Math.floor(targetCoord.y / scale);
         const coarse = cache.get(coarseX, coarseY, clampedLevel);
-        if (coarse) {
-          renderFallbackTile(targetCoord, coarse, clampedLevel, idealLevel, rect);
-        } else {
+        if (!coarse || !renderFallbackTile(targetCoord, coarse, clampedLevel, idealLevel, rect)) {
           renderPlaceholder(rect);
         }
       } else {
@@ -349,8 +345,9 @@
                 width: subWidth,
                 height: subHeight,
               };
-              renderTile(finerTile, subRect);
-              anyRendered = true;
+              if (renderTile(finerTile, subRect)) {
+                anyRendered = true;
+              }
             }
           }
         }
@@ -367,66 +364,74 @@
     // First check the ideal level
     let cachedTile = cache.get(targetCoord.x, targetCoord.y, targetCoord.level);
 
-    // If found at ideal level, mark as received in retry manager and render.
+    // If found at ideal level AND its bitmap is decoded, render it directly.
     if (cachedTile) {
       if (retryManager) {
         retryManager.tileReceived(targetCoord.x, targetCoord.y, targetCoord.level);
       }
-      renderTile(cachedTile, rect);
-      return;
+      if (renderTile(cachedTile, rect)) {
+        return;   // drawn successfully
+      }
+      // Bitmap not decoded yet — fall through to coarser fallback so
+      // the user sees *something* immediately (progressive loading).
     }
 
-    // Tile not found at ideal level — track it for retry.
-    // We do NOT explicitly request tiles here; the server determines which tiles
-    // to send based on viewport updates. The retry manager will re-request via
-    // RequestTile only if the tile doesn't arrive within the timeout.
-    if (retryManager && targetCoord.level === idealLevel) {
+    // Tile not found (or not decoded) at ideal level — track it for retry.
+    if (retryManager && targetCoord.level === idealLevel && !cachedTile) {
       retryManager.trackTile(targetCoord);
     }
 
-    // If not found at ideal level, look for coarser fallbacks
+    // Look for coarser fallbacks whose bitmaps ARE decoded.
     for (let level = idealLevel + 1; level < image.levels; level++) {
-      // At coarser levels, multiple fine tiles map to one coarse tile
       const scale = Math.pow(2, level - idealLevel);
       const coarseX = Math.floor(targetCoord.x / scale);
       const coarseY = Math.floor(targetCoord.y / scale);
 
       const coarse = cache.get(coarseX, coarseY, level);
       if (coarse) {
-        // Found a fallback - render the appropriate portion
-        renderFallbackTile(targetCoord, coarse, level, idealLevel, rect);
-        return;
+        if (renderFallbackTile(targetCoord, coarse, level, idealLevel, rect)) {
+          return;   // drawn from fallback
+        }
+        // This fallback's bitmap isn't decoded either — keep searching.
       }
     }
 
-    // No tile available - show placeholder
+    // No decoded tile available at any level — show placeholder.
     renderPlaceholder(rect);
   }
 
-  function renderTile(tile: CachedTile, rect: { x: number; y: number; width: number; height: number }) {
-    if (!ctx) return;
+  /**
+   * Draw a tile's bitmap onto the canvas.
+   * Returns `true` if the tile was drawn, `false` if the bitmap isn't
+   * decoded yet (caller should fall back to a coarser tile).
+   */
+  function renderTile(tile: CachedTile, rect: { x: number; y: number; width: number; height: number }): boolean {
+    if (!ctx) return false;
 
     if (tile.bitmap) {
       // Use pre-decoded ImageBitmap — instant, no async loading, no flicker
       ctx.drawImage(tile.bitmap, rect.x, rect.y, rect.width, rect.height);
-    } else {
-      // Bitmap not yet decoded (shouldn't happen normally) — show placeholder
-      renderPlaceholder(rect);
+      return true;
     }
+
+    // Bitmap not yet decoded — tell the caller so it can try coarser fallbacks.
+    return false;
   }
 
+  /**
+   * Draw a sub-region of a coarser fallback tile.  Returns `true` if drawn.
+   */
   function renderFallbackTile(
     targetCoord: TileCoord,
     fallbackTile: CachedTile,
     fallbackLevel: number,
     idealLevel: number,
     targetRect: { x: number; y: number; width: number; height: number }
-  ) {
-    if (!ctx) return;
+  ): boolean {
+    if (!ctx) return false;
 
     if (!fallbackTile.bitmap) {
-      renderPlaceholder(targetRect);
-      return;
+      return false;
     }
 
     // Compute which portion of the fallback tile to use
@@ -452,6 +457,8 @@
       targetRect.width,
       targetRect.height
     );
+
+    return true;
   }
 
   function renderPlaceholder(rect: { x: number; y: number; width: number; height: number }) {

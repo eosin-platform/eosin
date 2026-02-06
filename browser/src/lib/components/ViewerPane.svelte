@@ -226,6 +226,11 @@
   // tiles.  This covers the permalink-load case where `activateTab` allocates a
   // slot before the socket is ready — the open message is replayed by the
   // client's `reopenTrackedSlides`, but the viewport update was lost.
+  //
+  // Use scheduleViewportUpdate (debounced) rather than sendViewportUpdate
+  // (immediate) to coalesce with other rapid-fire viewport updates during
+  // initial layout (resize, center, etc.).  Without this, the server receives
+  // many back-to-back updates that cancel each other's tile dispatches.
   $effect(() => {
     if (connectionState === 'connected' && imageDesc && activeTabHandle) {
       if (currentSlot === null) {
@@ -235,7 +240,7 @@
         // Slot was allocated before the connection was ready.  The client
         // already replayed the open message; we just need to push the
         // current viewport so the server knows which tiles to send.
-        sendViewportUpdate();
+        scheduleViewportUpdate();
       }
     }
   });
@@ -257,9 +262,14 @@
 
   function handleTileReceived(tile: TileData) {
     if (!cache) return;
-    cache.set(tile.meta, tile.data).then(() => {
-      cacheSize = cache!.size;
-      tilesReceived++;
+    const { bitmapReady } = cache.set(tile.meta, tile.data);
+    cacheSize = cache.size;
+    tilesReceived++;
+    // Trigger an immediate render so coarse fallbacks are displayed.
+    renderTrigger++;
+    // When the bitmap finishes decoding, trigger another render so the
+    // crisp version replaces the blurry fallback (progressive loading).
+    bitmapReady.then(() => {
       renderTrigger++;
     });
   }

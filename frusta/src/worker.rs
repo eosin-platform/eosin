@@ -16,6 +16,12 @@ pub async fn worker_main(
             _ = cancel.cancelled() => return Ok(()),
             work = rx.recv() => {
                 let work = work.context("failed to receive work")?;
+                // Fast-path: skip stale work items immediately so the queue
+                // drains quickly after a viewport change, making room for
+                // fresh coarse tiles that enable progressive loading.
+                if work.cancel.is_cancelled() {
+                    continue;
+                }
                 tokio::select! {
                     _ = cancel.cancelled() => bail!("Context cancelled"),
                     _ = work.cancel.cancelled() => continue,

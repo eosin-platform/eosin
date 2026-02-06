@@ -93,6 +93,11 @@ pub struct ViewManager {
     last_viewport: Arc<TokioRwLock<Option<Viewport>>>,
     nats_cancel: CancellationToken,
     client_ip: Option<String>,
+    /// Tile keys dispatched in the most recent `update()` call.
+    /// When the next `update()` cancels the current one, these keys are
+    /// removed from `sent` so they can be re-dispatched immediately
+    /// instead of being stuck behind the 30-second dedup window.
+    last_dispatched_keys: Vec<TileKey>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -186,6 +191,7 @@ impl ViewManager {
             last_viewport,
             nats_cancel,
             client_ip,
+            last_dispatched_keys: Vec::new(),
         }
     }
 
@@ -249,6 +255,16 @@ impl ViewManager {
         let cancel = CancellationToken::new();
         if let Some(old_cancel) = self.cancel_update.replace(cancel.clone()) {
             old_cancel.cancel();
+            // The previous update was cancelled before all its tiles could
+            // be fetched & sent.  Remove the dispatched keys from the sent
+            // cache so the tiles are eligible for re-dispatch in this new
+            // update (instead of being stuck behind the 30 s dedup window).
+            if !self.last_dispatched_keys.is_empty() {
+                let mut sent = self.sent.write();
+                for key in self.last_dispatched_keys.drain(..) {
+                    sent.remove(&key);
+                }
+            }
         }
 
         self.maybe_hard_prune_cache();
@@ -328,6 +344,11 @@ impl ViewManager {
             }
         }
 
+        // Sort candidates so coarsest (highest level index) tiles are dispatched
+        // first. This ensures the overview tiles reach workers before fine tiles,
+        // giving the client an immediate (blurry) image while detail fills in.
+        candidates.sort_unstable_by(|a, b| b.level.cmp(&a.level));
+
         // Mark all candidates as sent before dispatching work
         // This prevents duplicate dispatches from concurrent NATS events
         {
@@ -346,7 +367,13 @@ impl ViewManager {
             }
         }
 
-        // Now dispatch work items without holding the lock
+        // Remember which tile keys we dispatch so we can remove them from
+        // `sent` if this update is cancelled before tiles are delivered.
+        self.last_dispatched_keys.clear();
+        self.last_dispatched_keys
+            .extend(candidates.iter().map(|m| m.index_unchecked()));
+
+        // Dispatch work items coarsest-first (already sorted above)
         for meta in candidates.iter() {
             let work = RetrieveTileWork {
                 slot: self.slot,

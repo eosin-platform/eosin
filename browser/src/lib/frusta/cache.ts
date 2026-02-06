@@ -76,9 +76,19 @@ export class TileCache {
 
   /**
    * Store a tile in the cache from WebP data.
-   * Creates a blob URL and pre-decodes an ImageBitmap for flicker-free rendering.
+   *
+   * The tile is inserted **synchronously** (with bitmap = null) and
+   * `onTileCached` is fired immediately so the renderer can use coarser
+   * fallback tiles that are already decoded.  The ImageBitmap is then
+   * decoded in the background; when it's ready the entry is updated and
+   * `onTileCached` fires a second time so the renderer can swap in the
+   * crisp version.  This two-phase approach is what enables progressive
+   * "coarse then fine" display.
+   *
+   * Returns `{ tile, bitmapReady }` where `bitmapReady` resolves once the
+   * ImageBitmap has been decoded and the cache entry updated.
    */
-  async set(meta: TileMeta, data: Uint8Array): Promise<CachedTile> {
+  set(meta: TileMeta, data: Uint8Array): { tile: CachedTile; bitmapReady: Promise<void> } {
     const key = tileKeyFromMeta(meta);
 
     // Revoke old resources if replacing
@@ -88,32 +98,49 @@ export class TileCache {
       existing.bitmap?.close();
     }
 
-    // Create blob from WebP data and pre-decode to ImageBitmap
+    // Create blob from WebP data
     const blob = new Blob([data.slice().buffer], { type: 'image/webp' });
     const blobUrl = URL.createObjectURL(blob);
 
-    let bitmap: ImageBitmap | null = null;
-    try {
-      bitmap = await createImageBitmap(blob);
-    } catch (e) {
-      console.error('Failed to decode tile bitmap:', meta, e);
-    }
-
+    // Insert immediately with bitmap = null so the tile is "known" to the
+    // cache.  The renderer will skip tiles whose bitmap is null and fall
+    // back to coarser tiles that ARE decoded.
     const tile: CachedTile = {
       meta,
       blobUrl,
-      bitmap,
+      bitmap: null,
       lastAccessed: Date.now(),
       dataSize: data.length,
     };
 
     this.cache.set(key, tile);
-    this.onTileCached(meta);
 
     // Evict old tiles if over capacity
     this.evictIfNeeded();
 
-    return tile;
+    // Fire immediately so the renderer can re-evaluate fallbacks.
+    this.onTileCached(meta);
+
+    // Decode ImageBitmap in the background.  When ready, patch the entry
+    // and notify again so the renderer draws the crisp version.
+    const bitmapReady = createImageBitmap(blob).then(
+      (bitmap) => {
+        // The entry may have been evicted or replaced while we were
+        // decoding — only update if it's still the same object.
+        const current = this.cache.get(key);
+        if (current === tile) {
+          tile.bitmap = bitmap;
+          this.onTileCached(meta);
+        } else {
+          bitmap.close();
+        }
+      },
+      (err) => {
+        console.error('Failed to decode tile bitmap:', meta, err);
+      },
+    );
+
+    return { tile, bitmapReady };
   }
 
   /** Get cache size */
