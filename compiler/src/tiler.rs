@@ -21,6 +21,9 @@ use crate::meta_client::MetaClient;
 /// Tile size in pixels (width and height)
 pub const TILE_SIZE: u32 = 512;
 
+/// How often (in tiles processed) to report progress to meta/NATS.
+const PROGRESS_REPORT_INTERVAL: usize = 300;
+
 /// Slide metadata extracted from the TIF file
 #[derive(Debug, Clone)]
 pub struct SlideMetadata {
@@ -157,7 +160,9 @@ pub async fn process_slide(
 
     // Track global progress across all levels, starting from previously completed work
     let global_tiles_done = Arc::new(AtomicUsize::new(tiles_already_done));
-    let last_reported_step = Arc::new(AtomicUsize::new(0));
+    // Initialize last_reported_step consistently with tiles_already_done so that
+    // the step-based reporting doesn't re-report stale intermediate values.
+    let last_reported_step = Arc::new(AtomicUsize::new(tiles_already_done / PROGRESS_REPORT_INTERVAL));
 
     // Process each mip level from highest (lowest resolution) to 0 (full resolution)
     // This allows the slide to be viewable at low resolution while still processing
@@ -277,6 +282,9 @@ async fn process_level(
     if let Some(pool) = pg_pool {
         match is_level_complete(pool, slide_id, level).await {
             Ok(true) => {
+                // Add skipped level's tiles to global progress so subsequent
+                // reports stay accurate and we reach 100% at the end.
+                global_tiles_done.fetch_add(total_tiles, Ordering::Relaxed);
                 tracing::info!(
                     level = level,
                     total_tiles = total_tiles,
@@ -461,13 +469,12 @@ async fn process_level(
                         // Still update global progress counter for skipped tiles
                         let new_global = global_tiles_done.fetch_add(1, Ordering::Relaxed) + 1;
 
-                        // Report progress every PROGRESS_INTERVAL tiles
-                        const PROGRESS_INTERVAL_SKIP: usize = 300;
-                        let current_step = new_global / PROGRESS_INTERVAL_SKIP;
+                        // Report progress every PROGRESS_REPORT_INTERVAL tiles
+                        let current_step = new_global / PROGRESS_REPORT_INTERVAL;
                         let prev_step = last_reported_step.load(Ordering::Relaxed);
                         if current_step > prev_step {
                             last_reported_step.store(current_step, Ordering::Relaxed);
-                            let progress_steps = (current_step * PROGRESS_INTERVAL_SKIP) as i32;
+                            let progress_steps = (current_step * PROGRESS_REPORT_INTERVAL) as i32;
 
                             if let Err(e) = meta_client.update_progress(slide_id, progress_steps, progress_total).await {
                                 tracing::warn!(error = ?e, "failed to update progress");
@@ -548,13 +555,12 @@ async fn process_level(
                         // Update global progress counter
                         let new_global = global_tiles_done.fetch_add(1, Ordering::Relaxed) + 1;
 
-                        // Report progress every 10,000 tiles
-                        const PROGRESS_INTERVAL: usize = 300;
-                        let current_step = new_global / PROGRESS_INTERVAL;
+                        // Report progress every PROGRESS_REPORT_INTERVAL tiles
+                        let current_step = new_global / PROGRESS_REPORT_INTERVAL;
                         let prev_step = last_reported_step.load(Ordering::Relaxed);
                         if current_step > prev_step {
                             last_reported_step.store(current_step, Ordering::Relaxed);
-                            let progress_steps = (current_step * PROGRESS_INTERVAL) as i32;
+                            let progress_steps = (current_step * PROGRESS_REPORT_INTERVAL) as i32;
 
                             // Update meta service
                             if let Err(e) = meta_client.update_progress(slide_id, progress_steps, progress_total).await {
