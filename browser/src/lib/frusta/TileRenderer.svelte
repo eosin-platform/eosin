@@ -107,22 +107,24 @@ import type { StainEnhancementMode, StainNormalization } from '$lib/stores/setti
   let cachedNormSlideId: string | null = null;
   let cachedNormMode: StainNormalizationMode | null = null;
   
-  /** Generate cache key for processed bitmap */
+  /** Generate cache key for processed bitmap (includes slideId to avoid cross-slide collisions) */
   function processedCacheKey(
     tileKey: bigint,
     normMode: StainNormalizationMode,
-    enhanceMode: StainEnhancementMode
+    enhanceMode: StainEnhancementMode,
+    slideId: string
   ): string {
-    return `${tileKey}_${normMode}_${enhanceMode}`;
+    return `${slideId}_${tileKey}_${normMode}_${enhanceMode}`;
   }
   
   /** Get cached processed bitmap if available */
   function getProcessedBitmap(
     tile: CachedTile,
     normMode: StainNormalizationMode,
-    enhanceMode: StainEnhancementMode
+    enhanceMode: StainEnhancementMode,
+    slideId: string
   ): ImageBitmap | null {
-    const key = processedCacheKey(tileKeyFromMeta(tile.meta), normMode, enhanceMode);
+    const key = processedCacheKey(tileKeyFromMeta(tile.meta), normMode, enhanceMode, slideId);
     const entry = processedBitmapCache.get(key);
     if (entry && entry.normMode === normMode && entry.enhanceMode === enhanceMode) {
       entry.lastAccessed = Date.now();
@@ -181,7 +183,7 @@ import type { StainEnhancementMode, StainNormalization } from '$lib/stores/setti
     if (normMode === 'none' && enhanceMode === 'none') return;
     
     const tileKey = tileKeyFromMeta(tile.meta);
-    const key = processedCacheKey(tileKey, normMode, enhanceMode);
+    const key = processedCacheKey(tileKey, normMode, enhanceMode, slideId);
     
     // Skip if already cached or in progress
     if (processedBitmapCache.has(key) || pendingProcessing.has(key)) {
@@ -282,7 +284,7 @@ import type { StainEnhancementMode, StainNormalization } from '$lib/stores/setti
   const pendingEnhancements = pendingProcessing;
   
   function getEnhancedBitmap(tile: CachedTile, mode: StainEnhancementMode): ImageBitmap | null {
-    return getProcessedBitmap(tile, stainNormalization, mode);
+    return getProcessedBitmap(tile, stainNormalization, mode, getSlideId());
   }
   
   function scheduleEnhancement(tile: CachedTile, mode: StainEnhancementMode): void {
@@ -624,7 +626,7 @@ import type { StainEnhancementMode, StainNormalization } from '$lib/stores/setti
           const tile = cache.get(tx, ty, level);
           if (tile?.bitmap) {
             // Check if already processed
-            const cached = getProcessedBitmap(tile, normMode, enhanceMode);
+            const cached = getProcessedBitmap(tile, normMode, enhanceMode, getSlideId());
             if (!cached) {
               scheduleProcessing(tile, normMode, enhanceMode, getSlideId());
             }
@@ -849,7 +851,7 @@ import type { StainEnhancementMode, StainNormalization } from '$lib/stores/setti
       // Apply stain normalization and/or enhancement if enabled
       if (stainNormalization !== 'none' || stainEnhancement !== 'none') {
         // Check for cached processed bitmap first (fast path)
-        const cachedProcessed = getProcessedBitmap(tile, stainNormalization, stainEnhancement);
+        const cachedProcessed = getProcessedBitmap(tile, stainNormalization, stainEnhancement, getSlideId());
         if (cachedProcessed) {
           // Draw cached processed bitmap directly (fast!)
           ctx.drawImage(cachedProcessed, rect.x, rect.y, rect.width, rect.height);
@@ -904,7 +906,7 @@ import type { StainEnhancementMode, StainNormalization } from '$lib/stores/setti
     // Apply stain normalization and/or enhancement if enabled
     if (stainNormalization !== 'none' || stainEnhancement !== 'none') {
       // Check for cached processed bitmap first (fast path)
-      const cachedProcessed = getProcessedBitmap(fallbackTile, stainNormalization, stainEnhancement);
+      const cachedProcessed = getProcessedBitmap(fallbackTile, stainNormalization, stainEnhancement, getSlideId());
       if (cachedProcessed) {
         // Draw sub-region from cached processed bitmap (fast!)
         ctx.drawImage(
