@@ -126,6 +126,45 @@ function createTabStore() {
     });
   }
 
+  /**
+   * Close all tabs except the one with the given tabId.
+   */
+  function closeOtherTabs(tabId: string) {
+    const currentTabs = get(tabs);
+    const kept = currentTabs.filter((t) => t.tabId === tabId);
+    tabs.set(kept);
+    if (kept.length > 0) {
+      activeTabId.set(tabId);
+    } else {
+      activeTabId.set(null);
+    }
+  }
+
+  /**
+   * Close all tabs to the right of the given tabId.
+   */
+  function closeTabsToRight(tabId: string) {
+    const currentTabs = get(tabs);
+    const idx = currentTabs.findIndex((t) => t.tabId === tabId);
+    if (idx === -1) return;
+    const newTabs = currentTabs.slice(0, idx + 1);
+    tabs.set(newTabs);
+
+    // If the active tab was removed, activate the right-clicked tab
+    const currentActive = get(activeTabId);
+    if (currentActive && !newTabs.find((t) => t.tabId === currentActive)) {
+      activeTabId.set(tabId);
+    }
+  }
+
+  /**
+   * Close all tabs.
+   */
+  function closeAllTabs() {
+    tabs.set([]);
+    activeTabId.set(null);
+  }
+
   return {
     tabs,
     activeTabId,
@@ -133,6 +172,9 @@ function createTabStore() {
     open,
     openInNewTab,
     closeTab,
+    closeOtherTabs,
+    closeTabsToRight,
+    closeAllTabs,
     setActive,
     saveViewport,
     reorder,

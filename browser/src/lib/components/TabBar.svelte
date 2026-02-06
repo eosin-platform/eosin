@@ -2,6 +2,7 @@
   import { tabStore, type Tab } from '$lib/stores/tabs';
   import { liveProgress, type SlideProgress } from '$lib/stores/progress';
   import ActivityIndicator from './ActivityIndicator.svelte';
+  import TabContextMenu from './TabContextMenu.svelte';
 
   let tabs = $state<Tab[]>([]);
   let activeTabId = $state<string | null>(null);
@@ -70,6 +71,34 @@
     dragTabId = null;
     dropTargetIndex = null;
   }
+
+  // --- Right-click context menu ---
+  let contextMenuVisible = $state(false);
+  let contextMenuX = $state(0);
+  let contextMenuY = $state(0);
+  let contextMenuTabId = $state<string | null>(null);
+
+  function handleContextMenu(e: MouseEvent, tabId: string) {
+    e.preventDefault();
+    e.stopPropagation();
+    contextMenuX = e.clientX;
+    contextMenuY = e.clientY;
+    contextMenuTabId = tabId;
+    contextMenuVisible = true;
+  }
+
+  function closeContextMenu() {
+    contextMenuVisible = false;
+    contextMenuTabId = null;
+  }
+
+  let contextMenuTabIndex = $derived(
+    contextMenuTabId ? tabs.findIndex((t) => t.tabId === contextMenuTabId) : -1
+  );
+  let disableCloseOthers = $derived(tabs.length <= 1);
+  let disableCloseRight = $derived(
+    contextMenuTabIndex === -1 || contextMenuTabIndex >= tabs.length - 1
+  );
 </script>
 
 <div class="tab-bar" role="tablist">
@@ -91,6 +120,7 @@
         ondrop={(e) => handleDrop(e, i)}
         ondragend={handleDragEnd}
         onclick={() => handleTabClick(tab.tabId)}
+        oncontextmenu={(e) => handleContextMenu(e, tab.tabId)}
       >
         {#if tabProgress && tabProgress.progressSteps < tabProgress.progressTotal}
           <ActivityIndicator trigger={tabProgress.lastUpdate} />
@@ -108,6 +138,19 @@
     {/each}
   {/if}
 </div>
+
+<TabContextMenu
+  x={contextMenuX}
+  y={contextMenuY}
+  visible={contextMenuVisible}
+  disableCloseOthers={disableCloseOthers}
+  disableCloseRight={disableCloseRight}
+  onCloseTab={() => { if (contextMenuTabId) tabStore.closeTab(contextMenuTabId); }}
+  onCloseOthers={() => { if (contextMenuTabId) tabStore.closeOtherTabs(contextMenuTabId); }}
+  onCloseRight={() => { if (contextMenuTabId) tabStore.closeTabsToRight(contextMenuTabId); }}
+  onCloseAll={() => tabStore.closeAllTabs()}
+  onClose={closeContextMenu}
+/>
 
 <style>
   .tab-bar {
