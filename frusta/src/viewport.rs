@@ -133,6 +133,9 @@ pub struct RetrieveTileWork {
     pub tx: Sender<Bytes>,
     pub meta: TileMeta,
     pub client_ip: Option<String>,
+    pub viewport: Arc<TokioRwLock<Option<Viewport>>>,
+    pub image: ImageDesc,
+    pub dpi: f32,
 }
 
 impl ViewManager {
@@ -394,6 +397,9 @@ impl ViewManager {
                 tx: self.send_tx.clone(),
                 meta: *meta,
                 client_ip: self.client_ip.clone(),
+                viewport: self.last_viewport.clone(),
+                image: self.image,
+                dpi: self.dpi,
             };
             self.worker_tx
                 .send(work)
@@ -460,6 +466,9 @@ impl ViewManager {
             tx: self.send_tx.clone(),
             meta,
             client_ip: self.client_ip.clone(),
+            viewport: self.last_viewport.clone(),
+            image: self.image,
+            dpi: self.dpi,
         };
 
         self.worker_tx
@@ -497,7 +506,7 @@ impl Drop for ViewManager {
 /// The browser only requests tiles from `idealLevel - 1` (for HiDPI) to the
 /// coarsest level. We subtract 1 here so the server also covers the finer
 /// HiDPI level the browser may request.
-fn compute_min_level(viewport: &Viewport, dpi: f32, levels: u32) -> u32 {
+pub fn compute_min_level(viewport: &Viewport, dpi: f32, levels: u32) -> u32 {
     const BASE_DPI: f32 = 96.0;
 
     if levels == 0 {
@@ -568,7 +577,13 @@ fn visible_tiles_for_level(viewport: &Viewport, image: &ImageDesc, level: u32) -
 }
 
 /// Check if a tile at (x, y, level) is visible within the given viewport.
-fn is_tile_in_viewport(viewport: &Viewport, image: &ImageDesc, x: u32, y: u32, level: u32) -> bool {
+pub fn is_tile_in_viewport(
+    viewport: &Viewport,
+    image: &ImageDesc,
+    x: u32,
+    y: u32,
+    level: u32,
+) -> bool {
     let downsample = 2f32.powi(level as i32);
     let px_per_tile = downsample * TILE_SIZE;
 
@@ -696,6 +711,9 @@ async fn tile_subscription_task(
                     tx: send_tx.clone(),
                     meta,
                     client_ip: client_ip.clone(),
+                    viewport: viewport_ref.clone(),
+                    image,
+                    dpi,
                 };
 
                 if let Err(e) = worker_tx.send(work).await {

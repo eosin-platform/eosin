@@ -4,7 +4,34 @@ use histion_storage::client::StorageClient;
 use tokio_util::sync::CancellationToken;
 
 use crate::protocol::MessageBuilder;
-use crate::viewport::RetrieveTileWork;
+use crate::viewport::{compute_min_level, is_tile_in_viewport, RetrieveTileWork};
+
+/// Check whether the tile described by `work` is still visible in the latest
+/// viewport snapshot.  Returns `false` (skip) when:
+/// - no viewport has been set yet,
+/// - the tile falls outside the visible region, or
+/// - the tile's mip level is finer than the minimum useful level for the
+///   current zoom.
+async fn is_tile_still_visible(work: &RetrieveTileWork) -> bool {
+    let guard = work.viewport.read().await;
+    let Some(viewport) = *guard else {
+        return false;
+    };
+    drop(guard);
+
+    if !is_tile_in_viewport(
+        &viewport,
+        &work.image,
+        work.meta.x,
+        work.meta.y,
+        work.meta.level,
+    ) {
+        return false;
+    }
+
+    let min_level = compute_min_level(&viewport, work.dpi, work.image.levels);
+    work.meta.level >= min_level
+}
 
 pub async fn worker_main(
     cancel: CancellationToken,
@@ -20,6 +47,18 @@ pub async fn worker_main(
                 // drains quickly after a viewport change, making room for
                 // fresh coarse tiles that enable progressive loading.
                 if work.cancel.is_cancelled() {
+                    continue;
+                }
+                // Check against the *latest* viewport before starting the
+                // (potentially expensive) storage fetch.
+                if !is_tile_still_visible(&work).await {
+                    tracing::debug!(
+                        slide_id = %work.slide_id,
+                        x = work.meta.x,
+                        y = work.meta.y,
+                        level = work.meta.level,
+                        "tile no longer visible, skipping fetch"
+                    );
                     continue;
                 }
                 tokio::select! {
@@ -47,6 +86,19 @@ pub async fn worker_main(
                                 continue;
                             }
                         };
+                        // Re-check visibility against the *latest* viewport
+                        // after the fetch completes – the user may have panned
+                        // or zoomed while we were waiting on storage.
+                        if !is_tile_still_visible(&work).await {
+                            tracing::debug!(
+                                slide_id = %work.slide_id,
+                                x = work.meta.x,
+                                y = work.meta.y,
+                                level = work.meta.level,
+                                "tile no longer visible after fetch, discarding"
+                            );
+                            continue;
+                        }
                         let payload = MessageBuilder::tile_data(work.slot, &work.meta, &data);
                         tokio::select! {
                             _ = cancel.cancelled() => return Ok(()),
