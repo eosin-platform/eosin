@@ -244,16 +244,13 @@
 
 <style>
   .minimap {
-    position: absolute;
-    bottom: 16px;
-    right: 16px;
+    position: relative;
     background: rgba(30, 30, 30, 0.9);
     border: 1px solid rgba(255, 255, 255, 0.2);
     border-radius: 4px;
     cursor: pointer;
     overflow: hidden;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
-    z-index: 100;
     touch-action: none;
   }
 

@@ -842,8 +842,8 @@
     bottom: 1rem;
     right: 1rem;
     display: flex;
-    align-items: flex-end;
-    gap: 0.5rem;
+    align-items: center;
+    gap: 0.75rem;
     z-index: 10;
   }
 
