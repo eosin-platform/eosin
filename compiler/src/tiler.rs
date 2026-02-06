@@ -162,7 +162,9 @@ pub async fn process_slide(
     let global_tiles_done = Arc::new(AtomicUsize::new(tiles_already_done));
     // Initialize last_reported_step consistently with tiles_already_done so that
     // the step-based reporting doesn't re-report stale intermediate values.
-    let last_reported_step = Arc::new(AtomicUsize::new(tiles_already_done / PROGRESS_REPORT_INTERVAL));
+    let last_reported_step = Arc::new(AtomicUsize::new(
+        tiles_already_done / PROGRESS_REPORT_INTERVAL,
+    ));
 
     // Process each mip level from highest (lowest resolution) to 0 (full resolution)
     // This allows the slide to be viewable at low resolution while still processing
@@ -356,9 +358,7 @@ async fn process_level(
     #[cfg(unix)]
     let file_ino = {
         use std::os::unix::fs::MetadataExt;
-        std::fs::metadata(slide_path)
-            .map(|m| m.ino())
-            .unwrap_or(0)
+        std::fs::metadata(slide_path).map(|m| m.ino()).unwrap_or(0)
     };
     #[cfg(not(unix))]
     let file_ino: u64 = 0;
