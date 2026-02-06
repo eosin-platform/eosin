@@ -19,6 +19,7 @@ import {
   type StainNormalizationMode,
 } from './stainNormalization';
 import type { StainEnhancementMode, StainNormalization } from '$lib/stores/settings';
+import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
   /** Performance metrics exposed via callback */
   export interface RenderMetrics {
     /** Last render time in milliseconds */
@@ -66,6 +67,13 @@ import type { StainEnhancementMode, StainNormalization } from '$lib/stores/setti
   const FPS_SAMPLE_SIZE = 30;
   let retryManager: TileRetryManager | null = null;
   let checkerboardPattern: CanvasPattern | null = null;
+  
+  // Worker pool for off-main-thread processing
+  let workerPool: ProcessingWorkerPool | null = null;
+  
+  // Zoom detection for worker pool throttling
+  let lastZoom = viewport.zoom;
+  let zoomChangeTimer: number | null = null;
 
   /** Convert UUID bytes to hex string for use as cache key */
   function uuidToString(uuid: Uint8Array | undefined): string {
@@ -170,6 +178,24 @@ import type { StainEnhancementMode, StainNormalization } from '$lib/stores/setti
     return cachedNormParams;
   }
   
+  /**
+   * Calculate priority for a tile based on distance from viewport center.
+   * Lower values = higher priority (processed first).
+   */
+  function calculateTilePriority(tile: CachedTile): number {
+    const viewportCenterX = viewport.x + (viewport.width / viewport.zoom) / 2;
+    const viewportCenterY = viewport.y + (viewport.height / viewport.zoom) / 2;
+    
+    const downsample = Math.pow(2, tile.meta.level);
+    const pxPerTile = downsample * TILE_SIZE;
+    const tileCenterX = (tile.meta.x + 0.5) * pxPerTile;
+    const tileCenterY = (tile.meta.y + 0.5) * pxPerTile;
+    
+    const dx = tileCenterX - viewportCenterX;
+    const dy = tileCenterY - viewportCenterY;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+
   /** Start async processing computation for a tile (normalization + enhancement) */
   function scheduleProcessing(
     tile: CachedTile,
@@ -192,8 +218,11 @@ import type { StainEnhancementMode, StainNormalization } from '$lib/stores/setti
     
     pendingProcessing.add(key);
     
-    // Process bitmap asynchronously (normalization then enhancement)
-    processImageBitmap(tile.bitmap, normMode, enhanceMode, slideId)
+    // Calculate priority (tiles closer to viewport center are processed first)
+    const priority = calculateTilePriority(tile);
+    
+    // Process bitmap using worker pool (off main thread)
+    processImageBitmapWithWorker(tile, normMode, enhanceMode, slideId, key, priority)
       .then((processedBitmap) => {
         pendingProcessing.delete(key);
         
@@ -212,12 +241,72 @@ import type { StainEnhancementMode, StainNormalization } from '$lib/stores/setti
       })
       .catch((err) => {
         pendingProcessing.delete(key);
-        console.warn('Failed to process bitmap:', err);
+        // Don't warn on cancellation (expected during rapid zoom)
+        if (err?.message !== 'Cancelled') {
+          console.warn('Failed to process bitmap:', err);
+        }
       });
   }
   
   /**
+   * Process an ImageBitmap using the worker pool.
+   * Offloads normalization and enhancement to a background thread.
+   */
+  async function processImageBitmapWithWorker(
+    tile: CachedTile,
+    normMode: StainNormalizationMode,
+    enhanceMode: StainEnhancementMode,
+    slideId: string,
+    key: string,
+    priority: number
+  ): Promise<ImageBitmap> {
+    if (!tile.bitmap) throw new Error('No bitmap to process');
+    
+    // Get normalization params (computed on main thread, cached)
+    const normParams = normMode !== 'none' 
+      ? getNormalizationParams(tile, normMode, slideId)
+      : null;
+    
+    // Extract ImageData from the bitmap for worker processing
+    const width = tile.bitmap.width;
+    const height = tile.bitmap.height;
+    
+    // Use OffscreenCanvas if available for better performance
+    let imageData: ImageData;
+    if (typeof OffscreenCanvas !== 'undefined') {
+      const offscreen = new OffscreenCanvas(width, height);
+      const ctx = offscreen.getContext('2d');
+      if (!ctx) throw new Error('Failed to get 2D context');
+      ctx.drawImage(tile.bitmap, 0, 0);
+      imageData = ctx.getImageData(0, 0, width, height);
+    } else {
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = width;
+      tempCanvas.height = height;
+      const tempCtx = tempCanvas.getContext('2d');
+      if (!tempCtx) throw new Error('Failed to get 2D context');
+      tempCtx.drawImage(tile.bitmap, 0, 0);
+      imageData = tempCtx.getImageData(0, 0, width, height);
+    }
+    
+    // Get worker pool and process
+    const pool = workerPool ?? getProcessingPool();
+    const processedData = await pool.process(
+      key,
+      imageData,
+      normMode,
+      enhanceMode,
+      normParams,
+      priority
+    );
+    
+    // Convert back to ImageBitmap
+    return createImageBitmap(processedData);
+  }
+
+  /**
    * Process an ImageBitmap by applying normalization then enhancement.
+   * Fallback for when worker pool is not available.
    * Returns a new ImageBitmap with both transformations applied.
    */
   async function processImageBitmap(
@@ -436,12 +525,18 @@ import type { StainEnhancementMode, StainNormalization } from '$lib/stores/setti
     ctx = canvas.getContext('2d');
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
+    // Initialize worker pool for off-main-thread processing
+    workerPool = getProcessingPool();
     scheduleRender();
   });
 
   onDestroy(() => {
     if (animationFrameId !== null) {
       cancelAnimationFrame(animationFrameId);
+    }
+    // Clear zoom detection timer
+    if (zoomChangeTimer !== null) {
+      clearTimeout(zoomChangeTimer);
     }
     // Clear retry manager
     retryManager?.clear();
@@ -456,6 +551,27 @@ import type { StainEnhancementMode, StainNormalization } from '$lib/stores/setti
   // from being evicted, ensuring smooth zoom-out behavior
   $effect(() => {
     cache.setViewportContext(viewport, image);
+  });
+
+  // Detect zoom changes and notify worker pool for throttling
+  $effect(() => {
+    const currentZoom = viewport.zoom;
+    if (Math.abs(currentZoom - lastZoom) > 0.001) {
+      // Zoom is changing - notify pool to reduce processing load
+      workerPool?.notifyZoomStart();
+      lastZoom = currentZoom;
+      
+      // Clear existing timer
+      if (zoomChangeTimer !== null) {
+        clearTimeout(zoomChangeTimer);
+      }
+      
+      // Set timer to detect when zoom stops
+      zoomChangeTimer = window.setTimeout(() => {
+        workerPool?.notifyZoomEnd();
+        zoomChangeTimer = null;
+      }, 100);
+    }
   });
 
   // Re-render when viewport, renderTrigger, stainNormalization, stainEnhancement, or debug state changes

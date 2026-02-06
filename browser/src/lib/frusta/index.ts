@@ -69,3 +69,11 @@ export type {
   NormalizationParams,
   RGB,
 } from './stainNormalization';
+
+// Processing worker pool for off-main-thread tile processing
+export {
+  getProcessingPool,
+  destroyProcessingPool,
+  ProcessingWorkerPool,
+} from './processingPool';
+export type { ProcessingTask } from './processingPool';
