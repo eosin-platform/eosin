@@ -27,7 +27,7 @@
   import { tabStore, type Tab } from '$lib/stores/tabs';
   import { acquireCache, releaseCache } from '$lib/stores/slideCache';
   import { updatePerformanceMetrics } from '$lib/stores/metrics';
-  import { settings, navigationSettings, imageSettings, type StainNormalization } from '$lib/stores/settings';
+  import { settings, navigationSettings, imageSettings, type StainNormalization, type StainEnhancementMode } from '$lib/stores/settings';
 
   interface Props {
     /** The pane ID this viewer belongs to */
@@ -113,6 +113,15 @@
   // Normalization modes for cycling with 'n' key
   const normalizationModes: StainNormalization[] = ['none', 'macenko', 'vahadane'];
 
+  // Enhancement modes for cycling with 'e' key
+  const enhancementModes: StainEnhancementMode[] = ['none', 'gram', 'afb', 'gms'];
+  const enhancementModeNames: Record<StainEnhancementMode, string> = {
+    none: 'None',
+    gram: 'Gram Stain',
+    afb: 'Acid-Fast Bacilli',
+    gms: 'Grocott Methenamine Silver',
+  };
+
   function showHudNotification(message: string) {
     // Clear any existing timeout
     if (hudNotificationTimeout) {
@@ -151,6 +160,21 @@
     }
   }
 
+  function cycleEnhancement() {
+    const currentIndex = enhancementModes.indexOf($imageSettings.stainEnhancement);
+    const nextIndex = (currentIndex + 1) % enhancementModes.length;
+    const nextMode = enhancementModes[nextIndex];
+    
+    settings.setSetting('image', 'stainEnhancement', nextMode);
+    
+    // Show notification with full name
+    if (nextMode === 'none') {
+      showHudNotification('Enhancement disabled');
+    } else {
+      showHudNotification(`Enhancement: ${enhancementModeNames[nextMode]}`);
+    }
+  }
+
   function handleKeyDown(e: KeyboardEvent) {
     // Ignore if user is typing in an input field
     const target = e.target as HTMLElement;
@@ -160,6 +184,9 @@
     
     if (e.key === 'n' || e.key === 'N') {
       cycleNormalization();
+    }
+    if (e.key === 'e' || e.key === 'E') {
+      cycleEnhancement();
     }
   }
 
