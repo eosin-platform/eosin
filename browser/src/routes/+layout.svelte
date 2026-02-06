@@ -110,7 +110,6 @@
 		<AppHeader 
 			showMenuButton={isMobile && sidebarCollapsed}
 			onMenuClick={toggleSidebar}
-			title="Histion"
 		/>
 		{@render children()}
 	</div>
