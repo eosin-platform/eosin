@@ -1,9 +1,11 @@
 /**
  * Tile cache for storing WebP images received over WebSocket.
  * Provides O(1) lookup by tile key and LRU eviction.
+ * Supports cancellation of pending decodes for tiles that leave the viewport.
  */
 
 import type { TileMeta } from './protocol';
+import type { TileCoord } from './viewport';
 
 /** Tile size in pixels (must match server TILE_SIZE) */
 export const TILE_SIZE = 512;
@@ -20,6 +22,16 @@ export function tileKey(x: number, y: number, level: number): bigint {
   const yb = BigInt(y);
   const lb = BigInt(level);
   return xb | (yb << X_BITS) | (lb << (X_BITS + Y_BITS));
+}
+
+/**
+ * Tracks a pending decode operation that can be cancelled.
+ * Since createImageBitmap doesn't support AbortController, we track
+ * cancellation state and discard results for cancelled decodes.
+ */
+interface PendingDecode {
+  /** Set to true when this decode should be discarded on completion */
+  cancelled: boolean;
 }
 
 export function tileKeyFromMeta(meta: TileMeta): bigint {
@@ -48,9 +60,12 @@ export interface TileCacheOptions {
 
 /**
  * LRU cache for tiles with blob URL management.
+ * Supports cancellation of pending decodes when tiles leave the viewport.
  */
 export class TileCache {
   private cache = new Map<bigint, CachedTile>();
+  /** Track pending decode operations for cancellation */
+  private pendingDecodes = new Map<bigint, PendingDecode>();
   private maxTiles: number;
   private onTileCached: (meta: TileMeta) => void;
 
@@ -85,11 +100,23 @@ export class TileCache {
    * crisp version.  This two-phase approach is what enables progressive
    * "coarse then fine" display.
    *
+   * Decodes can be cancelled via `cancelDecodesNotIn()` - if cancelled,
+   * the decoded bitmap is discarded when the decode completes, freeing
+   * resources and avoiding unnecessary work for tiles that are no longer
+   * visible.
+   *
    * Returns `{ tile, bitmapReady }` where `bitmapReady` resolves once the
    * ImageBitmap has been decoded and the cache entry updated.
    */
   set(meta: TileMeta, data: Uint8Array): { tile: CachedTile; bitmapReady: Promise<void> } {
     const key = tileKeyFromMeta(meta);
+
+    // Cancel any existing pending decode for this tile (we have fresh data)
+    const existingDecode = this.pendingDecodes.get(key);
+    if (existingDecode) {
+      existingDecode.cancelled = true;
+      this.pendingDecodes.delete(key);
+    }
 
     // If this tile already exists with a decoded bitmap, keep it — the
     // existing version is strictly better than starting a fresh decode.
@@ -123,6 +150,11 @@ export class TileCache {
 
     this.cache.set(key, tile);
 
+    // Track this pending decode so it can be cancelled if the tile
+    // leaves the viewport before decoding completes
+    const pendingDecode: PendingDecode = { cancelled: false };
+    this.pendingDecodes.set(key, pendingDecode);
+
     // Evict old tiles if over capacity
     this.evictIfNeeded();
 
@@ -133,6 +165,15 @@ export class TileCache {
     // and notify again so the renderer draws the crisp version.
     const bitmapReady = createImageBitmap(blob).then(
       (bitmap) => {
+        // Remove from pending set
+        this.pendingDecodes.delete(key);
+
+        // Check if decode was cancelled (tile left viewport during decode)
+        if (pendingDecode.cancelled) {
+          bitmap.close();
+          return;
+        }
+
         // The entry may have been evicted or replaced while we were
         // decoding — only update if it's still the same object.
         const current = this.cache.get(key);
@@ -144,11 +185,52 @@ export class TileCache {
         }
       },
       (err) => {
+        // Remove from pending set on error too
+        this.pendingDecodes.delete(key);
         console.error('Failed to decode tile bitmap:', meta, err);
       },
     );
 
     return { tile, bitmapReady };
+  }
+
+  /**
+   * Cancel pending decodes for tiles that are not in the visible set.
+   * This should be called when the viewport changes to avoid wasting
+   * CPU time decoding tiles that are no longer visible.
+   *
+   * The cancelled decodes will still complete (createImageBitmap can't
+   * be aborted), but their results will be discarded immediately,
+   * freeing memory and avoiding unnecessary cache updates.
+   */
+  cancelDecodesNotIn(visibleTiles: TileCoord[]): number {
+    const visibleKeys = new Set(
+      visibleTiles.map(t => tileKey(t.x, t.y, t.level))
+    );
+
+    let cancelled = 0;
+    for (const [key, pending] of this.pendingDecodes) {
+      if (!visibleKeys.has(key)) {
+        pending.cancelled = true;
+        this.pendingDecodes.delete(key);
+        cancelled++;
+      }
+    }
+
+    return cancelled;
+  }
+
+  /**
+   * Cancel all pending decodes.
+   * Useful when switching slides or closing the viewer.
+   */
+  cancelAllPendingDecodes(): number {
+    const count = this.pendingDecodes.size;
+    for (const pending of this.pendingDecodes.values()) {
+      pending.cancelled = true;
+    }
+    this.pendingDecodes.clear();
+    return count;
   }
 
   /** Get cache size (number of tiles) */
@@ -179,13 +261,16 @@ export class TileCache {
     return count;
   }
 
-  /** Get count of tiles still being decoded (pending) */
+  /** Get count of tiles still being decoded (pending, not cancelled) */
   getPendingDecodeCount(): number {
-    return this.size - this.getDecodedCount();
+    return this.pendingDecodes.size;
   }
 
-  /** Clear all cached tiles */
+  /** Clear all cached tiles and cancel pending decodes */
   clear(): void {
+    // Cancel all pending decodes first
+    this.cancelAllPendingDecodes();
+    
     for (const tile of this.cache.values()) {
       URL.revokeObjectURL(tile.blobUrl);
       tile.bitmap?.close();

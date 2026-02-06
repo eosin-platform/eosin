@@ -15,6 +15,8 @@
     clampViewport,
     centerViewport,
     TILE_SIZE,
+    computeIdealLevel,
+    visibleTilesForLevel,
   } from '$lib/frusta';
   import Minimap from '$lib/components/Minimap.svelte';
   import ActivityIndicator from '$lib/components/ActivityIndicator.svelte';
@@ -341,10 +343,43 @@
     client.updateViewport(currentSlot, toProtocolViewport(viewport));
   }
 
+  /**
+   * Cancel pending decodes for tiles that are no longer visible.
+   * This is called when the viewport changes to avoid wasting CPU time
+   * decoding tiles that have scrolled out of view.
+   */
+  function cancelNonVisibleDecodes() {
+    if (!cache || !imageDesc) return;
+
+    // Compute visible tiles at the ideal level and one level finer (for 2x DPI)
+    const dpi = window.devicePixelRatio * 96;
+    const idealLevel = computeIdealLevel(viewport.zoom, imageDesc.levels, dpi);
+    const finerLevel = Math.max(0, idealLevel - 1);
+
+    const idealTiles = visibleTilesForLevel(viewport, imageDesc, idealLevel);
+    const finerTiles = finerLevel < idealLevel
+      ? visibleTilesForLevel(viewport, imageDesc, finerLevel)
+      : [];
+
+    // Also include coarser levels as they're used for fallback rendering
+    const coarserTiles = [];
+    for (let level = idealLevel + 1; level < imageDesc.levels; level++) {
+      coarserTiles.push(...visibleTilesForLevel(viewport, imageDesc, level));
+    }
+
+    const allVisibleTiles = [...finerTiles, ...idealTiles, ...coarserTiles];
+    cache.cancelDecodesNotIn(allVisibleTiles);
+  }
+
   function scheduleViewportUpdate() {
     if (viewportUpdateTimeout) {
       clearTimeout(viewportUpdateTimeout);
     }
+    
+    // Cancel decodes for tiles that are no longer visible IMMEDIATELY
+    // (don't wait for the debounce) to free up decode capacity ASAP
+    cancelNonVisibleDecodes();
+    
     viewportUpdateTimeout = setTimeout(() => {
       sendViewportUpdate();
       // Keep the tab store's savedViewport in sync so that Copy Permalink
