@@ -52,10 +52,6 @@ pub struct SlideListItem {
     pub height: i32,
     /// Full size of the original slide file in bytes
     pub full_size: i64,
-    /// Current processing progress in steps of 10,000 tiles
-    pub progress_steps: i32,
-    /// Total tiles to process (progress_total)
-    pub progress_total: i32,
 }
 
 /// Response containing paginated list of slides.

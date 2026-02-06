@@ -203,8 +203,6 @@ pub async fn list_slides(pool: &Pool, offset: i64, limit: i64) -> Result<ListSli
                 width, 
                 height,
                 full_size,
-                progress_steps,
-                progress_total,
                 COUNT(*) OVER() AS full_count
             FROM slides
             ORDER BY id
@@ -226,8 +224,6 @@ pub async fn list_slides(pool: &Pool, offset: i64, limit: i64) -> Result<ListSli
             width: r.get("width"),
             height: r.get("height"),
             full_size: r.get("full_size"),
-            progress_steps: r.get("progress_steps"),
-            progress_total: r.get("progress_total"),
         })
         .collect();
 

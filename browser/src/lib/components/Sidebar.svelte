@@ -11,10 +11,6 @@
     height: number;
     /** Full size of the original slide file in bytes */
     full_size: number;
-    /** Current processing progress in steps of 10,000 tiles */
-    progress_steps: number;
-    /** Total tiles to process */
-    progress_total: number;
   }
 
   interface Props {
@@ -41,17 +37,6 @@
   let currentLiveProgress = $state<SlideProgress | null>(null);
   const unsubscribe = liveProgress.subscribe((value) => {
     currentLiveProgress = value;
-    // Also update the matching slide in the list so the percentage stays in sync
-    if (value) {
-      const idx = slides.findIndex((s) => s.id === value.slideId);
-      if (idx !== -1) {
-        slides[idx] = {
-          ...slides[idx],
-          progress_steps: value.progressSteps,
-          progress_total: value.progressTotal,
-        };
-      }
-    }
   });
 
   onDestroy(() => {
@@ -143,13 +128,16 @@
   }
 
   function formatProgress(slide: SlideListItem): string | null {
-    if (slide.progress_total === 0) {
+    if (!currentLiveProgress || currentLiveProgress.slideId !== slide.id) {
+      return null;
+    }
+    if (currentLiveProgress.progressTotal === 0) {
       return null; // Not yet started
     }
-    if (slide.progress_steps >= slide.progress_total) {
+    if (currentLiveProgress.progressSteps >= currentLiveProgress.progressTotal) {
       return null; // Complete - don't show percentage
     }
-    const pct = (slide.progress_steps / slide.progress_total) * 100;
+    const pct = (currentLiveProgress.progressSteps / currentLiveProgress.progressTotal) * 100;
     return `${pct.toFixed(0)}%`;
   }
 
@@ -186,7 +174,7 @@
         href="/?id={slide.id}" 
         class="slide-item"
         class:active={currentSlideId === slide.id}
-        title={collapsed ? `${getSlideLabel(slide)} - ${formatDimensions(slide.width, slide.height)} - ${formatSize(slide.full_size)}${progress ? ` - ${progress}` : ''}` : undefined}
+        title={collapsed ? `${getSlideLabel(slide)} - ${formatDimensions(slide.width, slide.height)} - ${formatSize(slide.full_size)}` : undefined}
       >
         {#if collapsed}
           <span class="slide-icon">{slide.id.slice(0, 2).toUpperCase()}</span>
