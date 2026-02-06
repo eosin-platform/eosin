@@ -151,6 +151,9 @@ pub async fn process_slide(
     {
         tracing::warn!(error = %e, "failed to publish initial progress");
     }
+    if let Err(e) = nats_client.flush().await {
+        tracing::warn!(error = %e, "failed to flush initial progress");
+    }
 
     // Track global progress across all levels, starting from previously completed work
     let global_tiles_done = Arc::new(AtomicUsize::new(tiles_already_done));
@@ -208,6 +211,9 @@ pub async fn process_slide(
         .await
     {
         tracing::warn!(error = %e, "failed to publish final progress");
+    }
+    if let Err(e) = nats_client.flush().await {
+        tracing::warn!(error = %e, "failed to flush final progress");
     }
 
     Ok(metadata)
@@ -475,6 +481,9 @@ async fn process_level(
                             if let Err(e) = nats_client.publish(progress_topic, bytes::Bytes::from(event.to_bytes().to_vec())).await {
                                 tracing::warn!(error = %e, "failed to publish progress event");
                             }
+                            if let Err(e) = nats_client.flush().await {
+                                tracing::warn!(error = %e, "failed to flush progress event");
+                            }
 
                             tracing::info!(
                                 progress_steps = progress_steps,
@@ -560,6 +569,9 @@ async fn process_level(
                             };
                             if let Err(e) = nats_client.publish(progress_topic, bytes::Bytes::from(event.to_bytes().to_vec())).await {
                                 tracing::warn!(error = %e, "failed to publish progress event");
+                            }
+                            if let Err(e) = nats_client.flush().await {
+                                tracing::warn!(error = %e, "failed to flush progress event");
                             }
 
                             tracing::info!(
