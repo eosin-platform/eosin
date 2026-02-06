@@ -7,7 +7,6 @@
     type SensitivityLevel,
     type MeasurementUnit,
     type ThemeMode,
-    type StainMode,
     type StainEnhancementMode,
   } from '$lib/stores/settings';
 
@@ -107,12 +106,6 @@
   function handleStainEnhancementChange(value: StainEnhancementMode) {
     stainEnhancement = value;
     settings.setSetting('image', 'stainEnhancement', value);
-  }
-
-  // Apply stain enhancement preset
-  function applyStainPreset(preset: StainMode) {
-    settings.setSetting('image', 'stainMode', preset);
-    hudMoreMenuOpen.set(false);
   }
 
   const sensitivityOptions: SensitivityLevel[] = ['low', 'medium', 'high'];
@@ -232,23 +225,7 @@
     </button>
   </div>
 
-  <!-- Stain enhancement presets -->
-  <div class="menu-section">
-    <span class="menu-label" id="stain-presets-label">Stain Enhancements</span>
-    <div class="preset-grid" role="group" aria-labelledby="stain-presets-label">
-      <button class="preset-btn" onclick={() => applyStainPreset('gram')} title="Gram Stain Enhancement">
-        Gram
-      </button>
-      <button class="preset-btn" onclick={() => applyStainPreset('zn_afb')} title="AFB/ZN Enhancement">
-        AFB
-      </button>
-      <button class="preset-btn" onclick={() => applyStainPreset('gms')} title="GMS/Fungal Enhancement">
-        GMS
-      </button>
-    </div>
-  </div>
-
-  <!-- Stain Enhancement Mode (post-processing) -->
+  <!-- Stain Enhancement (post-processing) -->
   <div class="menu-section">
     <span class="menu-label" id="stain-enhancement-label">Stain Enhancement</span>
     <div class="segmented-control stain-enhancement-control" role="group" aria-labelledby="stain-enhancement-label">
@@ -471,29 +448,6 @@
 
   .toggle-btn.active .toggle-thumb {
     transform: translateX(16px);
-  }
-
-  .preset-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 0.375rem;
-  }
-
-  .preset-btn {
-    padding: 0.5rem 0.375rem;
-    background: #374151;
-    border: 1px solid #4b5563;
-    border-radius: 0.375rem;
-    color: #e5e7eb;
-    font-size: 0.6875rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.15s;
-  }
-
-  .preset-btn:hover {
-    background: #4b5563;
-    border-color: #6b7280;
   }
 
   /* Ensure menu doesn't overlap minimap (bottom-right corner) */
