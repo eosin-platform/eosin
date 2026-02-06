@@ -16,10 +16,12 @@
     pan,
     clampViewport,
     centerViewport,
+    TILE_SIZE,
   } from '$lib/frusta';
   import Minimap from '$lib/components/Minimap.svelte';
   import ActivityIndicator from '$lib/components/ActivityIndicator.svelte';
   import { liveProgress } from '$lib/stores/progress';
+  import { tabStore, type Tab } from '$lib/stores/tabs';
   import type { SlideInfo } from './+page.server';
 
   // Server-provided data
@@ -203,6 +205,14 @@
     }
   }
 
+  /**
+   * Compute number of mip levels for an image pyramid.
+   */
+  function computeLevels(width: number, height: number): number {
+    const maxDim = Math.max(width, height);
+    return Math.ceil(Math.log2(maxDim / TILE_SIZE)) + 1;
+  }
+
   // Reactive effect: watch for data.slide changes and load new slide
   $effect(() => {
     const slide = data.slide;
@@ -211,6 +221,30 @@
     } else if (!slide && data.error) {
       loadError = data.error;
       imageDesc = null;
+    }
+  });
+
+  // Subscribe to the active tab so sidebar clicks actually load the slide.
+  let activeTab = $state<Tab | null>(null);
+  const unsubActiveTab = tabStore.activeTab.subscribe((tab) => {
+    activeTab = tab;
+  });
+
+  $effect(() => {
+    if (!activeTab) return;
+    // Only load if this is a different slide than what's already displayed
+    if (activeTab.slideId !== lastLoadedSlideId) {
+      const slide: SlideInfo = {
+        id: activeTab.slideId,
+        width: activeTab.width,
+        height: activeTab.height,
+        levels: computeLevels(activeTab.width, activeTab.height),
+      };
+      loadSlide(slide);
+    } else if (activeTab.savedViewport) {
+      // Switching back to an already-loaded slide's tab — restore viewport
+      viewport = { ...viewport, x: activeTab.savedViewport.x, y: activeTab.savedViewport.y, zoom: activeTab.savedViewport.zoom };
+      scheduleViewportUpdate();
     }
   });
 
@@ -492,6 +526,7 @@
   });
 
   onDestroy(() => {
+    unsubActiveTab();
     closeCurrentSlide();
     client?.disconnect();
     cache?.clear();
