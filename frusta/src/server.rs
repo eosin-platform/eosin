@@ -17,6 +17,7 @@ use histion_common::{
     rate_limit::{RateLimiter, RateLimiterConfig},
     redis::init_redis,
     shutdown::shutdown_signal,
+    streams::{topics, SlideProgressEvent},
 };
 use histion_storage::client::StorageClient;
 use std::time::Instant;
@@ -225,6 +226,20 @@ async fn handle_socket(
         client_ip,
     );
 
+    // Spawn a session-wide NATS subscription for progress events on ALL slides.
+    // This sends progress updates for every slide to the client regardless of
+    // which slides the client has open.
+    tokio::spawn({
+        let send_tx = send_tx.clone();
+        let nats_client = state.nats_client.clone();
+        let cancel = cancel.clone();
+        async move {
+            if let Err(e) = progress_subscription_task(send_tx, nats_client, cancel).await {
+                tracing::warn!(error = %e, "progress subscription task ended");
+            }
+        }
+    });
+
     tracing::info!(
         storage_endpoint = %state.storage_endpoint,
         "new WebSocket connection established"
@@ -382,6 +397,75 @@ async fn handle_message(
             Ok(())
         }
     }
+}
+
+/// Background task that subscribes to NATS progress events for ALL slides
+/// using a wildcard topic. When a progress event is received, it extracts the
+/// slide UUID from the topic and forwards it to the client via WebSocket.
+async fn progress_subscription_task(
+    send_tx: Sender<Message>,
+    nats_client: NatsClient,
+    cancel: CancellationToken,
+) -> Result<()> {
+    let topic = topics::SLIDE_PROGRESS_ALL;
+    let mut subscriber = nats_client
+        .subscribe(topic.to_string())
+        .await
+        .context("failed to subscribe to progress wildcard topic")?;
+
+    tracing::debug!(topic = %topic, "subscribed to all slide progress events");
+
+    loop {
+        tokio::select! {
+            _ = cancel.cancelled() => {
+                tracing::debug!("progress subscription cancelled");
+                break;
+            }
+            msg = subscriber.next() => {
+                let Some(msg) = msg else {
+                    tracing::warn!("progress subscription stream ended");
+                    break;
+                };
+
+                // Extract the slide UUID from the NATS subject.
+                // Subject format: "histion.slide.progress.<uuid>"
+                let slide_id = match msg.subject.strip_prefix("histion.slide.progress.") {
+                    Some(id_str) => match Uuid::parse_str(id_str) {
+                        Ok(id) => id,
+                        Err(e) => {
+                            tracing::warn!(subject = %msg.subject, error = %e, "failed to parse slide UUID from progress topic");
+                            continue;
+                        }
+                    },
+                    None => {
+                        tracing::warn!(subject = %msg.subject, "unexpected progress topic format");
+                        continue;
+                    }
+                };
+
+                // Parse the progress event from the payload
+                let Some(event) = SlideProgressEvent::from_bytes(&msg.payload) else {
+                    tracing::warn!("invalid progress event payload size: {}", msg.payload.len());
+                    continue;
+                };
+
+                tracing::debug!(
+                    slide_id = %slide_id,
+                    progress_steps = event.progress_steps,
+                    progress_total = event.progress_total,
+                    "received progress event"
+                );
+
+                // Build and send progress message to client with UUID instead of slot
+                let payload = MessageBuilder::progress(slide_id, event.progress_steps, event.progress_total);
+                if let Err(e) = send_tx.send(Message::Binary(payload)).await {
+                    tracing::warn!(error = %e, "failed to send progress to client");
+                }
+            }
+        }
+    }
+
+    Ok(())
 }
 
 pub struct Session {

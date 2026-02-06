@@ -9,8 +9,35 @@ export interface SlideProgress {
 }
 
 /**
- * A store that tracks live progress updates for the currently viewed slide.
+ * A store that tracks live progress updates for all slides.
  * Updated by +page.svelte when WebSocket progress events arrive,
  * consumed by the Sidebar and header to display live progress + activity indicators.
+ * Keyed by slide UUID string.
  */
-export const liveProgress = writable<SlideProgress | null>(null);
+function createProgressStore() {
+  const { subscribe, update } = writable<Map<string, SlideProgress>>(new Map());
+
+  return {
+    subscribe,
+    /** Set progress for a specific slide */
+    set(progress: SlideProgress) {
+      update((map) => {
+        map.set(progress.slideId, progress);
+        return map;
+      });
+    },
+    /** Get progress for a specific slide (returns null if not found) */
+    get(slideId: string, map: Map<string, SlideProgress>): SlideProgress | null {
+      return map.get(slideId) ?? null;
+    },
+    /** Clear all progress */
+    clear() {
+      update((map) => {
+        map.clear();
+        return map;
+      });
+    },
+  };
+}
+
+export const liveProgress = createProgressStore();

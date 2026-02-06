@@ -292,18 +292,20 @@
         sendViewportUpdate();
       },
       onProgress: (event: ProgressEvent) => {
-        progressSteps = event.progressSteps;
-        progressTotal = event.progressTotal;
-        progressUpdateTrigger++;
-        // Publish to shared store so sidebar can display live progress
-        if (lastLoadedSlideId) {
-          liveProgress.set({
-            slideId: lastLoadedSlideId,
-            progressSteps: event.progressSteps,
-            progressTotal: event.progressTotal,
-            lastUpdate: Date.now(),
-          });
+        const eventSlideId = formatUuid(event.slideId);
+        // Update local progress display if this event is for the currently viewed slide
+        if (eventSlideId === lastLoadedSlideId) {
+          progressSteps = event.progressSteps;
+          progressTotal = event.progressTotal;
+          progressUpdateTrigger++;
         }
+        // Publish to shared store so sidebar can display live progress for all slides
+        liveProgress.set({
+          slideId: eventSlideId,
+          progressSteps: event.progressSteps,
+          progressTotal: event.progressTotal,
+          lastUpdate: Date.now(),
+        });
       },
       onRateLimited: () => {
         showToast('You are being rate limited. Please slow down.', 5000);

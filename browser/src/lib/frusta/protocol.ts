@@ -9,8 +9,8 @@ export const IMAGE_DESC_SIZE = 28;
 export const UUID_SIZE = 16;
 export const VIEWPORT_SIZE = 20;
 export const TILE_HEADER_SIZE = 13;
-/** Progress message size: 1 byte type + 1 byte slot + 4 bytes progress_steps + 4 bytes progress_total */
-export const PROGRESS_SIZE = 10;
+/** Progress message size: 1 byte type + 16 bytes uuid + 4 bytes progress_steps + 4 bytes progress_total */
+export const PROGRESS_SIZE = 25;
 /** Tile request size: 1 byte type + 1 byte slot + 4 bytes x + 4 bytes y + 4 bytes level */
 export const TILE_REQUEST_SIZE = 14;
 /** Rate limited message size: 1 byte type only */
@@ -66,7 +66,7 @@ export interface OpenResponse {
 
 /** Progress event from the server */
 export interface ProgressEvent {
-  slot: number;
+  slideId: Uint8Array; // 16-byte UUID
   progressSteps: number;
   progressTotal: number;
 }
@@ -214,7 +214,7 @@ export function isProgressEvent(data: ArrayBuffer): boolean {
 
 /**
  * Parse a Progress event message.
- * Format: [type: u8][slot: u8][progress_steps: i32 le][progress_total: i32 le]
+ * Format: [type: u8][uuid: 16 bytes][progress_steps: i32 le][progress_total: i32 le]
  */
 export function parseProgressEvent(data: ArrayBuffer): ProgressEvent | null {
   if (data.byteLength < PROGRESS_SIZE) return null;
@@ -224,9 +224,9 @@ export function parseProgressEvent(data: ArrayBuffer): ProgressEvent | null {
   
   const view = new DataView(data);
   return {
-    slot: bytes[1],
-    progressSteps: view.getInt32(2, true),
-    progressTotal: view.getInt32(6, true),
+    slideId: bytes.slice(1, 1 + UUID_SIZE),
+    progressSteps: view.getInt32(1 + UUID_SIZE, true),
+    progressTotal: view.getInt32(1 + UUID_SIZE + 4, true),
   };
 }
 

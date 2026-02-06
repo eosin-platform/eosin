@@ -14,6 +14,9 @@ pub mod topics {
     pub fn slide_progress(id: Uuid) -> String {
         format!("histion.slide.progress.{}", id)
     }
+
+    /// Wildcard topic to subscribe to progress events for ALL slides.
+    pub const SLIDE_PROGRESS_ALL: &str = "histion.slide.progress.*";
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

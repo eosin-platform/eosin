@@ -13,7 +13,7 @@ spec:
       - histion-compiler
       - dispatch
       - --max-dispatch
-      - "3"
+      - "30"
     env:
     - name: RUST_LOG
       value: info

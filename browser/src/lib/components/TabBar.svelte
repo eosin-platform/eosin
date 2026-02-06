@@ -5,11 +5,11 @@
 
   let tabs = $state<Tab[]>([]);
   let activeTabId = $state<string | null>(null);
-  let currentProgress = $state<SlideProgress | null>(null);
+  let progressMap = $state<Map<string, SlideProgress>>(new Map());
 
   const unsubTabs = tabStore.tabs.subscribe((v) => (tabs = v));
   const unsubActive = tabStore.activeTabId.subscribe((v) => (activeTabId = v));
-  const unsubProgress = liveProgress.subscribe((v) => (currentProgress = v));
+  const unsubProgress = liveProgress.subscribe((v) => (progressMap = v));
 
   import { onDestroy } from 'svelte';
   onDestroy(() => {
@@ -40,6 +40,7 @@
     <div class="tab-bar-empty">No slides open</div>
   {:else}
     {#each tabs as tab (tab.tabId)}
+      {@const tabProgress = progressMap.get(tab.slideId)}
       <button
         class="tab"
         class:active={tab.tabId === activeTabId}
@@ -47,8 +48,8 @@
         aria-selected={tab.tabId === activeTabId}
         onclick={() => handleTabClick(tab.tabId)}
       >
-        {#if currentProgress && currentProgress.slideId === tab.slideId && currentProgress.progressSteps < currentProgress.progressTotal}
-          <ActivityIndicator trigger={currentProgress.lastUpdate} />
+        {#if tabProgress && tabProgress.progressSteps < tabProgress.progressTotal}
+          <ActivityIndicator trigger={tabProgress.lastUpdate} />
         {/if}
         <span class="tab-label" title={tab.label}>{tab.label}</span>
         <span

@@ -41,25 +41,25 @@
   let sentinel: HTMLDivElement;
 
   // Live progress from WebSocket (shared store)
-  let currentLiveProgress = $state<SlideProgress | null>(null);
+  let progressMap = $state<Map<string, SlideProgress>>(new Map());
   const unsubscribe = liveProgress.subscribe((value) => {
-    currentLiveProgress = value;
-    // Update the matching slide in the list so the percentage stays in sync
-    if (value) {
-      const existing = slides.find((s) => s.id === value.slideId);
+    progressMap = value;
+    // Update matching slides in the list so percentages stay in sync
+    for (const [slideId, progress] of value) {
+      const existing = slides.find((s) => s.id === slideId);
       // Only reassign (creating a new array) when values actually changed,
       // otherwise the new reference triggers an infinite reactive loop.
       if (
         existing &&
-        (existing.progress_steps !== value.progressSteps ||
-          existing.progress_total !== value.progressTotal)
+        (existing.progress_steps !== progress.progressSteps ||
+          existing.progress_total !== progress.progressTotal)
       ) {
         slides = slides.map((s) =>
-          s.id === value.slideId
+          s.id === slideId
             ? {
                 ...s,
-                progress_steps: value.progressSteps,
-                progress_total: value.progressTotal,
+                progress_steps: progress.progressSteps,
+                progress_total: progress.progressTotal,
               }
             : s
         );
@@ -269,6 +269,7 @@
   <nav class="slide-list">
     {#each slides as slide (slide.id)}
       {@const progress = formatProgress(slide)}
+      {@const slideProgress = progressMap.get(slide.id)}
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <!-- svelte-ignore a11y_click_events_have_key_events -->
       <div
@@ -291,8 +292,8 @@
             <span class="slide-name">{getSlideLabel(slide)}</span>
             {#if progress}
               <span class="slide-progress">
-                {#if currentLiveProgress && currentLiveProgress.slideId === slide.id}
-                  <ActivityIndicator trigger={currentLiveProgress.lastUpdate} />
+                {#if slideProgress}
+                  <ActivityIndicator trigger={slideProgress.lastUpdate} />
                 {/if}
                 {progress}
               </span>

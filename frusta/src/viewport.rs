@@ -2,7 +2,7 @@ use async_channel::Sender;
 use async_nats::Client as NatsClient;
 use bytes::Bytes;
 use futures_util::StreamExt;
-use histion_common::streams::{topics, SlideProgressEvent};
+use histion_common::streams::topics;
 use parking_lot::RwLock;
 use rustc_hash::FxHashMap;
 use std::sync::Arc;
@@ -11,8 +11,6 @@ use tokio::sync::RwLock as TokioRwLock;
 use anyhow::{ensure, Context, Result};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
-
-use crate::protocol::MessageBuilder;
 
 const X_BITS: u64 = 20;
 const Y_BITS: u64 = 20;
@@ -172,20 +170,6 @@ impl ViewManager {
                 .await
                 {
                     tracing::warn!(error = %e, "tile subscription task ended");
-                }
-            }
-        });
-
-        // Spawn NATS subscription task for progress events
-        tokio::spawn({
-            let image_id = image.id;
-            let send_tx = send_tx.clone();
-            let cancel = nats_cancel.clone();
-            async move {
-                if let Err(e) =
-                    progress_subscription_task(slot, image_id, send_tx, nats_client, cancel).await
-                {
-                    tracing::warn!(error = %e, "progress subscription task ended");
                 }
             }
         });
@@ -670,60 +654,6 @@ async fn tile_subscription_task(
 
                 if let Err(e) = worker_tx.send(work).await {
                     tracing::warn!(error = %e, "failed to dispatch tile work from NATS event");
-                }
-            }
-        }
-    }
-
-    Ok(())
-}
-
-/// Background task that subscribes to NATS progress events for a specific slide.
-/// When a progress event is received, it is forwarded to the client via WebSocket.
-async fn progress_subscription_task(
-    slot: u8,
-    slide_id: Uuid,
-    send_tx: Sender<Bytes>,
-    nats_client: NatsClient,
-    cancel: CancellationToken,
-) -> Result<()> {
-    let topic = topics::slide_progress(slide_id);
-    let mut subscriber = nats_client
-        .subscribe(topic.clone())
-        .await
-        .context("failed to subscribe to progress topic")?;
-
-    tracing::debug!(topic = %topic, slide_id = %slide_id, "subscribed to progress events");
-
-    loop {
-        tokio::select! {
-            _ = cancel.cancelled() => {
-                tracing::debug!(slide_id = %slide_id, "progress subscription cancelled");
-                break;
-            }
-            msg = subscriber.next() => {
-                let Some(msg) = msg else {
-                    tracing::warn!(slide_id = %slide_id, "progress subscription stream ended");
-                    break;
-                };
-
-                // Parse the progress event from the payload
-                let Some(event) = SlideProgressEvent::from_bytes(&msg.payload) else {
-                    tracing::warn!("invalid progress event payload size: {}", msg.payload.len());
-                    continue;
-                };
-
-                tracing::debug!(
-                    slide_id = %slide_id,
-                    progress_steps = event.progress_steps,
-                    progress_total = event.progress_total,
-                    "received progress event"
-                );
-
-                // Build and send progress message to client
-                let payload = MessageBuilder::progress(slot, event.progress_steps, event.progress_total);
-                if let Err(e) = send_tx.send(payload).await {
-                    tracing::warn!(error = %e, "failed to send progress to client");
                 }
             }
         }

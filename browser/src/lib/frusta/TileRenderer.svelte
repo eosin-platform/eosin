@@ -41,11 +41,11 @@
     patternCanvas.height = size * 2;
     const pctx = patternCanvas.getContext('2d');
     if (!pctx) return null;
-    // Light squares
-    pctx.fillStyle = '#ffffff';
+    // Lighter squares
+    pctx.fillStyle = '#2a2a2a';
     pctx.fillRect(0, 0, size * 2, size * 2);
-    // Dark squares
-    pctx.fillStyle = '#e0e0e0';
+    // Darker squares
+    pctx.fillStyle = '#222222';
     pctx.fillRect(0, 0, size, size);
     pctx.fillRect(size, size, size, size);
     return context.createPattern(patternCanvas, 'repeat');
