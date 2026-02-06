@@ -47,6 +47,11 @@
     }, 50);
   }
 
+  function resetBrightness() {
+    brightness = 0;
+    settings.setSetting('image', 'brightness', 0);
+  }
+
   function handleContrastChange(e: Event) {
     const target = e.target as HTMLInputElement;
     contrast = parseFloat(target.value);
@@ -55,6 +60,11 @@
     contrastTimeout = setTimeout(() => {
       settings.setSetting('image', 'contrast', contrast);
     }, 50);
+  }
+
+  function resetContrast() {
+    contrast = 0;
+    settings.setSetting('image', 'contrast', 0);
   }
 
   function handleStainModeChange(e: Event) {
@@ -124,8 +134,9 @@
         step="1"
         value={brightness}
         oninput={handleBrightnessChange}
+        ondblclick={resetBrightness}
         class="slider"
-        title="Brightness: {brightness}"
+        title="Brightness: {brightness} (double-click to reset)"
         aria-label="Brightness"
       />
       <span class="slider-value">{brightness}</span>
@@ -145,8 +156,9 @@
         step="1"
         value={contrast}
         oninput={handleContrastChange}
+        ondblclick={resetContrast}
         class="slider"
-        title="Contrast: {contrast}"
+        title="Contrast: {contrast} (double-click to reset)"
         aria-label="Contrast"
       />
       <span class="slider-value">{contrast}</span>
