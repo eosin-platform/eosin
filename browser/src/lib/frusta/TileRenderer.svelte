@@ -12,6 +12,22 @@
   import { TileRetryManager } from './retryManager';
   import type { FrustaClient } from './client';
 
+  /** Performance metrics exposed via callback */
+  export interface RenderMetrics {
+    /** Last render time in milliseconds */
+    renderTimeMs: number;
+    /** Frames per second (rolling average) */
+    fps: number;
+    /** Number of visible tiles at current level */
+    visibleTiles: number;
+    /** Number of visible tiles rendered from cache */
+    renderedTiles: number;
+    /** Number of tiles using fallback (coarser level) */
+    fallbackTiles: number;
+    /** Number of tiles showing placeholder */
+    placeholderTiles: number;
+  }
+
   interface Props {
     image: ImageDesc;
     viewport: ViewportState;
@@ -22,14 +38,21 @@
     slot?: number;
     /** Force re-render trigger */
     renderTrigger?: number;
+    /** Callback for performance metrics */
+    onMetrics?: (metrics: RenderMetrics) => void;
   }
 
-  let { image, viewport, cache, client, slot, renderTrigger = 0 }: Props = $props();
+  let { image, viewport, cache, client, slot, renderTrigger = 0, onMetrics }: Props = $props();
 
   let canvas: HTMLCanvasElement;
   let ctx: CanvasRenderingContext2D | null = null;
   let animationFrameId: number | null = null;
   let renderScheduled = false;
+  
+  // FPS tracking
+  let lastFrameTime = 0;
+  let frameTimesMs: number[] = [];
+  const FPS_SAMPLE_SIZE = 30;
   let retryManager: TileRetryManager | null = null;
   let checkerboardPattern: CanvasPattern | null = null;
 
@@ -144,6 +167,13 @@
   function render() {
     if (!ctx || !canvas) return;
 
+    const renderStart = performance.now();
+    
+    // Track render stats
+    let renderedTiles = 0;
+    let fallbackTiles = 0;
+    let placeholderTiles = 0;
+
     // Handle high DPI displays
     const dpr = window.devicePixelRatio || 1;
     const displayWidth = viewport.width;
@@ -196,12 +226,47 @@
     // Strategy: For each tile position at the ideal level,
     // find the best available tile (finest resolution first, then fallback to coarser)
     for (const coord of idealTiles) {
-      renderTileWithFallback(coord, idealLevel, finerLevel, forcedMipLevel);
+      const result = renderTileWithFallback(coord, idealLevel, finerLevel, forcedMipLevel);
+      if (result === 'rendered') renderedTiles++;
+      else if (result === 'fallback') fallbackTiles++;
+      else if (result === 'placeholder') placeholderTiles++;
     }
 
     // Debug overlay when shift is held or mip level is forced
     if (shiftHeld || forcedMipLevel !== null) {
       renderDebugOverlay(idealTiles, idealLevel);
+    }
+
+    // Calculate render time and FPS
+    const renderEnd = performance.now();
+    const renderTimeMs = renderEnd - renderStart;
+    
+    // Update FPS tracking
+    if (lastFrameTime > 0) {
+      const frameDelta = renderEnd - lastFrameTime;
+      frameTimesMs.push(frameDelta);
+      if (frameTimesMs.length > FPS_SAMPLE_SIZE) {
+        frameTimesMs.shift();
+      }
+    }
+    lastFrameTime = renderEnd;
+    
+    // Calculate rolling average FPS
+    const avgFrameTime = frameTimesMs.length > 0 
+      ? frameTimesMs.reduce((a, b) => a + b, 0) / frameTimesMs.length 
+      : 16.67;
+    const fps = 1000 / avgFrameTime;
+    
+    // Report metrics via callback
+    if (onMetrics) {
+      onMetrics({
+        renderTimeMs,
+        fps,
+        visibleTiles: idealTiles.length,
+        renderedTiles,
+        fallbackTiles,
+        placeholderTiles,
+      });
     }
   }
 
@@ -285,13 +350,15 @@
     }
   }
 
+  type RenderResult = 'rendered' | 'fallback' | 'placeholder' | 'skipped';
+
   function renderTileWithFallback(
     targetCoord: TileCoord,
     idealLevel: number,
     finerLevel: number,
     forcedLevel: number | null = null
-  ) {
-    if (!ctx) return;
+  ): RenderResult {
+    if (!ctx) return 'skipped';
 
     const rect = tileScreenRect(targetCoord, viewport);
 
@@ -302,7 +369,7 @@
       rect.x > viewport.width ||
       rect.y > viewport.height
     ) {
-      return;
+      return 'skipped';
     }
 
     // If forcing a specific mip level, only use that level (render as fallback)
@@ -314,7 +381,9 @@
         const cachedTile = cache.get(targetCoord.x, targetCoord.y, targetCoord.level);
         if (!cachedTile || !renderTile(cachedTile, rect)) {
           renderPlaceholder(rect);
+          return 'placeholder';
         }
+        return 'rendered';
       } else if (clampedLevel > idealLevel) {
         // Forced level is coarser - render as fallback (sub-portion of coarser tile)
         const scale = Math.pow(2, clampedLevel - idealLevel);
@@ -323,7 +392,9 @@
         const coarse = cache.get(coarseX, coarseY, clampedLevel);
         if (!coarse || !renderFallbackTile(targetCoord, coarse, clampedLevel, idealLevel, rect)) {
           renderPlaceholder(rect);
+          return 'placeholder';
         }
+        return 'fallback';
       } else {
         // Forced level is finer than ideal - compute which finer tiles cover this area
         const scale = Math.pow(2, idealLevel - clampedLevel);
@@ -354,9 +425,10 @@
         
         if (!anyRendered) {
           renderPlaceholder(rect);
+          return 'placeholder';
         }
+        return 'rendered';
       }
-      return;
     }
 
     // Normal rendering with fallback...
@@ -370,7 +442,7 @@
         retryManager.tileReceived(targetCoord.x, targetCoord.y, targetCoord.level);
       }
       if (renderTile(cachedTile, rect)) {
-        return;   // drawn successfully
+        return 'rendered';   // drawn successfully
       }
       // Bitmap not decoded yet — fall through to coarser fallback so
       // the user sees *something* immediately (progressive loading).
@@ -390,7 +462,7 @@
       const coarse = cache.get(coarseX, coarseY, level);
       if (coarse) {
         if (renderFallbackTile(targetCoord, coarse, level, idealLevel, rect)) {
-          return;   // drawn from fallback
+          return 'fallback';   // drawn from fallback
         }
         // This fallback's bitmap isn't decoded either — keep searching.
       }
@@ -398,6 +470,7 @@
 
     // No decoded tile available at any level — show placeholder.
     renderPlaceholder(rect);
+    return 'placeholder';
   }
 
   /**

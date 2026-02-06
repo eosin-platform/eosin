@@ -14,6 +14,7 @@
   import { liveProgress } from '$lib/stores/progress';
   import { newSlides } from '$lib/stores/newSlides';
   import { tabStore, type Tab } from '$lib/stores/tabs';
+  import { performanceMetrics, type PerformanceMetrics } from '$lib/stores/metrics';
   import type { SlideInfo } from './+page.server';
 
   // Server-provided data
@@ -31,6 +32,22 @@
 
   // Progress info map for all slides (passed to SplitPaneContainer)
   let progressInfo = $state<Map<string, { steps: number; total: number; trigger: number }>>(new Map());
+
+  // Performance metrics from store
+  let metrics = $state<PerformanceMetrics | null>(null);
+  const unsubMetrics = performanceMetrics.subscribe((m) => {
+    metrics = m;
+  });
+
+  /**
+   * Format bytes to human readable string (KB, MB, etc.)
+   */
+  function formatBytes(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+  }
 
   function showToast(message: string, duration = 5000, type: 'error' | 'success' = 'error') {
     toastMessage = message;
@@ -183,6 +200,7 @@
 
   onDestroy(() => {
     unsubActiveTab();
+    unsubMetrics();
     client?.disconnect();
     if (urlUpdateTimeout) {
       clearTimeout(urlUpdateTimeout);
@@ -202,6 +220,19 @@
   />
 
   <div class="connection-bar">
+    <div class="perf-stats">
+      {#if metrics}
+        <span class="metric" title="Frame render time">🖼️ {metrics.renderTimeMs.toFixed(1)}ms</span>
+        <span class="metric" title="Frames per second">⏱️ {metrics.fps.toFixed(0)} FPS</span>
+        <span class="metric" title="Visible tiles">👁️ {metrics.visibleTiles}</span>
+        <span class="metric" title="Rendered / Fallback / Placeholder">✅{metrics.renderedTiles} ⬇️{metrics.fallbackTiles} ⬜{metrics.placeholderTiles}</span>
+        <span class="metric" title="Cache: tiles / memory">📦 {metrics.cacheSize} / {formatBytes(metrics.cacheMemoryBytes)}</span>
+        <span class="metric" title="Tiles received">📥 {metrics.tilesReceived}</span>
+        {#if metrics.pendingDecodes > 0}
+          <span class="metric pending" title="Tiles being decoded">🔄 {metrics.pendingDecodes}</span>
+        {/if}
+      {/if}
+    </div>
     <span class="status">
       {#if connectionState === 'connecting'}
         <span class="spinner"></span>
@@ -250,8 +281,33 @@
     background: #111;
     border-top: 1px solid #222;
     align-items: center;
-    justify-content: flex-end;
+    justify-content: space-between;
     flex-shrink: 0;
+  }
+
+  .perf-stats {
+    display: flex;
+    gap: 0.5rem;
+    font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', monospace;
+    font-size: 0.7rem;
+    color: #888;
+  }
+
+  .perf-stats .metric {
+    padding: 0.125rem 0.375rem;
+    background: #1a1a1a;
+    border-radius: 3px;
+    white-space: nowrap;
+  }
+
+  .perf-stats .metric.pending {
+    color: #f59e0b;
+    animation: pulse 1s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
   }
 
   .toast {

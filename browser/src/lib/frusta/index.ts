@@ -47,3 +47,4 @@ export {
 export type { ViewportState, TileCoord } from './viewport';
 
 export { default as TileRenderer } from './TileRenderer.svelte';
+export type { RenderMetrics } from './TileRenderer.svelte';

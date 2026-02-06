@@ -7,6 +7,7 @@
     type ImageDesc,
     type ViewportState,
     type TileCache,
+    type RenderMetrics,
     TileRenderer,
     toProtocolViewport,
     zoomAround,
@@ -19,6 +20,7 @@
   import ActivityIndicator from '$lib/components/ActivityIndicator.svelte';
   import { tabStore, type Tab } from '$lib/stores/tabs';
   import { acquireCache, releaseCache } from '$lib/stores/slideCache';
+  import { updatePerformanceMetrics } from '$lib/stores/metrics';
 
   interface Props {
     /** The pane ID this viewer belongs to */
@@ -61,6 +63,11 @@
   let cacheSize = $state(0);
   let tilesReceived = $state(0);
   let renderTrigger = $state(0);
+
+  // Performance metrics
+  let renderMetrics = $state<RenderMetrics | null>(null);
+  let cacheMemoryBytes = $state(0);
+  let pendingDecodes = $state(0);
 
   // Container ref for sizing
   let container: HTMLDivElement;
@@ -110,6 +117,16 @@
       height: tab.height,
       levels,
     };
+  }
+
+  /**
+   * Format bytes to human readable string (KB, MB, etc.)
+   */
+  function formatBytes(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
   }
 
   /**
@@ -271,12 +288,44 @@
     const { bitmapReady } = cache.set(tile.meta, tile.data);
     cacheSize = cache.size;
     tilesReceived++;
+    // Update memory metrics
+    cacheMemoryBytes = cache.getMemoryUsage();
+    pendingDecodes = cache.getPendingDecodeCount();
+    // Update global store
+    updatePerformanceMetrics({
+      cacheMemoryBytes,
+      pendingDecodes,
+      tilesReceived,
+      cacheSize,
+    });
     // Trigger an immediate render so coarse fallbacks are displayed.
     renderTrigger++;
     // When the bitmap finishes decoding, trigger another render so the
     // crisp version replaces the blurry fallback (progressive loading).
     bitmapReady.then(() => {
       renderTrigger++;
+      // Update pending decodes after decode completes
+      if (cache) {
+        pendingDecodes = cache.getPendingDecodeCount();
+        cacheMemoryBytes = cache.getMemoryUsage();
+        updatePerformanceMetrics({
+          pendingDecodes,
+          cacheMemoryBytes,
+        });
+      }
+    });
+  }
+
+  function handleRenderMetrics(metrics: RenderMetrics) {
+    renderMetrics = metrics;
+    // Update global store with render metrics
+    updatePerformanceMetrics({
+      renderTimeMs: metrics.renderTimeMs,
+      fps: metrics.fps,
+      visibleTiles: metrics.visibleTiles,
+      renderedTiles: metrics.renderedTiles,
+      fallbackTiles: metrics.fallbackTiles,
+      placeholderTiles: metrics.placeholderTiles,
     });
   }
 
@@ -498,7 +547,7 @@
   aria-label="Tile viewer - use mouse to pan, scroll to zoom"
 >
   {#if imageDesc && cache}
-    <TileRenderer image={imageDesc} {viewport} {cache} {renderTrigger} client={client ?? undefined} slot={currentSlot ?? undefined} />
+    <TileRenderer image={imageDesc} {viewport} {cache} {renderTrigger} client={client ?? undefined} slot={currentSlot ?? undefined} onMetrics={handleRenderMetrics} />
     <Minimap
       image={imageDesc}
       {viewport}
@@ -516,8 +565,6 @@
 
   <footer class="controls">
     <div class="stats">
-      <span>Tiles: {tilesReceived}</span>
-      <span>Cache: {cacheSize}</span>
       <span>Zoom: {(viewport.zoom * 100).toFixed(1)}%</span>
       {#if imageDesc}
         <span>Image: {imageDesc.width}×{imageDesc.height} ({imageDesc.levels} levels)</span>
@@ -577,7 +624,7 @@
     background: #1a1a1a;
     border-top: 1px solid #333;
     align-items: center;
-    justify-content: space-between;
+    justify-content: flex-end;
     flex-shrink: 0;
   }
 

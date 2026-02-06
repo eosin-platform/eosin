@@ -151,9 +151,37 @@ export class TileCache {
     return { tile, bitmapReady };
   }
 
-  /** Get cache size */
+  /** Get cache size (number of tiles) */
   get size(): number {
     return this.cache.size;
+  }
+
+  /** Get total memory usage in bytes (approximate) */
+  getMemoryUsage(): number {
+    let total = 0;
+    for (const tile of this.cache.values()) {
+      // dataSize is the compressed WebP size
+      total += tile.dataSize;
+      // Each decoded ImageBitmap is ~4 bytes per pixel (RGBA)
+      if (tile.bitmap) {
+        total += TILE_SIZE * TILE_SIZE * 4;
+      }
+    }
+    return total;
+  }
+
+  /** Get count of tiles that have decoded bitmaps ready */
+  getDecodedCount(): number {
+    let count = 0;
+    for (const tile of this.cache.values()) {
+      if (tile.bitmap) count++;
+    }
+    return count;
+  }
+
+  /** Get count of tiles still being decoded (pending) */
+  getPendingDecodeCount(): number {
+    return this.size - this.getDecodedCount();
   }
 
   /** Clear all cached tiles */
