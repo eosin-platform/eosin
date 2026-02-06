@@ -48,3 +48,10 @@ export type { ViewportState, TileCoord } from './viewport';
 
 export { default as TileRenderer } from './TileRenderer.svelte';
 export type { RenderMetrics } from './TileRenderer.svelte';
+
+// Stain enhancement utilities
+export {
+  applyStainEnhancement,
+  applyStainEnhancementToImageData,
+  createEnhancedBitmap,
+} from './stainEnhancement';

@@ -8,6 +8,7 @@
     type MeasurementUnit,
     type ThemeMode,
     type StainMode,
+    type StainEnhancementMode,
   } from '$lib/stores/settings';
 
   // Local state bound to settings
@@ -17,6 +18,7 @@
   let panSensitivity = $state<SensitivityLevel>($settings.navigation.panSensitivity);
   let minimapVisible = $state($settings.navigation.minimapVisible);
   let theme = $state<ThemeMode>($settings.ui.theme);
+  let stainEnhancement = $state<StainEnhancementMode>($settings.image.stainEnhancement);
 
   // Keep local state in sync with store
   $effect(() => {
@@ -26,6 +28,7 @@
     panSensitivity = $settings.navigation.panSensitivity;
     minimapVisible = $settings.navigation.minimapVisible;
     theme = $settings.ui.theme;
+    stainEnhancement = $settings.image.stainEnhancement;
   });
 
   let menuElement: HTMLDivElement;
@@ -100,6 +103,12 @@
     settings.setSetting('ui', 'theme', value);
   }
 
+  // Handle stain enhancement mode change
+  function handleStainEnhancementChange(value: StainEnhancementMode) {
+    stainEnhancement = value;
+    settings.setSetting('image', 'stainEnhancement', value);
+  }
+
   // Apply stain enhancement preset
   function applyStainPreset(preset: StainMode) {
     settings.setSetting('image', 'stainMode', preset);
@@ -111,6 +120,14 @@
     { value: 'light', label: '☀️' },
     { value: 'dark', label: '🌙' },
     { value: 'high_contrast', label: '◐' },
+  ];
+
+  // Stain enhancement options for the segmented control
+  const stainEnhancementOptions: { value: StainEnhancementMode; label: string; title: string }[] = [
+    { value: 'none', label: 'None', title: 'No enhancement' },
+    { value: 'gram', label: 'Gram', title: 'Enhance Gram stain (purple/pink bacteria)' },
+    { value: 'afb', label: 'AFB', title: 'Enhance AFB/Ziehl-Neelsen (red bacilli)' },
+    { value: 'gms', label: 'GMS', title: 'Enhance GMS (dark fungal elements)' },
   ];
 
   const unitOptions: { value: MeasurementUnit; label: string }[] = [
@@ -228,6 +245,23 @@
       <button class="preset-btn" onclick={() => applyStainPreset('gms')} title="GMS/Fungal Enhancement">
         GMS
       </button>
+    </div>
+  </div>
+
+  <!-- Stain Enhancement Mode (post-processing) -->
+  <div class="menu-section">
+    <span class="menu-label" id="stain-enhancement-label">Stain Enhancement</span>
+    <div class="segmented-control stain-enhancement-control" role="group" aria-labelledby="stain-enhancement-label">
+      {#each stainEnhancementOptions as opt}
+        <button
+          class="segment"
+          class:active={stainEnhancement === opt.value}
+          onclick={() => handleStainEnhancementChange(opt.value)}
+          title={opt.title}
+        >
+          {opt.label}
+        </button>
+      {/each}
     </div>
   </div>
 
@@ -394,6 +428,12 @@
 
   .theme-control .segment {
     font-size: 0.875rem;
+  }
+
+  /* Stain enhancement control - 4 buttons need slightly smaller padding */
+  .stain-enhancement-control .segment {
+    padding: 0.375rem 0.25rem;
+    font-size: 0.625rem;
   }
 
   .toggle-btn {

@@ -25,6 +25,9 @@ export type StainMode =
   | 'zn_afb' 
   | 'gms';
 
+/** Stain enhancement post-processing modes */
+export type StainEnhancementMode = 'none' | 'gram' | 'afb' | 'gms';
+
 export type SensitivityLevel = 'low' | 'medium' | 'high';
 export type PrefetchLevel = 'low' | 'medium' | 'high' | 'ludicrous';
 export type StreamingQuality = 'auto' | 'full_res' | 'low_res';
@@ -38,6 +41,7 @@ export interface ImageSettings {
   contrast: number;         // -100 to 100, default 0
   gamma: number;            // 0.1 to 3.0, default 1.0
   stainMode: StainMode;
+  stainEnhancement: StainEnhancementMode;  // Post-processing stain enhancement
   scaleBarVisible: boolean;
   colorProfile: ColorProfile;
   sharpeningEnabled: boolean;
@@ -111,6 +115,7 @@ export const DEFAULT_SETTINGS: Settings = {
     contrast: 0,
     gamma: 1.0,
     stainMode: 'he',
+    stainEnhancement: 'none',  // No post-processing enhancement by default
     scaleBarVisible: true,
     colorProfile: 'srgb',
     sharpeningEnabled: false,

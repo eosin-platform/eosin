@@ -11,6 +11,8 @@
   } from './viewport';
   import { TileRetryManager } from './retryManager';
   import type { FrustaClient } from './client';
+  import { applyStainEnhancementToImageData } from './stainEnhancement';
+  import type { StainEnhancementMode } from '$lib/stores/settings';
 
   /** Performance metrics exposed via callback */
   export interface RenderMetrics {
@@ -38,11 +40,13 @@
     slot?: number;
     /** Force re-render trigger */
     renderTrigger?: number;
+    /** Stain enhancement mode for post-processing */
+    stainEnhancement?: StainEnhancementMode;
     /** Callback for performance metrics */
     onMetrics?: (metrics: RenderMetrics) => void;
   }
 
-  let { image, viewport, cache, client, slot, renderTrigger = 0, onMetrics }: Props = $props();
+  let { image, viewport, cache, client, slot, renderTrigger = 0, stainEnhancement = 'none', onMetrics }: Props = $props();
 
   let canvas: HTMLCanvasElement;
   let ctx: CanvasRenderingContext2D | null = null;
@@ -55,6 +59,27 @@
   const FPS_SAMPLE_SIZE = 30;
   let retryManager: TileRetryManager | null = null;
   let checkerboardPattern: CanvasPattern | null = null;
+
+  // Helper canvas for stain enhancement processing (reused to avoid GC)
+  let enhancementCanvas: OffscreenCanvas | HTMLCanvasElement | null = null;
+  let enhancementCtx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null = null;
+
+  /** Initialize or resize the enhancement canvas helper */
+  function ensureEnhancementCanvas(width: number, height: number): void {
+    if (enhancementCanvas && enhancementCanvas.width >= width && enhancementCanvas.height >= height) {
+      return; // Already large enough
+    }
+    
+    // Use OffscreenCanvas if available for better performance
+    if (typeof OffscreenCanvas !== 'undefined') {
+      enhancementCanvas = new OffscreenCanvas(width, height);
+    } else {
+      enhancementCanvas = document.createElement('canvas');
+      enhancementCanvas.width = width;
+      enhancementCanvas.height = height;
+    }
+    enhancementCtx = enhancementCanvas.getContext('2d');
+  }
 
   /** Create a checkerboard transparency pattern (like Photoshop). */
   function createCheckerboardPattern(context: CanvasRenderingContext2D): CanvasPattern | null {
@@ -165,11 +190,12 @@
     cache.setViewportContext(viewport, image);
   });
 
-  // Re-render when viewport, renderTrigger, or debug state changes
+  // Re-render when viewport, renderTrigger, stainEnhancement, or debug state changes
   $effect(() => {
     // Access reactive dependencies
     void viewport;
     void renderTrigger;
+    void stainEnhancement;
     void dKeyHeld;
     void mouseX;
     void mouseY;
@@ -487,7 +513,7 @@
   }
 
   /**
-   * Draw a tile's bitmap onto the canvas.
+   * Draw a tile's bitmap onto the canvas, applying stain enhancement if active.
    * Returns `true` if the tile was drawn, `false` if the bitmap isn't
    * decoded yet (caller should fall back to a coarser tile).
    */
@@ -495,8 +521,26 @@
     if (!ctx) return false;
 
     if (tile.bitmap) {
-      // Use pre-decoded ImageBitmap — instant, no async loading, no flicker
-      ctx.drawImage(tile.bitmap, rect.x, rect.y, rect.width, rect.height);
+      // Apply stain enhancement if mode is not 'none'
+      if (stainEnhancement !== 'none') {
+        // Ensure enhancement canvas is large enough for this tile
+        ensureEnhancementCanvas(tile.bitmap.width, tile.bitmap.height);
+        if (!enhancementCtx) return false;
+
+        // Draw tile to enhancement canvas
+        enhancementCtx.drawImage(tile.bitmap, 0, 0);
+        
+        // Get image data and apply enhancement
+        const imageData = enhancementCtx.getImageData(0, 0, tile.bitmap.width, tile.bitmap.height);
+        applyStainEnhancementToImageData(imageData, stainEnhancement);
+        enhancementCtx.putImageData(imageData, 0, 0);
+
+        // Draw enhanced result to main canvas
+        ctx.drawImage(enhancementCanvas!, 0, 0, tile.bitmap.width, tile.bitmap.height, rect.x, rect.y, rect.width, rect.height);
+      } else {
+        // No enhancement — draw directly (fast path)
+        ctx.drawImage(tile.bitmap, rect.x, rect.y, rect.width, rect.height);
+      }
       return true;
     }
 
@@ -505,7 +549,8 @@
   }
 
   /**
-   * Draw a sub-region of a coarser fallback tile.  Returns `true` if drawn.
+   * Draw a sub-region of a coarser fallback tile, applying stain enhancement if active.
+   * Returns `true` if drawn.
    */
   function renderFallbackTile(
     targetCoord: TileCoord,
@@ -532,17 +577,42 @@
     const srcX = subX * srcSize;
     const srcY = subY * srcSize;
 
-    ctx.drawImage(
-      fallbackTile.bitmap,
-      srcX,
-      srcY,
-      srcSize,
-      srcSize,
-      targetRect.x,
-      targetRect.y,
-      targetRect.width,
-      targetRect.height
-    );
+    // Apply stain enhancement if mode is not 'none'
+    if (stainEnhancement !== 'none') {
+      // We need to process just the sub-region, but for simplicity,
+      // process the full tile if not already processed (could optimize later)
+      ensureEnhancementCanvas(fallbackTile.bitmap.width, fallbackTile.bitmap.height);
+      if (!enhancementCtx) return false;
+
+      enhancementCtx.drawImage(fallbackTile.bitmap, 0, 0);
+      const imageData = enhancementCtx.getImageData(0, 0, fallbackTile.bitmap.width, fallbackTile.bitmap.height);
+      applyStainEnhancementToImageData(imageData, stainEnhancement);
+      enhancementCtx.putImageData(imageData, 0, 0);
+
+      ctx.drawImage(
+        enhancementCanvas!,
+        srcX,
+        srcY,
+        srcSize,
+        srcSize,
+        targetRect.x,
+        targetRect.y,
+        targetRect.width,
+        targetRect.height
+      );
+    } else {
+      ctx.drawImage(
+        fallbackTile.bitmap,
+        srcX,
+        srcY,
+        srcSize,
+        srcSize,
+        targetRect.x,
+        targetRect.y,
+        targetRect.width,
+        targetRect.height
+      );
+    }
 
     return true;
   }

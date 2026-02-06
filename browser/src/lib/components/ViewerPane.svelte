@@ -98,6 +98,9 @@
   let zoomSensitivityFactor = $derived(sensitivityMap[$navigationSettings.zoomSensitivity] || 1.0);
   let panSensitivityFactor = $derived(sensitivityMap[$navigationSettings.panSensitivity] || 1.0);
   let minimapVisible = $derived($navigationSettings.minimapVisible);
+  
+  // Stain enhancement mode from image settings
+  let stainEnhancement = $derived($imageSettings.stainEnhancement);
 
   // Zoom slider: convert linear slider value to logarithmic zoom
   // Slider value 0-100 maps to MIN_ZOOM to MAX_ZOOM logarithmically
@@ -682,7 +685,7 @@
   {#if imageDesc && cache}
     <!-- Image layer with brightness/contrast/gamma filters applied -->
     <div class="image-layer" style="filter: {imageFilter()}">
-      <TileRenderer image={imageDesc} {viewport} {cache} {renderTrigger} client={client ?? undefined} slot={currentSlot ?? undefined} onMetrics={handleRenderMetrics} />
+      <TileRenderer image={imageDesc} {viewport} {cache} {renderTrigger} {stainEnhancement} client={client ?? undefined} slot={currentSlot ?? undefined} onMetrics={handleRenderMetrics} />
     </div>
     
     <!-- Scale bar (bottom-left) - controlled by settings -->
