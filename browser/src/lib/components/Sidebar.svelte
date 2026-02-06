@@ -43,14 +43,17 @@
     currentLiveProgress = value;
     // Update the matching slide in the list so the percentage stays in sync
     if (value) {
-      const idx = slides.findIndex((s) => s.id === value.slideId);
-      if (idx !== -1) {
-        slides[idx] = {
-          ...slides[idx],
-          progress_steps: value.progressSteps,
-          progress_total: value.progressTotal,
-        };
-      }
+      // IMPORTANT: avoid in-place index mutation so Svelte reliably re-renders
+      // when progress changes (especially under Svelte 5 runes).
+      slides = slides.map((s) =>
+        s.id === value.slideId
+          ? {
+              ...s,
+              progress_steps: value.progressSteps,
+              progress_total: value.progressTotal,
+            }
+          : s
+      );
     }
   });
 

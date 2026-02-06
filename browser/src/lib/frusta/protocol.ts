@@ -195,7 +195,10 @@ export function parseTileData(data: ArrayBuffer): TileData | null {
  */
 export function isOpenResponse(data: ArrayBuffer): boolean {
   const bytes = new Uint8Array(data);
-  return bytes.length > 0 && bytes[0] === MessageType.Open;
+  // Open responses have a fixed size.
+  // Tile frames begin with a slot byte (no type byte), so require exact length
+  // to avoid misclassifying tile frames for slot==MessageType.Open.
+  return bytes.length === 2 + UUID_SIZE && bytes[0] === MessageType.Open;
 }
 
 /**
@@ -203,7 +206,10 @@ export function isOpenResponse(data: ArrayBuffer): boolean {
  */
 export function isProgressEvent(data: ArrayBuffer): boolean {
   const bytes = new Uint8Array(data);
-  return bytes.length >= PROGRESS_SIZE && bytes[0] === MessageType.Progress;
+  // Progress events have a fixed size.
+  // Tile frames begin with a slot byte (no type byte), so require exact length
+  // to avoid misclassifying tile frames for slot==MessageType.Progress.
+  return bytes.length === PROGRESS_SIZE && bytes[0] === MessageType.Progress;
 }
 
 /**
@@ -229,5 +235,7 @@ export function parseProgressEvent(data: ArrayBuffer): ProgressEvent | null {
  */
 export function isRateLimited(data: ArrayBuffer): boolean {
   const bytes = new Uint8Array(data);
-  return bytes.length >= RATE_LIMITED_SIZE && bytes[0] === MessageType.RateLimited;
+  // RateLimited notifications are a single byte.
+  // Require exact length to avoid misclassifying tile frames for slot==MessageType.RateLimited.
+  return bytes.length === RATE_LIMITED_SIZE && bytes[0] === MessageType.RateLimited;
 }
