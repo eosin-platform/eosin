@@ -351,6 +351,18 @@ async fn process_level(
     let metadata_clone = metadata.clone();
     let path_owned = slide_path.to_path_buf();
 
+    // Capture the file's inode so that thread-local handles can detect when the
+    // underlying file has been replaced (delete + re-download to the same path).
+    #[cfg(unix)]
+    let file_ino = {
+        use std::os::unix::fs::MetadataExt;
+        std::fs::metadata(slide_path)
+            .map(|m| m.ino())
+            .unwrap_or(0)
+    };
+    #[cfg(not(unix))]
+    let file_ino: u64 = 0;
+
     // Process tiles in parallel using rayon
     // Each thread will open its own OpenSlide handle via thread_local
     // Channel sends Option: None for skipped (empty) tiles, Some for real tile data
@@ -362,9 +374,12 @@ async fn process_level(
 
     // Spawn the parallel tile extraction in a blocking task
     let extraction_handle = tokio::task::spawn_blocking(move || {
-        // Use thread_local to cache OpenSlide handles per thread
+        // Use thread_local to cache OpenSlide handles per thread.
+        // We store the path and inode alongside the handle so that when a
+        // different file is processed (or the same path is re-downloaded to a
+        // new inode), the stale handle is replaced with a fresh one.
         thread_local! {
-            static SLIDE_HANDLE: std::cell::RefCell<Option<OpenSlide>> = const { std::cell::RefCell::new(None) };
+            static SLIDE_HANDLE: std::cell::RefCell<Option<(std::path::PathBuf, u64, OpenSlide)>> = const { std::cell::RefCell::new(None) };
         }
 
         tile_coords.par_iter().try_for_each(|&(tx, ty)| {
@@ -373,17 +388,24 @@ async fn process_level(
                 return Err(anyhow::anyhow!("processing cancelled"));
             }
 
-            // Get or create the OpenSlide handle for this thread
+            // Get or create the OpenSlide handle for this thread.
+            // Re-open if the cached handle was opened for a different path or inode.
             SLIDE_HANDLE.with(|cell| {
                 let mut handle_ref = cell.borrow_mut();
-                if handle_ref.is_none() {
+                let needs_open = match handle_ref.as_ref() {
+                    Some((cached_path, cached_ino, _)) => {
+                        *cached_path != *path_owned || *cached_ino != file_ino
+                    }
+                    None => true,
+                };
+                if needs_open {
                     match OpenSlide::new(&path_owned) {
-                        Ok(s) => *handle_ref = Some(s),
+                        Ok(s) => *handle_ref = Some((path_owned.clone(), file_ino, s)),
                         Err(e) => return Err(anyhow::anyhow!("failed to open slide: {e}")),
                     }
                 }
 
-                let slide = handle_ref.as_ref().unwrap();
+                let slide = &handle_ref.as_ref().unwrap().2;
 
                 // Extract the tile (returns None if the tile should be skipped)
                 let tile = match extract_tile(slide, &metadata_clone, level, tx, ty, native_level)?
