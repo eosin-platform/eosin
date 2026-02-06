@@ -70,6 +70,9 @@ frusta:
   imagePullPolicy: Always
   replicas: 1
   logLevel: debug
+  resources:
+    requests:
+      cpu: "100m"
 
 meta:
   image: docker.io/thavlik/histion-meta:latest
