@@ -180,6 +180,24 @@
   }
 </script>
 
+<!-- Standalone Help button -->
+{#if onHelpToggle}
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <button
+    onclick={onHelpToggle}
+    onmousedown={stopPropagation}
+    ontouchstart={stopPropagation}
+    class="help-btn"
+    class:active={helpActive}
+    title="Help (H)"
+  >
+    <!-- Question mark icon -->
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="help-icon">
+      <path d="M11.07 12.85c.77-1.39 2.25-2.21 3.11-3.44.91-1.29.4-3.7-2.18-3.7-1.69 0-2.52 1.28-2.87 2.34L6.54 6.96C7.25 4.83 9.18 3 11.99 3c2.35 0 3.96.95 4.87 2.17.9 1.21 1.14 2.72.72 4.13-.52 1.71-1.9 2.94-2.93 4.15-.73.86-.68 1.55-.68 2.55H11c0-1.15-.08-2.29.07-3.15zM14 20c0 1.1-.9 2-2 2s-2-.9-2-2 .9-2 2-2 2 .9 2 2z"/>
+    </svg>
+  </button>
+{/if}
+
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div 
   class="viewer-hud"
@@ -334,21 +352,6 @@
     </svg>
   </button>
 
-  <!-- Help button -->
-  {#if onHelpToggle}
-    <button
-      onclick={onHelpToggle}
-      class="icon-btn"
-      class:active={helpActive}
-      title="Help (H)"
-    >
-      <!-- Question mark icon -->
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="icon">
-        <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM8.94 6.94a.75.75 0 11-1.061-1.061 3 3 0 112.871 5.026v.345a.75.75 0 01-1.5 0v-.5c0-.72.57-1.172 1.081-1.287A1.5 1.5 0 108.94 6.94zM10 15a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd" />
-      </svg>
-    </button>
-  {/if}
-
   <!-- More menu popover -->
   {#if $hudMoreMenuOpen}
     <ViewerHudMoreMenu />
@@ -356,6 +359,46 @@
 </div>
 
 <style>
+  /* Standalone help button - circular, matches HUD toolbar height */
+  .help-btn {
+    position: absolute;
+    top: 1.25rem; /* Vertically centered with HUD toolbar */
+    right: 1rem;
+    left: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    padding: 0;
+    background: rgba(20, 20, 20, 0.75);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 50%;
+    color: #d1d5db;
+    cursor: pointer;
+    transition: all 0.15s;
+    backdrop-filter: blur(12px);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+    z-index: 100;
+  }
+
+  .help-btn:hover {
+    background: rgba(55, 65, 81, 0.9);
+    color: #ffffff;
+    border-color: rgba(255, 255, 255, 0.2);
+  }
+
+  .help-btn.active {
+    background: #3b82f6;
+    border-color: #3b82f6;
+    color: white;
+  }
+
+  .help-icon {
+    width: 1.5rem;
+    height: 1.5rem;
+  }
+
   .viewer-hud {
     position: absolute;
     top: 1rem;
@@ -547,10 +590,23 @@
 
   /* Mobile adjustments */
   @media (max-width: 480px) {
+    .help-btn {
+      top: 0.625rem; /* Vertically centered with mobile HUD */
+      right: 0.5rem;
+      left: auto;
+      width: 2.25rem;
+      height: 2.25rem;
+    }
+
+    .help-icon {
+      width: 1.25rem;
+      height: 1.25rem;
+    }
+
     .viewer-hud {
       top: 0.5rem;
       left: 0.5rem;
-      right: 0.5rem;
+      right: 3.25rem; /* Leave space for help button on right */
       max-width: none;
       padding: 0.5rem;
     }
