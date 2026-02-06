@@ -55,7 +55,7 @@ export class TileCache {
   private onTileCached: (meta: TileMeta) => void;
 
   constructor(options: TileCacheOptions = {}) {
-    this.maxTiles = options.maxTiles ?? 2000;
+    this.maxTiles = options.maxTiles ?? 1000;
     this.onTileCached = options.onTileCached ?? (() => {});
   }
 

@@ -586,7 +586,7 @@
   onMount(() => {
     // Initialize cache
     const tileCache = new TileCache({
-      maxTiles: 3000,
+      maxTiles: 1000,
       onTileCached: () => {
         cacheSize = tileCache.size;
       },
