@@ -300,15 +300,18 @@ async fn handle_message(
 ) -> Result<()> {
     match ty {
         MessageType::Update => {
-            tracing::debug!("handling Update message");
             ensure!(data.len() >= 1 + VIEWPORT_SIZE, "Update message too short");
             let slot = data[0];
             let viewport = Viewport::from_slice(&data[1..1 + VIEWPORT_SIZE])?;
+            let start = Instant::now();
             session
                 .get_viewport_mut(slot)?
                 .update(&viewport)
                 .await
-                .context("failed to update viewport")
+                .context("failed to update viewport")?;
+            let elapsed = Instant::now() - start;
+            tracing::info!(slot, elapsed_ms = %elapsed.as_millis(), "viewport updated");
+            Ok(())
         }
         MessageType::Open => {
             tracing::debug!("handling Open message");
