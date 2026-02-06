@@ -83,6 +83,31 @@
     settings.setSetting('image', 'gamma', gamma);
   }
 
+  function resetAll() {
+    // Reset normalization to None
+    stainNormalization = 'none';
+    settings.setSetting('image', 'stainNormalization', 'none');
+    
+    // Reset stain enhancement to none
+    stainEnhancement = 'none';
+    settings.setSetting('image', 'stainEnhancement', 'none');
+    
+    // Reset sharpening to zero
+    sharpeningIntensity = 0;
+    settings.setSetting('image', 'sharpeningIntensity', 0);
+    settings.setSetting('image', 'sharpeningEnabled', false);
+    
+    // Reset gamma to 1.0
+    gamma = 1.0;
+    settings.setSetting('image', 'gamma', 1.0);
+    
+    // Reset brightness to 0
+    settings.setSetting('image', 'brightness', 0);
+    
+    // Reset contrast to 0
+    settings.setSetting('image', 'contrast', 0);
+  }
+
   function handleUnitsChange(e: Event) {
     const target = e.target as HTMLSelectElement;
     measurementUnits = target.value as MeasurementUnit;
@@ -300,6 +325,13 @@
       </span>
     </button>
   </div>
+
+  <!-- Reset All button -->
+  <div class="menu-section reset-section">
+    <button class="reset-all-btn" onclick={resetAll}>
+      Reset All
+    </button>
+  </div>
 </div>
 
 <style>
@@ -481,6 +513,36 @@
 
   .toggle-btn.active .toggle-thumb {
     transform: translateX(16px);
+  }
+
+  /* Reset All button */
+  .reset-section {
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    margin-top: 0.25rem;
+    padding-top: 0.75rem;
+  }
+
+  .reset-all-btn {
+    width: 100%;
+    padding: 0.5rem 1rem;
+    background: rgba(239, 68, 68, 0.15);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    border-radius: 0.5rem;
+    color: #fca5a5;
+    font-size: 0.75rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .reset-all-btn:hover {
+    background: rgba(239, 68, 68, 0.25);
+    border-color: rgba(239, 68, 68, 0.5);
+    color: #fecaca;
+  }
+
+  .reset-all-btn:active {
+    background: rgba(239, 68, 68, 0.35);
   }
 
   /* Ensure menu doesn't overlap minimap (bottom-right corner) */
