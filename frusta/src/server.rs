@@ -300,7 +300,7 @@ async fn handle_message(
 ) -> Result<()> {
     match ty {
         MessageType::Update => {
-            tracing::info!("handling Update message");
+            tracing::debug!("handling Update message");
             ensure!(data.len() >= 1 + VIEWPORT_SIZE, "Update message too short");
             let slot = data[0];
             let viewport = Viewport::from_slice(&data[1..1 + VIEWPORT_SIZE])?;
