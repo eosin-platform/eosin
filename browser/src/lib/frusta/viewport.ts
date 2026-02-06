@@ -37,7 +37,12 @@ export function computeIdealLevel(zoom: number, maxLevels: number, dpi: number =
     return 0;
   }
 
-  const rawLevel = Math.ceil(-Math.log2(effectiveScale));
+  // Use round instead of ceil so the transition to a coarser mip level
+  // happens at the geometric midpoint between levels rather than at the
+  // exact power-of-2 boundary.  With ceil, zoom = 0.499 jumps to level 2
+  // (4x downsampled) even though level 1 (2x) would be nearly pixel-
+  // perfect.  With round, that transition happens at zoom ≈ 0.354.
+  const rawLevel = Math.round(-Math.log2(effectiveScale));
   return Math.min(Math.max(0, rawLevel), maxLevels - 1);
 }
 

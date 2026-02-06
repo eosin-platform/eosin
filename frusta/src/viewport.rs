@@ -510,12 +510,19 @@ fn compute_min_level(viewport: &Viewport, dpi: f32, levels: u32) -> u32 {
     let ideal_level = if effective_scale >= 1.0 {
         0u32
     } else {
+        // Use round instead of ceil so the transition to a coarser mip
+        // happens at the geometric midpoint between levels, matching the
+        // browser's computeIdealLevel.
         let raw = -effective_scale.log2();
-        raw.max(0.0).ceil() as u32
+        raw.max(0.0).round() as u32
     };
 
-    // Allow one level finer than ideal for HiDPI (matches browser's finerLevel).
-    let min_level = ideal_level.saturating_sub(1);
+    // Allow two levels finer than ideal so the server pre-fetches tiles
+    // that are one level sharper than what the browser currently considers
+    // ideal.  This means they're already in the client cache when the user
+    // zooms in slightly, and it avoids the appearance of tiles being "one
+    // level too coarse".
+    let min_level = ideal_level.saturating_sub(2);
     min_level.min(levels - 1)
 }
 
