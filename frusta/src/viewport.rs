@@ -64,6 +64,9 @@ pub struct TileMeta {
 pub struct RequestedTile {
     pub count: u32,
     pub last_requested_at: i64, // ms since epoch
+    /// Set to `true` when the tile has been successfully sent to the client.
+    /// Workers check this to avoid sending duplicate tiles.
+    pub delivered: bool,
 }
 
 type TileKey = u64;
@@ -136,6 +139,9 @@ pub struct RetrieveTileWork {
     pub viewport: Arc<TokioRwLock<Option<Viewport>>>,
     pub image: ImageDesc,
     pub dpi: f32,
+    /// Shared set of tiles that have been sent to this client.
+    /// The worker checks this right before sending to avoid duplicates.
+    pub sent: SentTiles,
 }
 
 impl ViewManager {
@@ -341,12 +347,13 @@ impl ViewManager {
                 let sent = self.sent.read();
                 for meta in tiles {
                     let key = meta.index_unchecked();
-                    // Skip tiles we've already sent recently (simple de-dupe),
-                    // but allow re-requesting after 30 seconds.
-                    if let Some(info) = sent.get(&key) {
-                        if now - info.last_requested_at < 30_000 {
-                            continue;
-                        }
+                    // Skip tiles we've already dispatched. The client has a
+                    // retry mechanism (TileRetryManager) that will explicitly
+                    // request tiles it didn't receive via RequestTile messages.
+                    // This prevents the server from re-sending tiles the client
+                    // already has when the viewport is stationary.
+                    if sent.contains_key(&key) {
+                        continue;
                     }
                     candidates.push(meta);
                     if candidates.len() >= MAX_TILES_PER_UPDATE {
@@ -374,10 +381,12 @@ impl ViewManager {
                     .and_modify(|existing| {
                         existing.count += 1;
                         existing.last_requested_at = now;
+                        // Don't reset delivered flag - if it was already sent, keep it
                     })
                     .or_insert_with(|| RequestedTile {
                         count: 1,
                         last_requested_at: now,
+                        delivered: false,
                     });
             }
         }
@@ -400,6 +409,7 @@ impl ViewManager {
                 viewport: self.last_viewport.clone(),
                 image: self.image,
                 dpi: self.dpi,
+                sent: self.sent.clone(),
             };
             self.worker_tx
                 .send(work)
@@ -421,18 +431,20 @@ impl ViewManager {
         let now = chrono::Utc::now().timestamp_millis();
         let key = meta.index_unchecked();
 
-        // Check if this tile was requested recently (within 30 seconds).
-        // If so, skip re-dispatch to avoid redundant work.
+        // Check if this tile was requested very recently (within 2 seconds).
+        // This prevents rapid-fire duplicate requests while still allowing
+        // the client's retry mechanism (which has its own exponential backoff
+        // starting at 3 seconds) to re-request tiles that failed to load.
         {
             let sent = self.sent.read();
             if let Some(info) = sent.get(&key) {
-                if now - info.last_requested_at < 30_000 {
+                if now - info.last_requested_at < 2_000 {
                     tracing::debug!(
                         x = meta.x,
                         y = meta.y,
                         level = meta.level,
                         elapsed_ms = now - info.last_requested_at,
-                        "skipping tile request (requested recently)"
+                        "skipping tile request (requested very recently)"
                     );
                     return Ok(());
                 }
@@ -446,10 +458,14 @@ impl ViewManager {
                 .and_modify(|existing| {
                     existing.count += 1;
                     existing.last_requested_at = now;
+                    // Reset delivered flag for explicit retries - the client
+                    // is asking for this tile again because it didn't get it
+                    existing.delivered = false;
                 })
                 .or_insert_with(|| RequestedTile {
                     count: 1,
                     last_requested_at: now,
+                    delivered: false,
                 });
         }
 
@@ -469,6 +485,7 @@ impl ViewManager {
             viewport: self.last_viewport.clone(),
             image: self.image,
             dpi: self.dpi,
+            sent: self.sent.clone(),
         };
 
         self.worker_tx
@@ -696,10 +713,12 @@ async fn tile_subscription_task(
                         .and_modify(|existing| {
                             existing.count += 1;
                             existing.last_requested_at = now;
+                            // Don't reset delivered flag
                         })
                         .or_insert_with(|| RequestedTile {
                             count: 1,
                             last_requested_at: now,
+                            delivered: false,
                         });
                 }
 
@@ -714,6 +733,7 @@ async fn tile_subscription_task(
                     viewport: viewport_ref.clone(),
                     image,
                     dpi,
+                    sent: sent.clone(),
                 };
 
                 if let Err(e) = worker_tx.send(work).await {

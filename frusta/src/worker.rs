@@ -6,6 +6,23 @@ use tokio_util::sync::CancellationToken;
 use crate::protocol::MessageBuilder;
 use crate::viewport::{compute_min_level, is_tile_in_viewport, RetrieveTileWork};
 
+/// Check whether this tile was already delivered to the client.
+/// Returns `true` if we should skip sending (another worker beat us to it).
+fn is_tile_already_delivered(work: &RetrieveTileWork) -> bool {
+    let key = work.meta.index_unchecked();
+    let sent = work.sent.read();
+    sent.get(&key).map(|info| info.delivered).unwrap_or(false)
+}
+
+/// Mark a tile as delivered in the sent map.
+fn mark_tile_delivered(work: &RetrieveTileWork) {
+    let key = work.meta.index_unchecked();
+    let mut sent = work.sent.write();
+    if let Some(info) = sent.get_mut(&key) {
+        info.delivered = true;
+    }
+}
+
 /// Check whether the tile described by `work` is still visible in the latest
 /// viewport snapshot.  Returns `false` (skip) when:
 /// - no viewport has been set yet,
@@ -99,11 +116,27 @@ pub async fn worker_main(
                             );
                             continue;
                         }
+                        // Final check: was this tile already delivered by another worker?
+                        // This prevents duplicate sends when multiple workers race to
+                        // deliver the same tile.
+                        if is_tile_already_delivered(&work) {
+                            tracing::debug!(
+                                slide_id = %work.slide_id,
+                                x = work.meta.x,
+                                y = work.meta.y,
+                                level = work.meta.level,
+                                "tile already delivered by another worker, skipping"
+                            );
+                            continue;
+                        }
                         let payload = MessageBuilder::tile_data(work.slot, &work.meta, &data);
                         tokio::select! {
                             _ = cancel.cancelled() => return Ok(()),
                             _ = work.cancel.cancelled() => {}
                             _ = work.tx.send(payload) => {
+                                // Mark the tile as delivered so other workers don't
+                                // send duplicates
+                                mark_tile_delivered(&work);
                                 tracing::info!(
                                     slide_id = %work.slide_id,
                                     x = work.meta.x,
