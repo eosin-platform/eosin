@@ -44,6 +44,18 @@ export interface FrustaClientOptions {
   onRateLimited?: () => void;
   /** Called on error */
   onError?: (error: Event | Error) => void;
+  /**
+   * Called when a slide's slot is reassigned after reconnection.
+   * The consumer must update any references to the old slot.
+   */
+  onSlotReassigned?: (id: Uint8Array, oldSlot: number, newSlot: number) => void;
+}
+
+/** Internal record of an open slide for reconnection. */
+interface TrackedSlide {
+  dpi: number;
+  image: ImageDesc;
+  slot: number;
 }
 
 export class FrustaClient {
@@ -56,6 +68,13 @@ export class FrustaClient {
   private _rateLimited = false;
   private connectTimeoutHandle: ReturnType<typeof setTimeout> | null = null;
   private rateLimitCooldownTimeout: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * Slides currently considered open by the client.
+   * Key is the hex-encoded UUID for easy comparison.
+   */
+  private openSlides = new Map<string, TrackedSlide>();
+  /** True while we are re-opening slides after a reconnect. */
+  private _reconnecting = false;
 
   constructor(options: FrustaClientOptions) {
     this.options = {
@@ -68,6 +87,7 @@ export class FrustaClient {
       onProgress: () => {},
       onRateLimited: () => {},
       onError: () => {},
+      onSlotReassigned: () => {},
       ...options,
     };
   }
@@ -87,6 +107,18 @@ export class FrustaClient {
   /** Whether the client is currently rate-limited (5-second cooldown after server notification) */
   get rateLimited(): boolean {
     return this._rateLimited;
+  }
+
+  /** Whether the client is currently re-opening slides after a reconnection */
+  get reconnecting(): boolean {
+    return this._reconnecting;
+  }
+
+  /** Convert a UUID Uint8Array to a hex string key for the openSlides map. */
+  private static idToKey(id: Uint8Array): string {
+    return Array.from(id)
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
   }
 
   /** Enter rate-limited state for 5 seconds */
@@ -132,6 +164,7 @@ export class FrustaClient {
         }
         this.reconnectAttempts = 0;
         this.setState('connected');
+        this.reopenTrackedSlides();
       };
 
       this.ws.onclose = (event) => {
@@ -174,11 +207,30 @@ export class FrustaClient {
       this.rateLimitCooldownTimeout = null;
     }
     this._rateLimited = false;
+    this.openSlides.clear();
+    this._reconnecting = false;
     if (this.ws) {
       this.ws.close();
       this.ws = null;
     }
     this.setState('disconnected');
+  }
+
+  /**
+   * Re-open all tracked slides after a reconnection.
+   * Called automatically when the WebSocket connects/reconnects.
+   */
+  private reopenTrackedSlides(): void {
+    if (this.openSlides.size === 0) return;
+    this._reconnecting = true;
+    for (const tracked of this.openSlides.values()) {
+      this.send(buildOpenMessage(tracked.dpi, tracked.image));
+    }
+    // _reconnecting is cleared once all OpenResponses arrive,
+    // but as a safety net clear it after a short delay.
+    setTimeout(() => {
+      this._reconnecting = false;
+    }, 5000);
   }
 
   private handleReconnect(): void {
@@ -210,6 +262,17 @@ export class FrustaClient {
     if (isOpenResponse(data)) {
       const response = parseOpenResponse(data);
       if (response) {
+        const key = FrustaClient.idToKey(response.id);
+        const tracked = this.openSlides.get(key);
+        if (tracked) {
+          const oldSlot = tracked.slot;
+          tracked.slot = response.slot;
+          // Only fire onSlotReassigned when a previously-assigned slot changes
+          // (oldSlot === -1 means this is the first assignment, not a reassignment)
+          if (oldSlot !== -1 && oldSlot !== response.slot) {
+            this.options.onSlotReassigned(response.id, oldSlot, response.slot);
+          }
+        }
         this.options.onOpenResponse(response);
         return;
       }
@@ -247,7 +310,13 @@ export class FrustaClient {
    * @param image Image descriptor with UUID and dimensions
    */
   openSlide(dpi: number, image: ImageDesc): boolean {
-    return this.send(buildOpenMessage(dpi, image));
+    const sent = this.send(buildOpenMessage(dpi, image));
+    // Track regardless of send success — if disconnected, will be re-opened on reconnect
+    const key = FrustaClient.idToKey(image.id);
+    if (!this.openSlides.has(key)) {
+      this.openSlides.set(key, { dpi, image, slot: -1 });
+    }
+    return sent;
   }
 
   /**
@@ -264,6 +333,7 @@ export class FrustaClient {
    * @param id The UUID of the slide to close
    */
   closeSlide(id: Uint8Array): boolean {
+    this.openSlides.delete(FrustaClient.idToKey(id));
     return this.send(buildCloseMessage(id));
   }
 

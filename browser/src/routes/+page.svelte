@@ -230,20 +230,20 @@
         connectionState = state;
 
         if (state === 'disconnected' || state === 'error') {
-          // Server session is gone — reset local slot state
+          // Server session is gone — reset local slot state.
+          // currentSlideId is NOT cleared: the client tracks open slides
+          // and will automatically re-send Open messages on reconnect.
           currentSlot = null;
-          currentSlideId = null;
         }
 
-        // Auto-open slide when (re)connected
         if (state === 'connected') {
           if (hasBeenConnected) {
             showToast('Reconnected.', 3000, 'success');
           }
           hasBeenConnected = true;
-          if (imageDesc) {
-            openSlide();
-          }
+          // No manual openSlide() needed here — FrustaClient automatically
+          // re-opens all tracked slides on reconnect. The onOpenResponse
+          // callback will fire with the (possibly new) slot assignment.
         }
       },
       onTile: (tile: TileData) => {
@@ -273,6 +273,14 @@
       },
       onRateLimited: () => {
         showToast('You are being rate limited. Please slow down.', 5000);
+      },
+      onSlotReassigned: (id, oldSlot, newSlot) => {
+        console.log(`Slot reassigned: old=${oldSlot} new=${newSlot}, id=${formatUuid(id)}`);
+        // If this is the slide we currently have open, update our slot reference
+        if (currentSlideId && currentSlideId.length === id.length &&
+            currentSlideId.every((b, i) => b === id[i])) {
+          currentSlot = newSlot;
+        }
       },
       onError: (error) => {
         const msg = error instanceof Error ? error.message : 'Connection error';
