@@ -273,16 +273,20 @@
     height: 100%;
     flex: 1;
     position: relative;
+    min-height: 0; /* Allow flex children to shrink */
   }
 
   .connection-bar {
     display: flex;
     padding: 0.25rem 0.75rem;
+    padding-bottom: max(0.25rem, env(safe-area-inset-bottom, 0px));
     background: #111;
     border-top: 1px solid #222;
     align-items: center;
     justify-content: space-between;
     flex-shrink: 0;
+    min-height: 2rem;
+    z-index: 10;
   }
 
   .perf-stats {
@@ -291,6 +295,8 @@
     font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', monospace;
     font-size: 0.7rem;
     color: #888;
+    flex-wrap: wrap;
+    overflow: hidden;
   }
 
   .perf-stats .metric {
@@ -298,6 +304,34 @@
     background: #1a1a1a;
     border-radius: 3px;
     white-space: nowrap;
+  }
+
+  /* Hide less important metrics on mobile to prevent overflow */
+  @media (max-width: 768px) {
+    .connection-bar {
+      padding: 0.25rem 0.5rem;
+      gap: 0.5rem;
+    }
+    
+    .perf-stats {
+      gap: 0.25rem;
+      font-size: 0.625rem;
+    }
+
+    .perf-stats .metric {
+      padding: 0.0625rem 0.25rem;
+    }
+
+    /* Hide some metrics on very small screens */
+    .perf-stats .metric:nth-child(n+5) {
+      display: none;
+    }
+  }
+
+  @media (max-width: 480px) {
+    .perf-stats .metric:nth-child(n+4) {
+      display: none;
+    }
   }
 
   .perf-stats .metric.pending {

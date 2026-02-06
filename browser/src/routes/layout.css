@@ -6,6 +6,15 @@ html, body {
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
   overscroll-behavior: none;
+  /* Fix for mobile browser viewport issues */
+  height: 100%;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+/* CSS custom property for safe viewport height (set by JS as fallback) */
+:root {
+  --vh: 1vh;
 }
 
 /* Prevent text selection on interactive elements */

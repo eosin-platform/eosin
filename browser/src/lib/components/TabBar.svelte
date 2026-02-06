@@ -122,6 +122,86 @@
   let contextMenuY = $state(0);
   let contextMenuTabId = $state<string | null>(null);
 
+  // --- Long press for mobile context menu ---
+  let longPressTimer: ReturnType<typeof setTimeout> | null = null;
+  let longPressTriggered = $state(false);
+  let longPressTabId = $state<string | null>(null);
+  let longPressX = $state(0);
+  let longPressY = $state(0);
+  let longPressMoved = $state(false);
+  let isTouchDevice = $state(false);
+  const LONG_PRESS_MS = 500;
+  const LONG_PRESS_MOVE_THRESHOLD = 30; // Higher threshold to account for drag behavior
+
+  function handleTouchStart(e: TouchEvent, tabId: string) {
+    isTouchDevice = true; // Detected touch - disable draggable
+    const touch = e.touches[0];
+    longPressX = touch.clientX;
+    longPressY = touch.clientY;
+    longPressTabId = tabId;
+    longPressTriggered = false;
+    longPressMoved = false;
+    
+    // Prevent default to stop browser from initiating drag on touch
+    e.preventDefault();
+
+    longPressTimer = setTimeout(() => {
+      // Only trigger if user hasn't moved too much
+      if (!longPressMoved) {
+        longPressTriggered = true;
+        // Optional: provide haptic feedback if available
+        if (navigator.vibrate) {
+          navigator.vibrate(50);
+        }
+      }
+      longPressTimer = null;
+    }, LONG_PRESS_MS);
+  }
+
+  function handleTouchMove(e: TouchEvent) {
+    const touch = e.touches[0];
+    const dx = Math.abs(touch.clientX - longPressX);
+    const dy = Math.abs(touch.clientY - longPressY);
+    
+    // Track if user has moved beyond threshold
+    if (dx > LONG_PRESS_MOVE_THRESHOLD || dy > LONG_PRESS_MOVE_THRESHOLD) {
+      longPressMoved = true;
+      // Cancel pending timer if still waiting
+      if (longPressTimer) {
+        clearTimeout(longPressTimer);
+        longPressTimer = null;
+      }
+      // Also cancel if already triggered (user started moving after long press)
+      longPressTriggered = false;
+    }
+  }
+
+  function handleTouchEnd(e: TouchEvent) {
+    const wasLongPressTriggered = longPressTriggered;
+    const touchTabId = longPressTabId;
+    
+    if (longPressTimer) {
+      clearTimeout(longPressTimer);
+      longPressTimer = null;
+    }
+
+    // If long press was triggered, show context menu on release
+    if (wasLongPressTriggered && touchTabId) {
+      e.preventDefault();
+      contextMenuX = longPressX;
+      contextMenuY = longPressY;
+      contextMenuTabId = touchTabId;
+      contextMenuVisible = true;
+    } else if (!longPressMoved && touchTabId) {
+      // Short tap without movement - activate the tab
+      handleTabClick(touchTabId);
+    }
+
+    longPressTriggered = false;
+    longPressTabId = null;
+    longPressMoved = false;
+  }
+
   function handleContextMenu(e: MouseEvent, tabId: string) {
     e.preventDefault();
     e.stopPropagation();
@@ -169,13 +249,16 @@
         class:drop-before={dropTargetIndex === i && dragTabId !== null && tabs.findIndex((t) => t.tabId === dragTabId) !== i}
         role="tab"
         aria-selected={tab.tabId === activeTabId}
-        draggable="true"
+        draggable={!isTouchDevice}
         ondragstart={(e) => handleDragStart(e, tab.tabId)}
         ondragover={(e) => handleDragOver(e, i)}
         ondrop={(e) => handleDrop(e, i)}
         ondragend={handleDragEnd}
-        onclick={() => handleTabClick(tab.tabId)}
+        onclick={() => !isTouchDevice && handleTabClick(tab.tabId)}
         oncontextmenu={(e) => handleContextMenu(e, tab.tabId)}
+        ontouchstart={(e) => handleTouchStart(e, tab.tabId)}
+        ontouchmove={handleTouchMove}
+        ontouchend={handleTouchEnd}
       >
         {#if tabProgress && tabProgress.progressSteps < tabProgress.progressTotal}
           <ActivityIndicator trigger={tabProgress.lastUpdate} />

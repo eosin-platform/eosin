@@ -57,14 +57,31 @@
 		}
 	}
 
+	// Fix for mobile viewport height (100vh issue)
+	function setViewportHeight() {
+		if (browser) {
+			// Set CSS custom property to actual viewport height
+			const vh = window.innerHeight * 0.01;
+			document.documentElement.style.setProperty('--vh', `${vh}px`);
+		}
+	}
+
 	onMount(() => {
 		checkMobile();
+		setViewportHeight();
 		// Auto-collapse on small screens initially
 		sidebarCollapsed = window.innerWidth < 1024;
 		
 		window.addEventListener('resize', checkMobile);
+		window.addEventListener('resize', setViewportHeight);
+		// Also update on orientation change
+		window.addEventListener('orientationchange', () => {
+			setTimeout(setViewportHeight, 100);
+		});
+		
 		return () => {
 			window.removeEventListener('resize', checkMobile);
+			window.removeEventListener('resize', setViewportHeight);
 		};
 	});
 </script>
@@ -108,7 +125,9 @@
 <style>
 	.app-layout {
 		display: flex;
-		height: 100vh;
+		height: 100vh; /* Fallback for oldest browsers */
+		height: calc(var(--vh, 1vh) * 100); /* JS-calculated height for older mobile browsers */
+		height: 100dvh; /* Dynamic viewport height - best for modern mobile browsers */
 		overflow: hidden;
 		position: relative;
 	}
@@ -123,6 +142,7 @@
 		overflow: hidden;
 		display: flex;
 		flex-direction: column;
+		min-height: 0; /* Allow flex children to shrink */
 	}
 
 	/* Mobile overlay */
