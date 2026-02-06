@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import type { ImageDesc } from './protocol';
-  import { TileCache, TILE_SIZE, type CachedTile } from './cache';
+  import { TileCache, TILE_SIZE, type CachedTile, tileKeyFromMeta } from './cache';
   import {
     type ViewportState,
     type TileCoord,
@@ -11,7 +11,7 @@
   } from './viewport';
   import { TileRetryManager } from './retryManager';
   import type { FrustaClient } from './client';
-  import { applyStainEnhancementToImageData } from './stainEnhancement';
+  import { applyStainEnhancementToImageData, createEnhancedBitmap } from './stainEnhancement';
   import type { StainEnhancementMode } from '$lib/stores/settings';
 
   /** Performance metrics exposed via callback */
@@ -63,6 +63,117 @@
   // Helper canvas for stain enhancement processing (reused to avoid GC)
   let enhancementCanvas: OffscreenCanvas | HTMLCanvasElement | null = null;
   let enhancementCtx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null = null;
+
+  // ============================================================================
+  // Enhanced Bitmap Cache
+  // ============================================================================
+  // Caches enhanced ImageBitmaps keyed by (tileKey, mode) to avoid re-computing
+  // stain enhancement every frame. This is critical for performance since
+  // getImageData/putImageData are slow GPU→CPU→GPU round-trips.
+  
+  interface EnhancedBitmapEntry {
+    bitmap: ImageBitmap;
+    mode: StainEnhancementMode;
+    lastAccessed: number;
+  }
+  
+  /** Cache for enhanced bitmaps: key is `${tileKey}_${mode}` */
+  const enhancedBitmapCache = new Map<string, EnhancedBitmapEntry>();
+  /** Track pending enhancement computations to avoid duplicate work */
+  const pendingEnhancements = new Set<string>();
+  /** Maximum enhanced bitmaps to cache (separate from main tile cache) */
+  const MAX_ENHANCED_CACHE_SIZE = 500;
+  /** Maximum memory for enhanced cache (256MB) */
+  const MAX_ENHANCED_MEMORY_BYTES = 256 * 1024 * 1024;
+  
+  /** Generate cache key for enhanced bitmap */
+  function enhancedCacheKey(tileKey: bigint, mode: StainEnhancementMode): string {
+    return `${tileKey}_${mode}`;
+  }
+  
+  /** Get cached enhanced bitmap if available */
+  function getEnhancedBitmap(tile: CachedTile, mode: StainEnhancementMode): ImageBitmap | null {
+    const key = enhancedCacheKey(tileKeyFromMeta(tile.meta), mode);
+    const entry = enhancedBitmapCache.get(key);
+    if (entry) {
+      entry.lastAccessed = Date.now();
+      return entry.bitmap;
+    }
+    return null;
+  }
+  
+  /** Start async enhancement computation for a tile */
+  function scheduleEnhancement(tile: CachedTile, mode: StainEnhancementMode): void {
+    if (!tile.bitmap || mode === 'none') return;
+    
+    const tileKey = tileKeyFromMeta(tile.meta);
+    const key = enhancedCacheKey(tileKey, mode);
+    
+    // Skip if already cached or in progress
+    if (enhancedBitmapCache.has(key) || pendingEnhancements.has(key)) {
+      return;
+    }
+    
+    pendingEnhancements.add(key);
+    
+    // Compute enhanced bitmap asynchronously
+    createEnhancedBitmap(tile.bitmap, mode)
+      .then((enhancedBitmap) => {
+        pendingEnhancements.delete(key);
+        
+        // Evict old entries if over limit before adding
+        evictEnhancedCacheIfNeeded();
+        
+        enhancedBitmapCache.set(key, {
+          bitmap: enhancedBitmap,
+          mode,
+          lastAccessed: Date.now(),
+        });
+        
+        // Trigger re-render to display the enhanced bitmap
+        scheduleRender();
+      })
+      .catch((err) => {
+        pendingEnhancements.delete(key);
+        console.warn('Failed to create enhanced bitmap:', err);
+      });
+  }
+  
+  /** Evict oldest entries from enhanced cache when over limit */
+  function evictEnhancedCacheIfNeeded(): void {
+    if (enhancedBitmapCache.size < MAX_ENHANCED_CACHE_SIZE) return;
+    
+    // Sort by last accessed (oldest first)
+    const entries = Array.from(enhancedBitmapCache.entries())
+      .sort((a, b) => a[1].lastAccessed - b[1].lastAccessed);
+    
+    // Evict until under 80% of limit
+    const targetSize = Math.floor(MAX_ENHANCED_CACHE_SIZE * 0.8);
+    while (enhancedBitmapCache.size > targetSize && entries.length > 0) {
+      const [key, entry] = entries.shift()!;
+      entry.bitmap.close();
+      enhancedBitmapCache.delete(key);
+    }
+  }
+  
+  /** Clear enhanced cache for a specific mode (called when mode changes) */
+  function clearEnhancedCacheForMode(mode: StainEnhancementMode): void {
+    for (const [key, entry] of enhancedBitmapCache.entries()) {
+      if (entry.mode === mode) {
+        entry.bitmap.close();
+        enhancedBitmapCache.delete(key);
+      }
+    }
+  }
+  
+  /** Clear entire enhanced cache (called on destroy or slide change) */
+  function clearEnhancedCache(): void {
+    for (const entry of enhancedBitmapCache.values()) {
+      entry.bitmap.close();
+    }
+    enhancedBitmapCache.clear();
+    pendingEnhancements.clear();
+  }
 
   /** Initialize or resize the enhancement canvas helper */
   function ensureEnhancementCanvas(width: number, height: number): void {
@@ -179,6 +290,8 @@
     }
     // Clear retry manager
     retryManager?.clear();
+    // Clear enhanced bitmap cache
+    clearEnhancedCache();
     window.removeEventListener('keydown', handleKeyDown);
     window.removeEventListener('keyup', handleKeyUp);
   });
@@ -523,7 +636,19 @@
     if (tile.bitmap) {
       // Apply stain enhancement if mode is not 'none'
       if (stainEnhancement !== 'none') {
-        // Ensure enhancement canvas is large enough for this tile
+        // Check for cached enhanced bitmap first (fast path)
+        const cachedEnhanced = getEnhancedBitmap(tile, stainEnhancement);
+        if (cachedEnhanced) {
+          // Draw cached enhanced bitmap directly (fast!)
+          ctx.drawImage(cachedEnhanced, rect.x, rect.y, rect.width, rect.height);
+          return true;
+        }
+        
+        // No cached version - schedule async enhancement for next frame
+        scheduleEnhancement(tile, stainEnhancement);
+        
+        // Fall back to synchronous enhancement for this frame
+        // This only happens once per tile until the async version is cached
         ensureEnhancementCanvas(tile.bitmap.width, tile.bitmap.height);
         if (!enhancementCtx) return false;
 
@@ -579,8 +704,28 @@
 
     // Apply stain enhancement if mode is not 'none'
     if (stainEnhancement !== 'none') {
-      // We need to process just the sub-region, but for simplicity,
-      // process the full tile if not already processed (could optimize later)
+      // Check for cached enhanced bitmap first (fast path)
+      const cachedEnhanced = getEnhancedBitmap(fallbackTile, stainEnhancement);
+      if (cachedEnhanced) {
+        // Draw sub-region from cached enhanced bitmap (fast!)
+        ctx.drawImage(
+          cachedEnhanced,
+          srcX,
+          srcY,
+          srcSize,
+          srcSize,
+          targetRect.x,
+          targetRect.y,
+          targetRect.width,
+          targetRect.height
+        );
+        return true;
+      }
+      
+      // No cached version - schedule async enhancement for next frame
+      scheduleEnhancement(fallbackTile, stainEnhancement);
+      
+      // Fall back to synchronous enhancement for this frame
       ensureEnhancementCanvas(fallbackTile.bitmap.width, fallbackTile.bitmap.height);
       if (!enhancementCtx) return false;
 
