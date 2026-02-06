@@ -110,8 +110,8 @@
   let hudNotificationTimeout: ReturnType<typeof setTimeout> | null = null;
   let hudNotificationFading = $state(false);
 
-  // Help menu state (shown while holding '/' key)
-  let showHelpMenu = $state(false);
+  // Help menu state (shown while holding '/' or '?' key)
+  let helpKeyPressed = $state(false);
 
   // Normalization modes for cycling with 'n' key
   const normalizationModes: StainNormalization[] = ['none', 'macenko', 'vahadane'];
@@ -191,20 +191,22 @@
     if (e.key === 'e' || e.key === 'E') {
       cycleEnhancement();
     }
-    if (e.key === '/' || e.key === '?') {
+    if (e.key === '/' || e.key === '?' || e.key === 'h' || e.key === 'H') {
       e.preventDefault();
       e.stopPropagation();
-      // Ignore key repeat events
-      if (!e.repeat) {
-        showHelpMenu = true;
-      }
+      helpKeyPressed = true;
     }
   }
 
   function handleKeyUp(e: KeyboardEvent) {
-    if (e.key === '/' || e.key === '?') {
-      showHelpMenu = false;
+    if (e.key === '/' || e.key === '?' || e.key === 'h' || e.key === 'H') {
+      helpKeyPressed = false;
     }
+  }
+
+  function handleWindowBlur() {
+    // Reset help key state when window loses focus
+    helpKeyPressed = false;
   }
 
   // Zoom slider: convert linear slider value to logarithmic zoom
@@ -753,8 +755,10 @@
     registerHandler();
 
     window.addEventListener('mouseup', handleMouseUp);
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
+    // Use capture phase to intercept before browser quick-find
+    window.addEventListener('keydown', handleKeyDown, true);
+    window.addEventListener('keyup', handleKeyUp, true);
+    window.addEventListener('blur', handleWindowBlur);
   });
 
   onDestroy(() => {
@@ -773,8 +777,9 @@
     }
     if (browser) {
       window.removeEventListener('mouseup', handleMouseUp);
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('keydown', handleKeyDown, true);
+      window.removeEventListener('keyup', handleKeyUp, true);
+      window.removeEventListener('blur', handleWindowBlur);
     }
   });
 </script>
@@ -858,39 +863,39 @@
     </div>
   {/if}
 
-  <!-- Help menu HUD (shown while holding '/') -->
-  {#if showHelpMenu}
-    <div class="help-menu">
-      <h2>Help</h2>
-      
-      <div class="help-section">
-        <h3>Viewport Navigation</h3>
-        <div class="help-row"><kbd>Click + Drag</kbd><span>Pan the viewport</span></div>
-        <div class="help-row"><kbd>Scroll Wheel</kbd><span>Zoom in/out at cursor position</span></div>
-        <div class="help-row"><kbd>Pinch</kbd><span>Zoom in/out on touch devices</span></div>
-        <div class="help-row"><kbd>Double-click Gamma</kbd><span>Reset gamma slider to 1.0</span></div>
-      </div>
+  <!-- Help menu HUD (shown while holding '/', '?', or 'h') -->
+  {#if helpKeyPressed}
+    <div class="help-overlay">
+      <div class="help-grid">
+        <div class="help-card">
+          <h3>Viewport Navigation</h3>
+          <div class="help-row"><kbd>Click + Drag</kbd><span>Pan the viewport</span></div>
+          <div class="help-row"><kbd>Scroll Wheel</kbd><span>Zoom in/out at cursor</span></div>
+          <div class="help-row"><kbd>Pinch</kbd><span>Zoom on touch devices</span></div>
+          <div class="help-row"><kbd>Dbl-click Gamma</kbd><span>Reset to 1.0</span></div>
+        </div>
 
-      <div class="help-section">
-        <h3>Keyboard Shortcuts</h3>
-        <div class="help-row"><kbd>/</kbd> or <kbd>?</kbd><span>Show this help menu (hold)</span></div>
-        <div class="help-row"><kbd>N</kbd><span>Cycle stain normalization mode</span></div>
-        <div class="help-row"><kbd>E</kbd><span>Cycle stain enhancement mode</span></div>
-      </div>
+        <div class="help-card">
+          <h3>Keyboard Shortcuts</h3>
+          <div class="help-row"><kbd>H</kbd> <kbd>/</kbd> <kbd>?</kbd><span>Show help (hold)</span></div>
+          <div class="help-row"><kbd>N</kbd><span>Cycle normalization</span></div>
+          <div class="help-row"><kbd>E</kbd><span>Cycle enhancement</span></div>
+        </div>
 
-      <div class="help-section">
-        <h3>Stain Normalization Modes</h3>
-        <div class="help-row"><strong>None</strong><span>Original image without color normalization</span></div>
-        <div class="help-row"><strong>Macenko</strong><span>SVD-based stain separation. Good for H&E slides with consistent staining.</span></div>
-        <div class="help-row"><strong>Vahadane</strong><span>Sparse NMF-based normalization. Better preserves structure in variable staining.</span></div>
-      </div>
+        <div class="help-card">
+          <h3>Stain Normalization</h3>
+          <div class="help-row"><strong>None</strong><span>Original colors</span></div>
+          <div class="help-row"><strong>Macenko</strong><span>SVD-based separation</span></div>
+          <div class="help-row"><strong>Vahadane</strong><span>Sparse NMF-based</span></div>
+        </div>
 
-      <div class="help-section">
-        <h3>Stain Enhancement Modes</h3>
-        <div class="help-row"><strong>None</strong><span>No post-processing enhancement</span></div>
-        <div class="help-row"><strong>Gram</strong><span>Enhances purple (Gram+) and pink (Gram−) bacterial visualization</span></div>
-        <div class="help-row"><strong>AFB</strong><span>Acid-Fast Bacilli — red bacilli against blue counterstain (Ziehl-Neelsen)</span></div>
-        <div class="help-row"><strong>GMS</strong><span>Grocott Methenamine Silver — dark fungal elements against green background</span></div>
+        <div class="help-card">
+          <h3>Stain Enhancement</h3>
+          <div class="help-row"><strong>None</strong><span>No enhancement</span></div>
+          <div class="help-row"><strong>Gram</strong><span>Gram+/Gram− bacteria</span></div>
+          <div class="help-row"><strong>AFB</strong><span>Acid-Fast Bacilli</span></div>
+          <div class="help-row"><strong>GMS</strong><span>Grocott Silver stain</span></div>
+        </div>
       </div>
     </div>
   {/if}
@@ -1080,81 +1085,81 @@
     opacity: 0.6;
   }
 
-  /* Help menu floating HUD */
-  .help-menu {
+  /* Help overlay - fills viewport */
+  .help-overlay {
     position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    background: rgba(0, 0, 0, 0.75);
-    backdrop-filter: blur(8px);
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    border-radius: 12px;
-    padding: 20px 28px;
-    max-width: 560px;
-    max-height: 80vh;
-    overflow-y: auto;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(4px);
     z-index: 100;
     pointer-events: none;
   }
 
-  .help-menu h2 {
-    margin: 0 0 20px 0;
-    font-size: 20px;
+  /* Responsive card grid */
+  .help-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 16px;
+    width: 100%;
+    max-width: 900px;
+    max-height: 100%;
+    overflow-y: auto;
+  }
+
+  .help-card {
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 10px;
+    padding: 16px 20px;
+  }
+
+  .help-card h3 {
+    margin: 0 0 12px 0;
+    font-size: 13px;
     font-weight: 600;
-    color: #fff;
-    text-align: center;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-    padding-bottom: 12px;
-  }
-
-  .help-section {
-    margin-bottom: 20px;
-  }
-
-  .help-section:last-child {
-    margin-bottom: 0;
-  }
-
-  .help-section h3 {
-    margin: 0 0 10px 0;
-    font-size: 14px;
-    font-weight: 600;
-    color: rgba(255, 255, 255, 0.7);
+    color: rgba(255, 255, 255, 0.8);
     text-transform: uppercase;
     letter-spacing: 0.5px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    padding-bottom: 8px;
   }
 
   .help-row {
     display: flex;
     align-items: baseline;
-    gap: 12px;
-    padding: 6px 0;
-    font-size: 14px;
+    gap: 8px;
+    padding: 4px 0;
+    font-size: 13px;
     color: rgba(255, 255, 255, 0.9);
+    flex-wrap: wrap;
   }
 
   .help-row kbd {
     display: inline-block;
-    min-width: 28px;
-    padding: 3px 8px;
+    padding: 2px 6px;
     background: rgba(255, 255, 255, 0.1);
     border: 1px solid rgba(255, 255, 255, 0.2);
     border-radius: 4px;
     font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
-    font-size: 12px;
+    font-size: 11px;
     text-align: center;
     color: #fff;
+    white-space: nowrap;
   }
 
   .help-row strong {
-    min-width: 80px;
+    min-width: 70px;
     color: #fff;
     font-weight: 600;
   }
 
   .help-row span {
-    color: rgba(255, 255, 255, 0.7);
+    color: rgba(255, 255, 255, 0.6);
     line-height: 1.4;
   }
 </style>
