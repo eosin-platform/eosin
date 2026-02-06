@@ -23,10 +23,11 @@ export interface SlideInfo {
   width: number;
   height: number;
   levels: number;
+  filename: string;
 }
 
 export const load = async ({ url }: { url: URL }) => {
-  const id = url.searchParams.get('id');
+  const id = url.searchParams.get('slide');
 
   if (!id) {
     return { slide: null, error: null };
@@ -61,6 +62,7 @@ export const load = async ({ url }: { url: URL }) => {
       width: data.width,
       height: data.height,
       levels: computeLevels(data.width, data.height),
+      filename: data.filename || data.id.slice(0, 8),
     };
 
     return { slide, error: null };

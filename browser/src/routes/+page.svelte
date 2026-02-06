@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { browser } from '$app/environment';
+  import { replaceState } from '$app/navigation';
   import { env } from '$env/dynamic/public';
   import {
     createFrustaClient,
@@ -105,25 +106,29 @@
   let urlUpdateTimeout: ReturnType<typeof setTimeout> | null = null;
   const URL_UPDATE_DEBOUNCE_MS = 300;
 
+  /** Whether we've finished the initial URL-driven load (prevents re-centering) */
+  let initialUrlApplied = false;
+
+  /** Set to true after onMount — prevents replaceState calls during hydration */
+  let mounted = false;
+
   /**
-   * Update the browser URL query parameters with the current slide and viewport,
-   * using replaceState to avoid polluting browser history.
+   * Update the browser URL query string to reflect the current slide + viewport.
+   * Uses replaceState so it doesn't create new history entries on every pan/zoom.
    */
-  function scheduleUrlUpdate() {
-    if (!browser) return;
+  function syncUrlToViewport() {
+    if (!browser || !mounted || !lastLoadedSlideId) return;
+    const params = new URLSearchParams();
+    params.set('slide', lastLoadedSlideId);
+    params.set('x', viewport.x.toFixed(1));
+    params.set('y', viewport.y.toFixed(1));
+    params.set('zoom', viewport.zoom.toPrecision(4));
+    replaceState(`?${params.toString()}`, {});
+  }
+
+  function scheduleSyncUrl() {
     if (urlUpdateTimeout) clearTimeout(urlUpdateTimeout);
-    urlUpdateTimeout = setTimeout(() => {
-      urlUpdateTimeout = null;
-      const params = new URLSearchParams(window.location.search);
-      if (lastLoadedSlideId) {
-        params.set('id', lastLoadedSlideId);
-      }
-      params.set('x', viewport.x.toFixed(1));
-      params.set('y', viewport.y.toFixed(1));
-      params.set('zoom', viewport.zoom.toFixed(6));
-      const newUrl = `${window.location.pathname}?${params.toString()}`;
-      history.replaceState(history.state, '', newUrl);
-    }, URL_UPDATE_DEBOUNCE_MS);
+    urlUpdateTimeout = setTimeout(syncUrlToViewport, URL_UPDATE_DEBOUNCE_MS);
   }
 
   // Mouse interaction state
@@ -220,40 +225,31 @@
       tilesReceived = 0;
     }
 
-    // Restore viewport from URL params if they match this slide, otherwise center
-    let restoredFromUrl = false;
-    if (browser) {
-      const params = new URLSearchParams(window.location.search);
-      const urlId = params.get('id');
-      const urlX = params.get('x');
-      const urlY = params.get('y');
-      const urlZoom = params.get('zoom');
-      if (urlId === slide.id && urlX != null && urlY != null && urlZoom != null) {
-        const px = parseFloat(urlX);
-        const py = parseFloat(urlY);
-        const pz = parseFloat(urlZoom);
-        if (isFinite(px) && isFinite(py) && isFinite(pz) && pz > 0) {
-          viewport = { ...viewport, x: px, y: py, zoom: pz };
-          if (container) {
-            const rect = container.getBoundingClientRect();
-            viewport = { ...viewport, width: rect.width, height: rect.height };
+    // Center viewport on the new image, unless URL params override
+    if (container) {
+      const rect = container.getBoundingClientRect();
+      viewport = centerViewport(rect.width, rect.height, imageDesc.width, imageDesc.height);
+
+      // On initial load, apply viewport from URL query if present
+      if (!initialUrlApplied && browser) {
+        initialUrlApplied = true;
+        const params = new URL(window.location.href).searchParams;
+        const ux = params.get('x');
+        const uy = params.get('y');
+        const uz = params.get('zoom');
+        if (ux !== null && uy !== null && uz !== null) {
+          const px = parseFloat(ux);
+          const py = parseFloat(uy);
+          const pz = parseFloat(uz);
+          if (isFinite(px) && isFinite(py) && isFinite(pz) && pz > 0) {
+            viewport = { ...viewport, x: px, y: py, zoom: pz };
+            viewport = clampViewport(viewport, imageDesc.width, imageDesc.height);
           }
-          viewport = clampViewport(viewport, imageDesc.width, imageDesc.height);
-          restoredFromUrl = true;
         }
       }
     }
 
-    if (!restoredFromUrl) {
-      // Center viewport on the new image
-      if (container) {
-        const rect = container.getBoundingClientRect();
-        viewport = centerViewport(rect.width, rect.height, imageDesc.width, imageDesc.height);
-      }
-    }
-
-    // Update URL with current slide and viewport
-    scheduleUrlUpdate();
+    scheduleSyncUrl();
 
     // Open slide if connected
     if (connectionState === 'connected') {
@@ -269,12 +265,9 @@
     return Math.ceil(Math.log2(maxDim / TILE_SIZE)) + 1;
   }
 
-  // Reactive effect: watch for data.slide changes and load new slide
+  // If server returned an error (e.g. invalid slide ID), surface it
   $effect(() => {
-    const slide = data.slide;
-    if (slide && slide.id !== lastLoadedSlideId) {
-      loadSlide(slide);
-    } else if (!slide && data.error) {
+    if (!data.slide && data.error) {
       loadError = data.error;
       imageDesc = null;
     }
@@ -287,7 +280,13 @@
   });
 
   $effect(() => {
-    if (!activeTab) return;
+    if (!activeTab) {
+      // No tab open — clear slide params from URL
+      if (browser && mounted && lastLoadedSlideId) {
+        replaceState('/', {});
+      }
+      return;
+    }
     // Only load if this is a different slide than what's already displayed
     if (activeTab.slideId !== lastLoadedSlideId) {
       const slide: SlideInfo = {
@@ -295,12 +294,16 @@
         width: activeTab.width,
         height: activeTab.height,
         levels: computeLevels(activeTab.width, activeTab.height),
+        filename: activeTab.label,
       };
       loadSlide(slide);
     } else if (activeTab.savedViewport) {
       // Switching back to an already-loaded slide's tab — restore viewport
       viewport = { ...viewport, x: activeTab.savedViewport.x, y: activeTab.savedViewport.y, zoom: activeTab.savedViewport.zoom };
       scheduleViewportUpdate();
+    } else {
+      // Same slide, no saved viewport — just sync URL in case tab switched back
+      scheduleSyncUrl();
     }
   });
 
@@ -331,13 +334,9 @@
             showToast('Reconnected.', 3000, 'success');
           }
           hasBeenConnected = true;
-          // On reconnect the FrustaClient automatically re-opens tracked
-          // slides.  On the *first* connect, however, if a slide was loaded
-          // before the socket was ready (e.g. permalink / SSR), we need to
-          // open it now.
-          if (imageDesc && currentSlot === null) {
-            openSlide();
-          }
+          // No manual openSlide() needed here — FrustaClient automatically
+          // re-opens all tracked slides on reconnect. The onOpenResponse
+          // callback will fire with the (possibly new) slot assignment.
         }
       },
       onTile: (tile: TileData) => {
@@ -429,7 +428,7 @@
       sendViewportUpdate();
       viewportUpdateTimeout = null;
     }, VIEWPORT_UPDATE_DEBOUNCE_MS);
-    scheduleUrlUpdate();
+    scheduleSyncUrl();
   }
 
   // Handler for minimap viewport changes
@@ -583,11 +582,19 @@
       viewport = { ...viewport, width: rect.width, height: rect.height };
     }
 
-    // Load initial slide from server-provided data
+    // Load initial slide from server-provided data.
+    // If it came from a permalink URL (?slide=...), also open a tab for it.
     if (data.error) {
       loadError = data.error;
     } else if (data.slide) {
-      loadSlide(data.slide);
+      // Open a tab so the slide appears in the tab bar
+      tabStore.open(
+        data.slide.id,
+        data.slide.filename,
+        data.slide.width,
+        data.slide.height,
+      );
+      // loadSlide will be triggered by the activeTab effect above
     }
 
     // Always auto-connect on page load
@@ -598,6 +605,9 @@
 
     // Global mouse up to handle dragging outside container
     window.addEventListener('mouseup', handleMouseUp);
+
+    // Allow URL syncing now that the component is fully mounted
+    mounted = true;
   });
 
   onDestroy(() => {
@@ -649,10 +659,8 @@
     {:else}
       <div class="no-image">
         <h2>No Image Loaded</h2>
-        <p>Add a slide ID to the URL:</p>
-        <code>?id=&lt;uuid&gt;</code>
-        <p style="margin-top: 1rem;">Example:</p>
-        <code>?id=550e8400-e29b-41d4-a716-446655440000</code>
+        <p>Select a slide from the sidebar, or add a slide ID to the URL:</p>
+        <code>?slide=&lt;uuid&gt;</code>
       </div>
     {/if}
   </div>

@@ -41,6 +41,9 @@
   let scrollContainer: HTMLElement;
   let sentinel: HTMLDivElement;
 
+  /** Slide IDs that just arrived via WebSocket and should play the entrance animation */
+  let animatingSlideIds = $state<Set<string>>(new Set());
+
   // Live progress from WebSocket (shared store)
   let progressMap = $state<Map<string, SlideProgress>>(new Map());
   const unsubscribe = liveProgress.subscribe((value) => {
@@ -78,6 +81,7 @@
     for (const ns of incoming) {
       // Only add if not already in the list (deduplicate by id)
       if (!slides.some((s) => s.id === ns.id)) {
+        animatingSlideIds = new Set([...animatingSlideIds, ns.id]);
         slides = [
           {
             id: ns.id,
@@ -186,6 +190,10 @@
     }
     const pct = (slide.progress_steps / slide.progress_total) * 100;
     return `${pct.toPrecision(3)}%`;
+  }
+
+  function handleAnimationEnd(slideId: string) {
+    animatingSlideIds = new Set([...animatingSlideIds].filter((id) => id !== slideId));
   }
 
   function handleToggle() {
@@ -338,10 +346,6 @@
 <aside
   class="sidebar"
   class:collapsed
-  bind:this={scrollContainer}
-  ontouchstart={handlePullTouchStart}
-  ontouchmove={handlePullTouchMove}
-  ontouchend={handlePullTouchEnd}
 >
   <div class="sidebar-header">
     <button class="toggle-btn" onclick={handleToggle} aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
@@ -387,7 +391,14 @@
     </div>
   </div>
 
-  <nav class="slide-list">
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <nav
+    class="slide-list"
+    bind:this={scrollContainer}
+    ontouchstart={handlePullTouchStart}
+    ontouchmove={handlePullTouchMove}
+    ontouchend={handlePullTouchEnd}
+  >
     {#each slides as slide (slide.id)}
       {@const progress = formatProgress(slide)}
       {@const slideProgress = progressMap.get(slide.id)}
@@ -396,7 +407,9 @@
       <div
         class="slide-item"
         class:active={activeSlideId === slide.id}
+        class:slide-new={animatingSlideIds.has(slide.id)}
         title={collapsed ? `${getSlideLabel(slide)} - ${formatDimensions(slide.width, slide.height)} - ${formatSize(slide.full_size)}${progress ? ` - ${progress}` : ''}` : undefined}
+        onanimationend={() => handleAnimationEnd(slide.id)}
         onclick={() => handleSlideClick(slide)}
         onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleSlideClick(slide); }}
         oncontextmenu={(e) => handleContextMenu(e, slide)}
@@ -471,8 +484,7 @@
     border-right: 1px solid #333;
     display: flex;
     flex-direction: column;
-    overflow-y: auto;
-    overflow-x: hidden;
+    overflow: hidden;
     transition: width 0.2s ease, min-width 0.2s ease;
   }
 
@@ -539,6 +551,27 @@
     flex-direction: column;
     padding: 0.5rem;
     gap: 2px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    scrollbar-width: thin;
+    scrollbar-color: #333 transparent;
+  }
+
+  .slide-list::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .slide-list::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .slide-list::-webkit-scrollbar-thumb {
+    background: #333;
+    border-radius: 3px;
+  }
+
+  .slide-list::-webkit-scrollbar-thumb:hover {
+    background: #555;
   }
 
   .sidebar.collapsed .slide-list {
@@ -578,6 +611,31 @@
 
   .sidebar.collapsed .slide-item.active .slide-icon {
     background: rgba(255, 255, 255, 0.2);
+  }
+
+  /* New-slide entrance animation */
+  .slide-item.slide-new {
+    animation: slideEntrance 0.5s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  }
+
+  @keyframes slideEntrance {
+    0% {
+      opacity: 0;
+      transform: translateY(-12px) scale(0.97);
+      box-shadow: 0 0 0 0 rgba(0, 102, 204, 0);
+    }
+    40% {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+    50% {
+      box-shadow: 0 0 12px 2px rgba(0, 102, 204, 0.4);
+    }
+    100% {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+      box-shadow: 0 0 0 0 rgba(0, 102, 204, 0);
+    }
   }
 
   .slide-item:hover {
