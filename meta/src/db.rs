@@ -230,7 +230,7 @@ pub async fn list_slides(pool: &Pool, offset: i64, limit: i64) -> Result<ListSli
                 progress_total,
                 COUNT(*) OVER() AS full_count
             FROM slides
-            ORDER BY id
+            ORDER BY filename ASC, id ASC
             LIMIT $1
             OFFSET $2
             "#,
