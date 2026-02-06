@@ -10,6 +10,7 @@ use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
@@ -24,6 +25,9 @@ pub const TILE_SIZE: u32 = 512;
 
 /// How often (in tiles processed) to report progress to meta/NATS.
 const PROGRESS_REPORT_INTERVAL: usize = 300;
+
+/// Minimum interval between progress event publishes (throttle).
+const PROGRESS_THROTTLE_INTERVAL: Duration = Duration::from_secs(3);
 
 /// Slide metadata extracted from the TIF file
 #[derive(Debug, Clone)]
@@ -468,6 +472,7 @@ async fn process_level(
     let mut skipped = 0usize;
     let mut last_progress = 0usize;
     let mut last_checkpoint = 0usize;
+    let mut last_progress_publish = Instant::now();
 
     loop {
         tokio::select! {
@@ -517,10 +522,11 @@ async fn process_level(
                         // Still update global progress counter for skipped tiles
                         let new_global = global_tiles_done.fetch_add(1, Ordering::Relaxed) + 1;
 
-                        // Report progress every PROGRESS_REPORT_INTERVAL tiles
+                        // Report progress every PROGRESS_REPORT_INTERVAL tiles,
+                        // throttled to at most once per PROGRESS_THROTTLE_INTERVAL.
                         let current_step = new_global / PROGRESS_REPORT_INTERVAL;
                         let prev_step = last_reported_step.load(Ordering::Relaxed);
-                        if current_step > prev_step {
+                        if current_step > prev_step && last_progress_publish.elapsed() >= PROGRESS_THROTTLE_INTERVAL {
                             last_reported_step.store(current_step, Ordering::Relaxed);
                             let progress_steps = (current_step * PROGRESS_REPORT_INTERVAL) as i32;
 
@@ -539,6 +545,8 @@ async fn process_level(
                             if let Err(e) = nats_client.flush().await {
                                 tracing::warn!(error = %e, "failed to flush progress event");
                             }
+
+                            last_progress_publish = Instant::now();
 
                             tracing::info!(
                                 progress_steps = progress_steps,
@@ -603,10 +611,11 @@ async fn process_level(
                         // Update global progress counter
                         let new_global = global_tiles_done.fetch_add(1, Ordering::Relaxed) + 1;
 
-                        // Report progress every PROGRESS_REPORT_INTERVAL tiles
+                        // Report progress every PROGRESS_REPORT_INTERVAL tiles,
+                        // throttled to at most once per PROGRESS_THROTTLE_INTERVAL.
                         let current_step = new_global / PROGRESS_REPORT_INTERVAL;
                         let prev_step = last_reported_step.load(Ordering::Relaxed);
-                        if current_step > prev_step {
+                        if current_step > prev_step && last_progress_publish.elapsed() >= PROGRESS_THROTTLE_INTERVAL {
                             last_reported_step.store(current_step, Ordering::Relaxed);
                             let progress_steps = (current_step * PROGRESS_REPORT_INTERVAL) as i32;
 
@@ -627,6 +636,8 @@ async fn process_level(
                             if let Err(e) = nats_client.flush().await {
                                 tracing::warn!(error = %e, "failed to flush progress event");
                             }
+
+                            last_progress_publish = Instant::now();
 
                             tracing::info!(
                                 progress_steps = progress_steps,

@@ -1,6 +1,7 @@
 //! WebSocket protocol message types and builders.
 
 use bytes::Bytes;
+use histion_common::streams::SlideCreatedEvent;
 use uuid::Uuid;
 
 use crate::viewport::TileMeta;
@@ -30,6 +31,7 @@ pub enum MessageType {
     Progress = 4,
     RequestTile = 5,
     RateLimited = 6,
+    SlideCreated = 7,
 }
 
 impl TryFrom<u8> for MessageType {
@@ -44,6 +46,7 @@ impl TryFrom<u8> for MessageType {
             4 => Ok(MessageType::Progress),
             5 => Ok(MessageType::RequestTile),
             6 => Ok(MessageType::RateLimited),
+            7 => Ok(MessageType::SlideCreated),
             _ => Err(()),
         }
     }
@@ -100,6 +103,17 @@ impl MessageBuilder {
     pub fn rate_limited() -> Bytes {
         let mut builder = Self::with_capacity(RATE_LIMITED_SIZE);
         builder.buf.push(MessageType::RateLimited as u8);
+        builder.into_bytes()
+    }
+
+    /// Build a SlideCreated message.
+    /// Format: [type: u8][json payload]
+    /// The JSON payload is a serialized `SlideCreatedEvent`.
+    pub fn slide_created(event: &SlideCreatedEvent) -> Bytes {
+        let json = serde_json::to_vec(event).expect("SlideCreatedEvent serialization");
+        let mut builder = Self::with_capacity(1 + json.len());
+        builder.buf.push(MessageType::SlideCreated as u8);
+        builder.buf.extend_from_slice(&json);
         builder.into_bytes()
     }
 

@@ -22,4 +22,5 @@ rustc-hash = "2.1.1"
 futures-util = { workspace = true }
 async-channel = "2.5.0"
 async-nats = { workspace = true }
+serde_json = { workspace = true }
 parking_lot = "0.12"

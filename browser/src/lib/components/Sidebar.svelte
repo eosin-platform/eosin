@@ -2,6 +2,7 @@
   import { browser } from '$app/environment';
   import { onMount, onDestroy } from 'svelte';
   import { liveProgress, type SlideProgress } from '$lib/stores/progress';
+  import { newSlides, type NewSlide } from '$lib/stores/newSlides';
   import { tabStore } from '$lib/stores/tabs';
   import ActivityIndicator from './ActivityIndicator.svelte';
   import ContextMenu from './ContextMenu.svelte';
@@ -69,6 +70,30 @@
 
   onDestroy(() => {
     unsubscribe();
+    unsubNewSlides();
+  });
+
+  // Subscribe to new slides arriving via WebSocket
+  const unsubNewSlides = newSlides.subscribe((incoming) => {
+    for (const ns of incoming) {
+      // Only add if not already in the list (deduplicate by id)
+      if (!slides.some((s) => s.id === ns.id)) {
+        slides = [
+          {
+            id: ns.id,
+            width: ns.width,
+            height: ns.height,
+            filename: ns.filename,
+            full_size: ns.full_size,
+            progress_steps: 0,
+            progress_total: 0,
+          },
+          ...slides,
+        ];
+        currentOffset += 1;
+        totalCount += 1;
+      }
+    }
   });
 
   // Initialize and reset state when initialSlides changes
@@ -245,9 +270,79 @@
   onDestroy(() => {
     unsubActiveTab();
   });
+
+  // --- Pull-to-refresh ---
+  let pullStartY = $state(0);
+  let pullDistance = $state(0);
+  let isPulling = $state(false);
+  let refreshing = $state(false);
+  const PULL_THRESHOLD = 64;
+
+  async function refreshSlides() {
+    refreshing = true;
+    error = null;
+    try {
+      const response = await fetch(`/api/slides?offset=0&limit=${pageSize}`);
+      if (!response.ok) throw new Error('Failed to refresh slides');
+      const data = await response.json();
+      slides = data.items;
+      currentOffset = data.items.length;
+      canLoadMore = currentOffset < data.full_count;
+      totalCount = data.full_count;
+    } catch (err) {
+      error = err instanceof Error ? err.message : 'Failed to refresh slides';
+      console.error('Error refreshing slides:', err);
+    } finally {
+      refreshing = false;
+      pullDistance = 0;
+      isPulling = false;
+    }
+  }
+
+  function handlePullTouchStart(e: TouchEvent) {
+    // Only start pull tracking if scrolled to the top
+    if (scrollContainer && scrollContainer.scrollTop <= 0) {
+      pullStartY = e.touches[0].clientY;
+      isPulling = true;
+    }
+  }
+
+  function handlePullTouchMove(e: TouchEvent) {
+    if (!isPulling || refreshing) return;
+    const currentY = e.touches[0].clientY;
+    const diff = currentY - pullStartY;
+    if (diff > 0) {
+      // Apply dampening so the pull feels elastic
+      pullDistance = Math.min(diff * 0.5, PULL_THRESHOLD * 2);
+      // Prevent default scroll when pulling down at the top
+      if (scrollContainer && scrollContainer.scrollTop <= 0) {
+        e.preventDefault();
+      }
+    } else {
+      pullDistance = 0;
+    }
+  }
+
+  function handlePullTouchEnd() {
+    if (!isPulling || refreshing) return;
+    if (pullDistance >= PULL_THRESHOLD) {
+      refreshSlides();
+    } else {
+      pullDistance = 0;
+      isPulling = false;
+    }
+  }
 </script>
 
-<aside class="sidebar" class:collapsed bind:this={scrollContainer}>
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<aside
+  class="sidebar"
+  class:collapsed
+  bind:this={scrollContainer}
+  ontouchstart={handlePullTouchStart}
+  ontouchmove={handlePullTouchMove}
+  ontouchend={handlePullTouchEnd}
+>
   <div class="sidebar-header">
     <button class="toggle-btn" onclick={handleToggle} aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
       <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -262,8 +357,34 @@
     </button>
     {#if !collapsed}
       <h2>Slides</h2>
-      <span class="slide-count">{totalCount}</span>
+      <span class="slide-count">({totalCount})</span>
     {/if}
+  </div>
+
+  <!-- Pull-to-refresh indicator -->
+  <div
+    class="pull-indicator"
+    class:visible={pullDistance > 0 || refreshing}
+    style="height: {refreshing ? PULL_THRESHOLD : pullDistance}px"
+  >
+    <div class="pull-indicator-content">
+      {#if refreshing}
+        <div class="spinner"></div>
+        <span>Refreshing…</span>
+      {:else if pullDistance >= PULL_THRESHOLD}
+        <svg class="pull-arrow released" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="17 11 12 6 7 11"></polyline>
+          <line x1="12" y1="18" x2="12" y2="6"></line>
+        </svg>
+        <span>Release to refresh</span>
+      {:else}
+        <svg class="pull-arrow" style="transform: rotate({Math.min(pullDistance / PULL_THRESHOLD, 1) * 180}deg)" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="7 13 12 18 17 13"></polyline>
+          <line x1="12" y1="6" x2="12" y2="18"></line>
+        </svg>
+        <span>Pull to refresh</span>
+      {/if}
+    </div>
   </div>
 
   <nav class="slide-list">
@@ -407,11 +528,9 @@
   }
 
   .slide-count {
-    background: #333;
-    color: #aaa;
-    padding: 0.125rem 0.5rem;
-    border-radius: 9999px;
+    color: #777;
     font-size: 0.75rem;
+    font-weight: 400;
   }
 
   .slide-list {
@@ -596,5 +715,50 @@
     padding: 0.5rem;
     color: #555;
     font-size: 0.75rem;
+  }
+
+  /* Pull-to-refresh */
+  .pull-indicator {
+    overflow: hidden;
+    height: 0;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    transition: height 0.2s ease;
+    flex-shrink: 0;
+  }
+
+  .pull-indicator.visible {
+    /* height is set inline via style binding */
+  }
+
+  .pull-indicator-content {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.5rem;
+    color: #888;
+    font-size: 0.75rem;
+    white-space: nowrap;
+  }
+
+  .pull-arrow {
+    transition: transform 0.15s ease;
+    flex-shrink: 0;
+    color: #888;
+  }
+
+  .pull-arrow.released {
+    color: #0066cc;
+  }
+
+  .pull-indicator .spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid #333;
+    border-top-color: #0066cc;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
   }
 </style>

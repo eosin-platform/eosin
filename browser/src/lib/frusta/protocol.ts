@@ -25,6 +25,7 @@ export enum MessageType {
   Progress = 4,
   RequestTile = 5,
   RateLimited = 6,
+  SlideCreated = 7,
 }
 
 /** Image descriptor sent when opening a slide */
@@ -69,6 +70,16 @@ export interface ProgressEvent {
   slideId: Uint8Array; // 16-byte UUID
   progressSteps: number;
   progressTotal: number;
+}
+
+/** Slide created event from the server */
+export interface SlideCreatedEvent {
+  id: string;
+  width: number;
+  height: number;
+  filename: string;
+  full_size: number;
+  url: string;
 }
 
 /**
@@ -238,4 +249,30 @@ export function isRateLimited(data: ArrayBuffer): boolean {
   // RateLimited notifications are a single byte.
   // Require exact length to avoid misclassifying tile frames for slot==MessageType.RateLimited.
   return bytes.length === RATE_LIMITED_SIZE && bytes[0] === MessageType.RateLimited;
+}
+
+/**
+ * Check if a binary message is a SlideCreated event (starts with MessageType.SlideCreated)
+ */
+export function isSlideCreated(data: ArrayBuffer): boolean {
+  const bytes = new Uint8Array(data);
+  // SlideCreated messages are variable-length (JSON payload).
+  // Must be at least 2 bytes (type + minimal JSON).
+  return bytes.length >= 2 && bytes[0] === MessageType.SlideCreated;
+}
+
+/**
+ * Parse a SlideCreated event message.
+ * Format: [type: u8][json payload]
+ */
+export function parseSlideCreated(data: ArrayBuffer): SlideCreatedEvent | null {
+  const bytes = new Uint8Array(data);
+  if (bytes.length < 2 || bytes[0] !== MessageType.SlideCreated) return null;
+
+  try {
+    const jsonStr = new TextDecoder().decode(bytes.slice(1));
+    return JSON.parse(jsonStr) as SlideCreatedEvent;
+  } catch {
+    return null;
+  }
 }

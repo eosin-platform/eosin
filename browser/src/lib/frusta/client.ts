@@ -8,6 +8,7 @@ import {
   type TileData,
   type OpenResponse,
   type ProgressEvent,
+  type SlideCreatedEvent,
   buildOpenMessage,
   buildUpdateMessage,
   buildCloseMessage,
@@ -16,9 +17,11 @@ import {
   parseOpenResponse,
   parseTileData,
   parseProgressEvent,
+  parseSlideCreated,
   isOpenResponse,
   isProgressEvent,
   isRateLimited,
+  isSlideCreated,
 } from './protocol';
 
 export type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'error';
@@ -40,6 +43,8 @@ export interface FrustaClientOptions {
   onOpenResponse?: (response: OpenResponse) => void;
   /** Called when a progress event is received */
   onProgress?: (event: ProgressEvent) => void;
+  /** Called when a slide created event is received */
+  onSlideCreated?: (event: SlideCreatedEvent) => void;
   /** Called when the server signals the client is being rate limited */
   onRateLimited?: () => void;
   /** Called on error */
@@ -85,6 +90,7 @@ export class FrustaClient {
       onTile: () => {},
       onOpenResponse: () => {},
       onProgress: () => {},
+      onSlideCreated: () => {},
       onRateLimited: () => {},
       onError: () => {},
       onSlotReassigned: () => {},
@@ -284,6 +290,16 @@ export class FrustaClient {
       console.log('Received progress event', { event });
       if (event) {
         this.options.onProgress(event);
+        return;
+      }
+    }
+
+    // Check if this is a SlideCreated event
+    if (isSlideCreated(data)) {
+      const event = parseSlideCreated(data);
+      console.log('Received slide created event', { event });
+      if (event) {
+        this.options.onSlideCreated(event);
         return;
       }
     }

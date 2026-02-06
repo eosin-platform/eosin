@@ -4,7 +4,9 @@ use deadpool_postgres::Pool;
 use futures::StreamExt;
 use histion_common::postgres::create_pool;
 use histion_common::shutdown::shutdown_signal;
-use histion_common::streams::{ProcessSlideEvent, topics::PROCESS_SLIDE};
+use histion_common::streams::{
+    ProcessSlideEvent, SlideCreatedEvent, topics, topics::PROCESS_SLIDE,
+};
 use histion_storage::StorageClient;
 use std::path::Path;
 use tokio_util::sync::CancellationToken;
@@ -272,7 +274,14 @@ async fn process_downloaded_slide(
     // Insert metadata into meta service FIRST
     // This allows the slide to be visible immediately (at low resolution)
     let slide = meta_client
-        .create_slide(slide_id, metadata.width, metadata.height, key, &filename, full_size)
+        .create_slide(
+            slide_id,
+            metadata.width,
+            metadata.height,
+            key,
+            &filename,
+            full_size,
+        )
         .await
         .context("failed to create slide in meta service")?;
 
@@ -282,12 +291,41 @@ async fn process_downloaded_slide(
         "slide metadata inserted, processing tiles"
     );
 
+    // Publish a "created" event so connected clients learn about the new slide
+    // immediately, without needing to reload.
+    let created_event = histion_common::streams::SlideEvent::Created(SlideCreatedEvent {
+        id: slide_id,
+        width: metadata.width as i32,
+        height: metadata.height as i32,
+        filename: filename.clone(),
+        full_size,
+        url: key.to_string(),
+    });
+    let topic = topics::slide_progress(slide_id);
+    if let Err(e) = nats_client
+        .publish(topic, bytes::Bytes::from(created_event.to_bytes()))
+        .await
+    {
+        tracing::warn!(error = %e, "failed to publish slide created event");
+    }
+    if let Err(e) = nats_client.flush().await {
+        tracing::warn!(error = %e, "failed to flush slide created event");
+    }
+
     // Process the slide: extract tiles and upload to storage
     // Tiles are processed from highest mip level (lowest resolution) to full resolution
     // pg_pool is used for checkpointing to allow resuming on restart
-    tiler::process_slide(path, slide_id, storage_client, nats_client, meta_client, Some(pg_pool), cancel)
-        .await
-        .context("failed to process slide tiles")?;
+    tiler::process_slide(
+        path,
+        slide_id,
+        storage_client,
+        nats_client,
+        meta_client,
+        Some(pg_pool),
+        cancel,
+    )
+    .await
+    .context("failed to process slide tiles")?;
 
     tracing::info!(
         key = %key,

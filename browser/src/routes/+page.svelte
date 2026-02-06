@@ -9,6 +9,7 @@
     type ImageDesc,
     type ViewportState,
     type ProgressEvent,
+    type SlideCreatedEvent,
     TileCache,
     TileRenderer,
     toProtocolViewport,
@@ -21,6 +22,7 @@
   import Minimap from '$lib/components/Minimap.svelte';
   import ActivityIndicator from '$lib/components/ActivityIndicator.svelte';
   import { liveProgress } from '$lib/stores/progress';
+  import { newSlides } from '$lib/stores/newSlides';
   import { tabStore, type Tab } from '$lib/stores/tabs';
   import type { SlideInfo } from './+page.server';
 
@@ -98,6 +100,31 @@
   // Debounce timer for viewport updates
   let viewportUpdateTimeout: ReturnType<typeof setTimeout> | null = null;
   const VIEWPORT_UPDATE_DEBOUNCE_MS = 16; // ~60fps
+
+  // Debounce timer for URL query updates
+  let urlUpdateTimeout: ReturnType<typeof setTimeout> | null = null;
+  const URL_UPDATE_DEBOUNCE_MS = 300;
+
+  /**
+   * Update the browser URL query parameters with the current slide and viewport,
+   * using replaceState to avoid polluting browser history.
+   */
+  function scheduleUrlUpdate() {
+    if (!browser) return;
+    if (urlUpdateTimeout) clearTimeout(urlUpdateTimeout);
+    urlUpdateTimeout = setTimeout(() => {
+      urlUpdateTimeout = null;
+      const params = new URLSearchParams(window.location.search);
+      if (lastLoadedSlideId) {
+        params.set('id', lastLoadedSlideId);
+      }
+      params.set('x', viewport.x.toFixed(1));
+      params.set('y', viewport.y.toFixed(1));
+      params.set('zoom', viewport.zoom.toFixed(6));
+      const newUrl = `${window.location.pathname}?${params.toString()}`;
+      history.replaceState(history.state, '', newUrl);
+    }, URL_UPDATE_DEBOUNCE_MS);
+  }
 
   // Mouse interaction state
   let isDragging = false;
@@ -193,11 +220,40 @@
       tilesReceived = 0;
     }
 
-    // Center viewport on the new image
-    if (container) {
-      const rect = container.getBoundingClientRect();
-      viewport = centerViewport(rect.width, rect.height, imageDesc.width, imageDesc.height);
+    // Restore viewport from URL params if they match this slide, otherwise center
+    let restoredFromUrl = false;
+    if (browser) {
+      const params = new URLSearchParams(window.location.search);
+      const urlId = params.get('id');
+      const urlX = params.get('x');
+      const urlY = params.get('y');
+      const urlZoom = params.get('zoom');
+      if (urlId === slide.id && urlX != null && urlY != null && urlZoom != null) {
+        const px = parseFloat(urlX);
+        const py = parseFloat(urlY);
+        const pz = parseFloat(urlZoom);
+        if (isFinite(px) && isFinite(py) && isFinite(pz) && pz > 0) {
+          viewport = { ...viewport, x: px, y: py, zoom: pz };
+          if (container) {
+            const rect = container.getBoundingClientRect();
+            viewport = { ...viewport, width: rect.width, height: rect.height };
+          }
+          viewport = clampViewport(viewport, imageDesc.width, imageDesc.height);
+          restoredFromUrl = true;
+        }
+      }
     }
+
+    if (!restoredFromUrl) {
+      // Center viewport on the new image
+      if (container) {
+        const rect = container.getBoundingClientRect();
+        viewport = centerViewport(rect.width, rect.height, imageDesc.width, imageDesc.height);
+      }
+    }
+
+    // Update URL with current slide and viewport
+    scheduleUrlUpdate();
 
     // Open slide if connected
     if (connectionState === 'connected') {
@@ -275,9 +331,13 @@
             showToast('Reconnected.', 3000, 'success');
           }
           hasBeenConnected = true;
-          // No manual openSlide() needed here — FrustaClient automatically
-          // re-opens all tracked slides on reconnect. The onOpenResponse
-          // callback will fire with the (possibly new) slot assignment.
+          // On reconnect the FrustaClient automatically re-opens tracked
+          // slides.  On the *first* connect, however, if a slide was loaded
+          // before the socket was ready (e.g. permalink / SSR), we need to
+          // open it now.
+          if (imageDesc && currentSlot === null) {
+            openSlide();
+          }
         }
       },
       onTile: (tile: TileData) => {
@@ -309,6 +369,18 @@
       },
       onRateLimited: () => {
         showToast('You are being rate limited. Please slow down.', 5000);
+      },
+      onSlideCreated: (event: SlideCreatedEvent) => {
+        console.log('Slide created:', event);
+        newSlides.push({
+          id: event.id,
+          width: event.width,
+          height: event.height,
+          filename: event.filename,
+          full_size: event.full_size,
+          url: event.url,
+          receivedAt: Date.now(),
+        });
       },
       onSlotReassigned: (id, oldSlot, newSlot) => {
         console.log(`Slot reassigned: old=${oldSlot} new=${newSlot}, id=${formatUuid(id)}`);
@@ -357,6 +429,7 @@
       sendViewportUpdate();
       viewportUpdateTimeout = null;
     }, VIEWPORT_UPDATE_DEBOUNCE_MS);
+    scheduleUrlUpdate();
   }
 
   // Handler for minimap viewport changes
@@ -535,6 +608,9 @@
     if (viewportUpdateTimeout) {
       clearTimeout(viewportUpdateTimeout);
     }
+    if (urlUpdateTimeout) {
+      clearTimeout(urlUpdateTimeout);
+    }
     if (toastTimeout) {
       clearTimeout(toastTimeout);
     }
@@ -546,39 +622,6 @@
 </script>
 
 <main>
-  <header class="controls">
-    <div class="connection-status">
-      <span class="status">
-        {#if connectionState === 'connecting'}
-          <span class="spinner"></span>
-        {:else}
-          <span
-            class="status-indicator"
-            class:connected={connectionState === 'connected'}
-            class:error={connectionState === 'error' || connectionState === 'disconnected'}
-          ></span>
-        {/if}
-        {connectionState}
-      </span>
-    </div>
-
-    <div class="stats">
-      <span>Tiles: {tilesReceived}</span>
-      <span>Cache: {cacheSize}</span>
-      <span>Zoom: {(viewport.zoom * 100).toFixed(1)}%</span>
-      {#if imageDesc}
-        <span>Image: {imageDesc.width}×{imageDesc.height} ({imageDesc.levels} levels)</span>
-      {/if}
-      {#if progressTotal > 0 && progressSteps < progressTotal}
-        <span class="progress-indicator"><ActivityIndicator trigger={progressUpdateTrigger} />Processing: {((progressSteps / progressTotal) * 100).toPrecision(3)}%</span>
-      {/if}
-    </div>
-
-    {#if loadError}
-      <p class="error">{loadError}</p>
-    {/if}
-  </header>
-
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
   <div
@@ -613,6 +656,38 @@
       </div>
     {/if}
   </div>
+
+  <footer class="controls">
+    <div class="stats">
+      <span>Tiles: {tilesReceived}</span>
+      <span>Cache: {cacheSize}</span>
+      <span>Zoom: {(viewport.zoom * 100).toFixed(1)}%</span>
+      {#if imageDesc}
+        <span>Image: {imageDesc.width}×{imageDesc.height} ({imageDesc.levels} levels)</span>
+      {/if}
+      {#if progressTotal > 0 && progressSteps < progressTotal}
+        <span class="progress-indicator"><ActivityIndicator trigger={progressUpdateTrigger} />Processing: {((progressSteps / progressTotal) * 100).toPrecision(3)}%</span>
+      {/if}
+      {#if loadError}
+        <span class="error">{loadError}</span>
+      {/if}
+    </div>
+
+    <div class="connection-status">
+      <span class="status">
+        {#if connectionState === 'connecting'}
+          <span class="spinner"></span>
+        {:else}
+          <span
+            class="status-indicator"
+            class:connected={connectionState === 'connected'}
+            class:error={connectionState === 'error' || connectionState === 'disconnected'}
+          ></span>
+        {/if}
+        {connectionState}
+      </span>
+    </div>
+  </footer>
 
   {#if toastMessage}
     <div class="toast {toastType === 'success' ? 'toast-success' : ''}" role="alert">
@@ -700,7 +775,7 @@
     gap: 1rem;
     padding: 0.75rem 1rem;
     background: #1a1a1a;
-    border-bottom: 1px solid #333;
+    border-top: 1px solid #333;
     align-items: center;
     justify-content: space-between;
   }

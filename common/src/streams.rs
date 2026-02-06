@@ -38,32 +38,90 @@ impl CacheMissEvent {
     }
 }
 
-/// Slide processing progress event.
-/// Sent over NATS to notify clients of processing progress.
-/// Payload format: progress_steps (4 bytes LE i32) | progress_total (4 bytes LE i32)
+/// Events sent over the `slide_progress` NATS topic.
+///
+/// The first byte is a tag that distinguishes the event type:
+///   - `0` = Progress update (8 more bytes: progress_steps i32 LE, progress_total i32 LE)
+///   - `1` = Slide created  (variable: see `SlideCreatedEvent`)
+#[derive(Debug, Clone)]
+pub enum SlideEvent {
+    Progress(SlideProgressEvent),
+    Created(SlideCreatedEvent),
+}
+
+/// Slide processing progress update.
 #[derive(Debug, Clone, Copy)]
 pub struct SlideProgressEvent {
     pub progress_steps: i32,
     pub progress_total: i32,
 }
 
-impl SlideProgressEvent {
-    /// Serialize to 8-byte payload for NATS
-    pub fn to_bytes(&self) -> [u8; 8] {
-        let mut buf = [0u8; 8];
-        buf[0..4].copy_from_slice(&self.progress_steps.to_le_bytes());
-        buf[4..8].copy_from_slice(&self.progress_total.to_le_bytes());
-        buf
+/// A new slide was inserted into meta.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SlideCreatedEvent {
+    pub id: Uuid,
+    pub width: i32,
+    pub height: i32,
+    pub filename: String,
+    pub full_size: i64,
+    pub url: String,
+}
+
+// -- wire helpers --
+
+const TAG_PROGRESS: u8 = 0;
+const TAG_CREATED: u8 = 1;
+
+impl SlideEvent {
+    /// Serialize to bytes for NATS.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        match self {
+            SlideEvent::Progress(p) => {
+                let mut buf = Vec::with_capacity(9);
+                buf.push(TAG_PROGRESS);
+                buf.extend_from_slice(&p.progress_steps.to_le_bytes());
+                buf.extend_from_slice(&p.progress_total.to_le_bytes());
+                buf
+            }
+            SlideEvent::Created(c) => {
+                let json = serde_json::to_vec(c).expect("SlideCreatedEvent serialization");
+                let mut buf = Vec::with_capacity(1 + json.len());
+                buf.push(TAG_CREATED);
+                buf.extend_from_slice(&json);
+                buf
+            }
+        }
     }
 
-    /// Deserialize from 8-byte payload
+    /// Deserialize from bytes.
     pub fn from_bytes(data: &[u8]) -> Option<Self> {
-        if data.len() < 8 {
+        if data.is_empty() {
+            // Legacy 8-byte format (no tag) — treat as progress for
+            // backwards compatibility during rolling deploys.
             return None;
         }
-        Some(Self {
-            progress_steps: i32::from_le_bytes(data[0..4].try_into().ok()?),
-            progress_total: i32::from_le_bytes(data[4..8].try_into().ok()?),
-        })
+        match data[0] {
+            TAG_PROGRESS => {
+                if data.len() < 9 {
+                    return None;
+                }
+                Some(SlideEvent::Progress(SlideProgressEvent {
+                    progress_steps: i32::from_le_bytes(data[1..5].try_into().ok()?),
+                    progress_total: i32::from_le_bytes(data[5..9].try_into().ok()?),
+                }))
+            }
+            TAG_CREATED => {
+                let created: SlideCreatedEvent = serde_json::from_slice(&data[1..]).ok()?;
+                Some(SlideEvent::Created(created))
+            }
+            _ => None,
+        }
+    }
+}
+
+impl SlideProgressEvent {
+    /// Serialize to a `SlideEvent::Progress` payload for NATS.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        SlideEvent::Progress(*self).to_bytes()
     }
 }

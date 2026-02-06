@@ -17,7 +17,7 @@ use histion_common::{
     rate_limit::{RateLimiter, RateLimiterConfig},
     redis::init_redis,
     shutdown::shutdown_signal,
-    streams::{topics, SlideProgressEvent},
+    streams::{topics, SlideEvent},
 };
 use histion_storage::client::StorageClient;
 use std::time::Instant;
@@ -396,6 +396,11 @@ async fn handle_message(
             tracing::warn!("received unexpected RateLimited message from client");
             Ok(())
         }
+        MessageType::SlideCreated => {
+            // SlideCreated messages are server-to-client only, not expected from client
+            tracing::warn!("received unexpected SlideCreated message from client");
+            Ok(())
+        }
     }
 }
 
@@ -443,23 +448,38 @@ async fn progress_subscription_task(
                     }
                 };
 
-                // Parse the progress event from the payload
-                let Some(event) = SlideProgressEvent::from_bytes(&msg.payload) else {
-                    tracing::warn!("invalid progress event payload size: {}", msg.payload.len());
+                // Parse the event from the payload
+                let Some(event) = SlideEvent::from_bytes(&msg.payload) else {
+                    tracing::warn!("invalid slide event payload size: {}", msg.payload.len());
                     continue;
                 };
 
-                tracing::debug!(
-                    slide_id = %slide_id,
-                    progress_steps = event.progress_steps,
-                    progress_total = event.progress_total,
-                    "received progress event"
-                );
-
-                // Build and send progress message to client with UUID instead of slot
-                let payload = MessageBuilder::progress(slide_id, event.progress_steps, event.progress_total);
-                if let Err(e) = send_tx.send(Message::Binary(payload)).await {
-                    tracing::warn!(error = %e, "failed to send progress to client");
+                match event {
+                    SlideEvent::Progress(progress) => {
+                        tracing::debug!(
+                            slide_id = %slide_id,
+                            progress_steps = progress.progress_steps,
+                            progress_total = progress.progress_total,
+                            "received progress event"
+                        );
+                        let payload = MessageBuilder::progress(slide_id, progress.progress_steps, progress.progress_total);
+                        if let Err(e) = send_tx.send(Message::Binary(payload)).await {
+                            tracing::warn!(error = %e, "failed to send progress to client");
+                        }
+                    }
+                    SlideEvent::Created(created) => {
+                        tracing::info!(
+                            slide_id = %slide_id,
+                            filename = %created.filename,
+                            width = created.width,
+                            height = created.height,
+                            "received slide created event"
+                        );
+                        let payload = MessageBuilder::slide_created(&created);
+                        if let Err(e) = send_tx.send(Message::Binary(payload)).await {
+                            tracing::warn!(error = %e, "failed to send slide created to client");
+                        }
+                    }
                 }
             }
         }

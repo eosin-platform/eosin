@@ -2138,6 +2138,7 @@ dependencies = [
  "histion-storage",
  "parking_lot",
  "rustc-hash",
+ "serde_json",
  "tokio",
  "tokio-util",
  "tower-http",
