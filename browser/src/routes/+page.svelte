@@ -334,9 +334,13 @@
             showToast('Reconnected.', 3000, 'success');
           }
           hasBeenConnected = true;
-          // No manual openSlide() needed here — FrustaClient automatically
-          // re-opens all tracked slides on reconnect. The onOpenResponse
-          // callback will fire with the (possibly new) slot assignment.
+          // On reconnect the client automatically re-opens tracked slides.
+          // On *first* connect, however, loadSlide() may have already run
+          // while the socket was still connecting, so openSlide() was skipped.
+          // Catch that case here:
+          if (imageDesc && currentSlot === null) {
+            openSlide();
+          }
         }
       },
       onTile: (tile: TileData) => {

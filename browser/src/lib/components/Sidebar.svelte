@@ -517,7 +517,6 @@
   .sidebar-header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
     padding: 0.75rem;
     border-bottom: 1px solid #333;
     position: sticky;
@@ -558,7 +557,7 @@
   }
 
   .slide-list::-webkit-scrollbar {
-    width: 6px;
+    width: 9px;
   }
 
   .slide-list::-webkit-scrollbar-track {
