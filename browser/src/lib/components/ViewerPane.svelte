@@ -110,6 +110,9 @@
   let hudNotificationTimeout: ReturnType<typeof setTimeout> | null = null;
   let hudNotificationFading = $state(false);
 
+  // Help menu state (shown while holding '/' key)
+  let showHelpMenu = $state(false);
+
   // Normalization modes for cycling with 'n' key
   const normalizationModes: StainNormalization[] = ['none', 'macenko', 'vahadane'];
 
@@ -118,8 +121,8 @@
   const enhancementModeNames: Record<StainEnhancementMode, string> = {
     none: 'None',
     gram: 'Gram Stain',
-    afb: 'Acid-Fast Bacilli',
-    gms: 'Grocott Methenamine Silver',
+    afb: 'AFB <span class="dim">(Acid-Fast Bacilli)</span>',
+    gms: 'GMS <span class="dim">(Grocott Methenamine Silver)</span>',
   };
 
   function showHudNotification(message: string) {
@@ -187,6 +190,20 @@
     }
     if (e.key === 'e' || e.key === 'E') {
       cycleEnhancement();
+    }
+    if (e.key === '/' || e.key === '?') {
+      e.preventDefault();
+      e.stopPropagation();
+      // Ignore key repeat events
+      if (!e.repeat) {
+        showHelpMenu = true;
+      }
+    }
+  }
+
+  function handleKeyUp(e: KeyboardEvent) {
+    if (e.key === '/' || e.key === '?') {
+      showHelpMenu = false;
     }
   }
 
@@ -737,6 +754,7 @@
 
     window.addEventListener('mouseup', handleMouseUp);
     window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
   });
 
   onDestroy(() => {
@@ -756,6 +774,7 @@
     if (browser) {
       window.removeEventListener('mouseup', handleMouseUp);
       window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
     }
   });
 </script>
@@ -794,7 +813,7 @@
     <!-- Keyboard shortcut notification (center) -->
     {#if hudNotification}
       <div class="hud-notification" class:fading={hudNotificationFading}>
-        {hudNotification}
+        {@html hudNotification}
       </div>
     {/if}
     
@@ -836,6 +855,43 @@
       <h2>No Image Loaded</h2>
       <p>Select a slide from the sidebar, or add a slide ID to the URL:</p>
       <code>?slide=&lt;uuid&gt;</code>
+    </div>
+  {/if}
+
+  <!-- Help menu HUD (shown while holding '/') -->
+  {#if showHelpMenu}
+    <div class="help-menu">
+      <h2>Help</h2>
+      
+      <div class="help-section">
+        <h3>Viewport Navigation</h3>
+        <div class="help-row"><kbd>Click + Drag</kbd><span>Pan the viewport</span></div>
+        <div class="help-row"><kbd>Scroll Wheel</kbd><span>Zoom in/out at cursor position</span></div>
+        <div class="help-row"><kbd>Pinch</kbd><span>Zoom in/out on touch devices</span></div>
+        <div class="help-row"><kbd>Double-click Gamma</kbd><span>Reset gamma slider to 1.0</span></div>
+      </div>
+
+      <div class="help-section">
+        <h3>Keyboard Shortcuts</h3>
+        <div class="help-row"><kbd>/</kbd> or <kbd>?</kbd><span>Show this help menu (hold)</span></div>
+        <div class="help-row"><kbd>N</kbd><span>Cycle stain normalization mode</span></div>
+        <div class="help-row"><kbd>E</kbd><span>Cycle stain enhancement mode</span></div>
+      </div>
+
+      <div class="help-section">
+        <h3>Stain Normalization Modes</h3>
+        <div class="help-row"><strong>None</strong><span>Original image without color normalization</span></div>
+        <div class="help-row"><strong>Macenko</strong><span>SVD-based stain separation. Good for H&E slides with consistent staining.</span></div>
+        <div class="help-row"><strong>Vahadane</strong><span>Sparse NMF-based normalization. Better preserves structure in variable staining.</span></div>
+      </div>
+
+      <div class="help-section">
+        <h3>Stain Enhancement Modes</h3>
+        <div class="help-row"><strong>None</strong><span>No post-processing enhancement</span></div>
+        <div class="help-row"><strong>Gram</strong><span>Enhances purple (Gram+) and pink (Gram−) bacterial visualization</span></div>
+        <div class="help-row"><strong>AFB</strong><span>Acid-Fast Bacilli — red bacilli against blue counterstain (Ziehl-Neelsen)</span></div>
+        <div class="help-row"><strong>GMS</strong><span>Grocott Methenamine Silver — dark fungal elements against green background</span></div>
+      </div>
     </div>
   {/if}
 
@@ -1018,5 +1074,87 @@
 
   .hud-notification.fading {
     opacity: 0;
+  }
+
+  .hud-notification :global(.dim) {
+    opacity: 0.6;
+  }
+
+  /* Help menu floating HUD */
+  .help-menu {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(0, 0, 0, 0.75);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 12px;
+    padding: 20px 28px;
+    max-width: 560px;
+    max-height: 80vh;
+    overflow-y: auto;
+    z-index: 100;
+    pointer-events: none;
+  }
+
+  .help-menu h2 {
+    margin: 0 0 20px 0;
+    font-size: 20px;
+    font-weight: 600;
+    color: #fff;
+    text-align: center;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    padding-bottom: 12px;
+  }
+
+  .help-section {
+    margin-bottom: 20px;
+  }
+
+  .help-section:last-child {
+    margin-bottom: 0;
+  }
+
+  .help-section h3 {
+    margin: 0 0 10px 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.7);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .help-row {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    padding: 6px 0;
+    font-size: 14px;
+    color: rgba(255, 255, 255, 0.9);
+  }
+
+  .help-row kbd {
+    display: inline-block;
+    min-width: 28px;
+    padding: 3px 8px;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 4px;
+    font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+    font-size: 12px;
+    text-align: center;
+    color: #fff;
+  }
+
+  .help-row strong {
+    min-width: 80px;
+    color: #fff;
+    font-weight: 600;
+  }
+
+  .help-row span {
+    color: rgba(255, 255, 255, 0.7);
+    line-height: 1.4;
   }
 </style>
