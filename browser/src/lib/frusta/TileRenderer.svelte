@@ -118,6 +118,12 @@
             client.requestTile(slot, coord.x, coord.y, coord.level);
           }
         },
+        // Check if tile is already in the cache before retrying.
+        // This prevents unnecessary retry requests for tiles that arrived
+        // but haven't been acknowledged by the render loop yet.
+        isTileCached: (coord: TileCoord) => {
+          return cache.has(coord.x, coord.y, coord.level);
+        },
       });
     } else {
       retryManager?.clear();

@@ -41,6 +41,13 @@ export interface TileRetryManagerOptions {
   maxRetries?: number;
   /** Callback when a tile should be requested */
   onRequestTile: (coord: TileCoord) => void;
+  /**
+   * Optional callback to check if a tile is already in the cache.
+   * If provided, retries will be skipped for tiles that are already cached.
+   * This prevents unnecessary network requests when tiles arrive before
+   * the render loop has a chance to call tileReceived().
+   */
+  isTileCached?: (coord: TileCoord) => boolean;
 }
 
 /**
@@ -53,6 +60,7 @@ export class TileRetryManager {
   private maxJitter: number;
   private maxRetries: number;
   private onRequestTile: (coord: TileCoord) => void;
+  private isTileCached: ((coord: TileCoord) => boolean) | null;
 
   constructor(options: TileRetryManagerOptions) {
     this.initialTimeout = options.initialTimeout ?? INITIAL_TIMEOUT;
@@ -60,6 +68,7 @@ export class TileRetryManager {
     this.maxJitter = options.maxJitter ?? MAX_JITTER;
     this.maxRetries = options.maxRetries ?? MAX_RETRIES;
     this.onRequestTile = options.onRequestTile;
+    this.isTileCached = options.isTileCached ?? null;
   }
 
   /**
@@ -113,6 +122,14 @@ export class TileRetryManager {
     // Clear the timeout ID
     pending.initialTimeoutId = undefined;
 
+    // Check if tile is already in the cache - if so, stop tracking and don't retry.
+    // This handles the race condition where the tile arrived and was cached,
+    // but the render loop hasn't run yet to call tileReceived().
+    if (this.isTileCached && this.isTileCached(pending.coord)) {
+      this.pending.delete(key);
+      return;
+    }
+
     // Schedule first retry
     this.scheduleRetry(key, pending);
   }
@@ -142,8 +159,17 @@ export class TileRetryManager {
     const pending = this.pending.get(key);
     if (!pending) return;
 
-    pending.retryCount++;
     pending.retryTimeoutId = undefined;
+
+    // Check if tile is already in the cache - if so, stop tracking and don't retry.
+    // This prevents unnecessary network requests for tiles that arrived
+    // between scheduling the retry and executing it.
+    if (this.isTileCached && this.isTileCached(pending.coord)) {
+      this.pending.delete(key);
+      return;
+    }
+
+    pending.retryCount++;
 
     // Log the tile request for debugging
     console.log(
