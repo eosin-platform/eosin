@@ -297,10 +297,25 @@
       params.set('y', tab.savedViewport.y.toFixed(2));
       params.set('zoom', tab.savedViewport.zoom.toFixed(6));
     }
-    // Include stain enhancement if not 'none'
+    // Include image processing settings if not default
     const currentSettings = settings.get();
     if (currentSettings.image.stainEnhancement !== 'none') {
       params.set('enhance', currentSettings.image.stainEnhancement);
+    }
+    if (currentSettings.image.stainNormalization !== 'none') {
+      params.set('normalize', currentSettings.image.stainNormalization);
+    }
+    if (currentSettings.image.sharpeningIntensity > 0) {
+      params.set('sharpen', currentSettings.image.sharpeningIntensity.toString());
+    }
+    if (currentSettings.image.gamma !== 1.0) {
+      params.set('gamma', currentSettings.image.gamma.toFixed(2));
+    }
+    if (currentSettings.image.brightness !== 0) {
+      params.set('brightness', currentSettings.image.brightness.toString());
+    }
+    if (currentSettings.image.contrast !== 0) {
+      params.set('contrast', currentSettings.image.contrast.toString());
     }
     const url = `${window.location.origin}?${params.toString()}`;
     navigator.clipboard.writeText(url);

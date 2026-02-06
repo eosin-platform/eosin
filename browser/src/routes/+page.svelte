@@ -193,9 +193,25 @@
         data.slide.height,
         data.slide.viewport,
       );
-      // Apply stain enhancement from URL if present
+      // Apply image processing settings from URL if present
       if (data.slide.stainEnhancement) {
         settings.setSetting('image', 'stainEnhancement', data.slide.stainEnhancement);
+      }
+      if (data.slide.stainNormalization) {
+        settings.setSetting('image', 'stainNormalization', data.slide.stainNormalization);
+      }
+      if (data.slide.sharpeningIntensity !== null) {
+        settings.setSetting('image', 'sharpeningIntensity', data.slide.sharpeningIntensity);
+        settings.setSetting('image', 'sharpeningEnabled', data.slide.sharpeningIntensity > 0);
+      }
+      if (data.slide.gamma !== null) {
+        settings.setSetting('image', 'gamma', data.slide.gamma);
+      }
+      if (data.slide.brightness !== null) {
+        settings.setSetting('image', 'brightness', data.slide.brightness);
+      }
+      if (data.slide.contrast !== null) {
+        settings.setSetting('image', 'contrast', data.slide.contrast);
       }
     }
 

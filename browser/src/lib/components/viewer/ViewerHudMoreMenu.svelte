@@ -6,7 +6,6 @@
     hudMoreMenuOpen,
     type SensitivityLevel,
     type MeasurementUnit,
-    type ThemeMode,
     type StainEnhancementMode,
     type StainNormalization,
   } from '$lib/stores/settings';
@@ -17,7 +16,6 @@
   let zoomSensitivity = $state<SensitivityLevel>($settings.navigation.zoomSensitivity);
   let panSensitivity = $state<SensitivityLevel>($settings.navigation.panSensitivity);
   let minimapVisible = $state($settings.navigation.minimapVisible);
-  let theme = $state<ThemeMode>($settings.ui.theme);
   let stainEnhancement = $state<StainEnhancementMode>($settings.image.stainEnhancement);
   let sharpeningIntensity = $state($settings.image.sharpeningIntensity);
   let stainNormalization = $state<StainNormalization>($settings.image.stainNormalization);
@@ -29,7 +27,6 @@
     zoomSensitivity = $settings.navigation.zoomSensitivity;
     panSensitivity = $settings.navigation.panSensitivity;
     minimapVisible = $settings.navigation.minimapVisible;
-    theme = $settings.ui.theme;
     stainEnhancement = $settings.image.stainEnhancement;
     sharpeningIntensity = $settings.image.sharpeningIntensity;
     stainNormalization = $settings.image.stainNormalization;
@@ -107,11 +104,6 @@
     settings.setSetting('navigation', 'minimapVisible', minimapVisible);
   }
 
-  function handleThemeChange(value: ThemeMode) {
-    theme = value;
-    settings.setSetting('ui', 'theme', value);
-  }
-
   // Handle stain enhancement mode change
   function handleStainEnhancementChange(value: StainEnhancementMode) {
     stainEnhancement = value;
@@ -142,11 +134,6 @@
   }
 
   const sensitivityOptions: SensitivityLevel[] = ['low', 'medium', 'high'];
-  const themeOptions: { value: ThemeMode; label: string }[] = [
-    { value: 'light', label: '☀️' },
-    { value: 'dark', label: '🌙' },
-    { value: 'high_contrast', label: '◐' },
-  ];
 
   // Stain enhancement options for the segmented control
   const stainEnhancementOptions: { value: StainEnhancementMode; label: string; title: string }[] = [
@@ -185,10 +172,6 @@
   ontouchstart={stopPropagation}
   onwheel={stopPropagation}
 >
-  <div class="menu-header">
-    <span>More Settings</span>
-  </div>
-
   <!-- Gamma slider -->
   <div class="menu-section">
     <span class="menu-label" id="gamma-label">Gamma</span>
@@ -317,23 +300,6 @@
       </span>
     </button>
   </div>
-
-  <!-- Theme toggle -->
-  <div class="menu-section">
-    <span class="menu-label" id="theme-label">Theme</span>
-    <div class="segmented-control theme-control" role="group" aria-labelledby="theme-label">
-      {#each themeOptions as opt}
-        <button
-          class="segment"
-          class:active={theme === opt.value}
-          onclick={() => handleThemeChange(opt.value)}
-          title={opt.value.replace('_', ' ')}
-        >
-          {opt.label}
-        </button>
-      {/each}
-    </div>
-  </div>
 </div>
 
 <style>
@@ -343,6 +309,8 @@
     left: 0;
     margin-top: 0.5rem;
     min-width: 240px;
+    max-height: calc(100vh - 120px);
+    overflow-y: auto;
     background: rgba(20, 20, 20, 0.95);
     backdrop-filter: blur(12px);
     border-radius: 0.75rem;
@@ -350,17 +318,6 @@
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
     padding: 0.5rem;
     z-index: 40;
-  }
-
-  .menu-header {
-    padding: 0.5rem;
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: #9ca3af;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-    margin-bottom: 0.5rem;
   }
 
   .menu-section {
