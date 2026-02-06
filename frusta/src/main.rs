@@ -2,6 +2,7 @@ use anyhow::Result;
 use clap::Parser;
 
 mod args;
+mod priority_queue;
 mod protocol;
 mod server;
 mod viewport;

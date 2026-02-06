@@ -28,10 +28,11 @@ use uuid::Uuid;
 
 use crate::{
     args::ServerArgs,
+    priority_queue::PriorityWorkQueue,
     protocol::{
         MessageBuilder, MessageType, DPI_SIZE, IMAGE_DESC_SIZE, TILE_REQUEST_SIZE, VIEWPORT_SIZE,
     },
-    viewport::{ImageDesc, RetrieveTileWork, TileMeta, ViewManager, Viewport},
+    viewport::{ImageDesc, TileMeta, ViewManager, Viewport},
     worker::worker_main,
 };
 
@@ -39,7 +40,7 @@ use crate::{
 #[derive(Clone)]
 pub struct AppState {
     pub storage_endpoint: String,
-    pub tx: async_channel::Sender<RetrieveTileWork>,
+    pub work_queue: PriorityWorkQueue,
     pub nats_client: NatsClient,
     pub rate_limiter: RateLimiter,
 }
@@ -72,20 +73,20 @@ pub async fn run_server(args: ServerArgs) -> Result<()> {
     tracing::info!("rate limiter initialized: 1000 req/min, 10000 req/10min");
 
     let cancel = CancellationToken::new();
-    let (tx, rx) = async_channel::bounded(1000);
+    let work_queue = PriorityWorkQueue::new();
     let workers = (0..args.worker_count)
         .map(|_| {
             tokio::spawn({
                 let cancel = cancel.clone();
                 let storage = storage.clone();
-                let rx = rx.clone();
-                async move { worker_main(cancel, storage, rx).await }
+                let queue = work_queue.clone();
+                async move { worker_main(cancel, storage, queue).await }
             })
         })
         .collect::<Vec<_>>();
     let state = AppState {
         storage_endpoint: args.storage_endpoint.clone(),
-        tx,
+        work_queue: work_queue.clone(),
         nats_client,
         rate_limiter,
     };
@@ -112,6 +113,7 @@ pub async fn run_server(args: ServerArgs) -> Result<()> {
         .await?;
     tracing::info!("server stopped, waiting for workers to finish...");
     cancel.cancel();
+    work_queue.close();
     for worker in workers {
         let _ = worker.await;
     }
@@ -217,7 +219,7 @@ async fn handle_socket(
         async move { sender_main(sender, image_rx, send_rx, cancel).await }
     });
     let mut session = Session::new(
-        state.tx.clone(),
+        state.work_queue.clone(),
         image_tx,
         state.nats_client.clone(),
         state.rate_limiter.clone(),
@@ -486,10 +488,10 @@ async fn progress_subscription_task(
 }
 
 pub struct Session {
-    worker_tx: Sender<RetrieveTileWork>,
+    work_queue: PriorityWorkQueue,
     slides: [Option<Uuid>; 256],
     viewports: Vec<Option<ViewManager>>,
-    send_tx: Sender<Bytes>,
+    send_tx: async_channel::Sender<Bytes>,
     nats_client: NatsClient,
     rate_limiter: RateLimiter,
     client_ip: Option<String>,
@@ -503,14 +505,14 @@ pub struct Session {
 
 impl Session {
     pub fn new(
-        worker_tx: Sender<RetrieveTileWork>,
-        send_tx: Sender<Bytes>,
+        work_queue: PriorityWorkQueue,
+        send_tx: async_channel::Sender<Bytes>,
         nats_client: NatsClient,
         rate_limiter: RateLimiter,
         client_ip: Option<String>,
     ) -> Self {
         Self {
-            worker_tx,
+            work_queue,
             slides: [None; 256],
             viewports: (0..256).map(|_| None).collect(),
             send_tx,
@@ -548,7 +550,7 @@ impl Session {
             slot,
             dpi,
             image,
-            self.worker_tx.clone(),
+            self.work_queue.clone(),
             self.send_tx.clone(),
             self.nats_client.clone(),
             self.client_ip.clone(),

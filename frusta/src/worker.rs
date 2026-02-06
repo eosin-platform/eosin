@@ -1,8 +1,8 @@
-use anyhow::{bail, Context, Result};
-use async_channel::Receiver;
+use anyhow::{bail, Result};
 use histion_storage::client::StorageClient;
 use tokio_util::sync::CancellationToken;
 
+use crate::priority_queue::PriorityWorkQueue;
 use crate::protocol::MessageBuilder;
 use crate::viewport::{compute_min_level, is_tile_in_viewport, RetrieveTileWork};
 
@@ -53,13 +53,16 @@ async fn is_tile_still_visible(work: &RetrieveTileWork) -> bool {
 pub async fn worker_main(
     cancel: CancellationToken,
     mut storage: StorageClient,
-    rx: Receiver<RetrieveTileWork>,
+    work_queue: PriorityWorkQueue,
 ) -> Result<()> {
     loop {
         tokio::select! {
             _ = cancel.cancelled() => return Ok(()),
-            work = rx.recv() => {
-                let work = work.context("failed to receive work")?;
+            work = work_queue.pop() => {
+                let Some(work) = work else {
+                    // Queue was closed
+                    return Ok(());
+                };
                 // Fast-path: skip stale work items immediately so the queue
                 // drains quickly after a viewport change, making room for
                 // fresh coarse tiles that enable progressive loading.

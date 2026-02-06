@@ -1,4 +1,3 @@
-use async_channel::Sender;
 use async_nats::Client as NatsClient;
 use bytes::Bytes;
 use futures_util::StreamExt;
@@ -11,6 +10,8 @@ use tokio::sync::RwLock as TokioRwLock;
 use anyhow::{ensure, Context, Result};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
+
+use crate::priority_queue::PriorityWorkQueue;
 
 const X_BITS: u64 = 20;
 const Y_BITS: u64 = 20;
@@ -88,10 +89,10 @@ pub struct ViewManager {
     sent: SentTiles,
     image: ImageDesc,
     cancel_update: Option<CancellationToken>,
-    worker_tx: Sender<RetrieveTileWork>,
+    work_queue: PriorityWorkQueue,
     dpi: f32,
     candidates: Vec<TileMeta>,
-    send_tx: Sender<Bytes>,
+    send_tx: async_channel::Sender<Bytes>,
     slot: u8,
     last_viewport: Arc<TokioRwLock<Option<Viewport>>>,
     nats_cancel: CancellationToken,
@@ -133,7 +134,7 @@ pub struct RetrieveTileWork {
     pub slide_id: Uuid,
     pub slot: u8,
     pub cancel: CancellationToken,
-    pub tx: Sender<Bytes>,
+    pub tx: async_channel::Sender<Bytes>,
     pub meta: TileMeta,
     pub client_ip: Option<String>,
     pub viewport: Arc<TokioRwLock<Option<Viewport>>>,
@@ -149,8 +150,8 @@ impl ViewManager {
         slot: u8,
         dpi: f32,
         image: ImageDesc,
-        worker_tx: Sender<RetrieveTileWork>,
-        send_tx: Sender<Bytes>,
+        work_queue: PriorityWorkQueue,
+        send_tx: async_channel::Sender<Bytes>,
         nats_client: NatsClient,
         client_ip: Option<String>,
     ) -> Self {
@@ -161,7 +162,7 @@ impl ViewManager {
         // Spawn NATS subscription task for tile events
         tokio::spawn({
             let image = image.clone();
-            let worker_tx = worker_tx.clone();
+            let work_queue = work_queue.clone();
             let send_tx = send_tx.clone();
             let cancel = nats_cancel.clone();
             let viewport_ref = last_viewport.clone();
@@ -173,7 +174,7 @@ impl ViewManager {
                     slot,
                     dpi,
                     image,
-                    worker_tx,
+                    work_queue,
                     send_tx,
                     nats,
                     cancel,
@@ -193,7 +194,7 @@ impl ViewManager {
             dpi,
             sent,
             image,
-            worker_tx,
+            work_queue,
             cancel_update: None,
             candidates: Vec::with_capacity(MAX_TILES_PER_UPDATE),
             send_tx,
@@ -411,10 +412,10 @@ impl ViewManager {
                 dpi: self.dpi,
                 sent: self.sent.clone(),
             };
-            self.worker_tx
-                .send(work)
-                .await
-                .context("failed to send tile retrieval work")?;
+            if self.work_queue.push(work).is_err() {
+                tracing::warn!("work queue closed, stopping dispatch");
+                break;
+            }
         }
         Ok(())
     }
@@ -488,17 +489,16 @@ impl ViewManager {
             sent: self.sent.clone(),
         };
 
-        self.worker_tx
-            .send(work)
-            .await
-            .context("failed to send tile retrieval work")?;
-
-        tracing::debug!(
-            x = meta.x,
-            y = meta.y,
-            level = meta.level,
-            "dispatched individual tile request"
-        );
+        if self.work_queue.push(work).is_err() {
+            tracing::warn!("work queue closed, cannot dispatch tile request");
+        } else {
+            tracing::debug!(
+                x = meta.x,
+                y = meta.y,
+                level = meta.level,
+                "dispatched individual tile request"
+            );
+        }
 
         Ok(())
     }
@@ -627,8 +627,8 @@ async fn tile_subscription_task(
     slot: u8,
     dpi: f32,
     image: ImageDesc,
-    worker_tx: Sender<RetrieveTileWork>,
-    send_tx: Sender<Bytes>,
+    work_queue: PriorityWorkQueue,
+    send_tx: async_channel::Sender<Bytes>,
     nats_client: NatsClient,
     cancel: CancellationToken,
     viewport_ref: Arc<TokioRwLock<Option<Viewport>>>,
@@ -736,8 +736,9 @@ async fn tile_subscription_task(
                     sent: sent.clone(),
                 };
 
-                if let Err(e) = worker_tx.send(work).await {
-                    tracing::warn!(error = %e, "failed to dispatch tile work from NATS event");
+                if work_queue.push(work).is_err() {
+                    tracing::warn!("work queue closed, stopping NATS tile dispatch");
+                    break;
                 }
             }
         }
