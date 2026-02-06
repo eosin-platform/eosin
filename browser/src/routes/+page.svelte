@@ -250,11 +250,8 @@
     }
 
     scheduleSyncUrl();
-
-    // Open slide if connected
-    if (connectionState === 'connected') {
-      openSlide();
-    }
+    // openSlide() is handled by the reactive $effect that watches
+    // connectionState + imageDesc, so it fires regardless of ordering.
   }
 
   /**
@@ -307,6 +304,16 @@
     }
   });
 
+  // Reactive trigger: open the slide on the WebSocket whenever we have an
+  // imageDesc ready AND the connection is up, but no slot has been assigned yet.
+  // This eliminates the race between loadSlide() and connect() — whichever
+  // completes last will satisfy the condition and kick off the open.
+  $effect(() => {
+    if (connectionState === 'connected' && imageDesc && currentSlot === null) {
+      openSlide();
+    }
+  });
+
   function connect() {
     if (client) {
       client.disconnect();
@@ -334,13 +341,8 @@
             showToast('Reconnected.', 3000, 'success');
           }
           hasBeenConnected = true;
-          // On reconnect the client automatically re-opens tracked slides.
-          // On *first* connect, however, loadSlide() may have already run
-          // while the socket was still connecting, so openSlide() was skipped.
-          // Catch that case here:
-          if (imageDesc && currentSlot === null) {
-            openSlide();
-          }
+          // openSlide() is handled by the reactive $effect that watches
+          // connectionState + imageDesc, so it works regardless of ordering.
         }
       },
       onTile: (tile: TileData) => {
