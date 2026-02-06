@@ -33,19 +33,63 @@
       tabStore.closeTab(tabId);
     }
   }
+
+  // --- Drag-and-drop reordering ---
+  let dragTabId = $state<string | null>(null);
+  let dropTargetIndex = $state<number | null>(null);
+
+  function handleDragStart(e: DragEvent, tabId: string) {
+    dragTabId = tabId;
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', tabId);
+    }
+  }
+
+  function handleDragOver(e: DragEvent, index: number) {
+    if (dragTabId === null) return;
+    e.preventDefault();
+    if (e.dataTransfer) {
+      e.dataTransfer.dropEffect = 'move';
+    }
+    dropTargetIndex = index;
+  }
+
+  function handleDrop(e: DragEvent, index: number) {
+    e.preventDefault();
+    if (dragTabId === null) return;
+    const fromIndex = tabs.findIndex((t) => t.tabId === dragTabId);
+    if (fromIndex !== -1 && fromIndex !== index) {
+      tabStore.reorder(fromIndex, index);
+    }
+    dragTabId = null;
+    dropTargetIndex = null;
+  }
+
+  function handleDragEnd() {
+    dragTabId = null;
+    dropTargetIndex = null;
+  }
 </script>
 
 <div class="tab-bar" role="tablist">
   {#if tabs.length === 0}
     <div class="tab-bar-empty">No slides open</div>
   {:else}
-    {#each tabs as tab (tab.tabId)}
+    {#each tabs as tab, i (tab.tabId)}
       {@const tabProgress = progressMap.get(tab.slideId)}
       <button
         class="tab"
         class:active={tab.tabId === activeTabId}
+        class:dragging={dragTabId === tab.tabId}
+        class:drop-before={dropTargetIndex === i && dragTabId !== null && tabs.findIndex((t) => t.tabId === dragTabId) !== i}
         role="tab"
         aria-selected={tab.tabId === activeTabId}
+        draggable="true"
+        ondragstart={(e) => handleDragStart(e, tab.tabId)}
+        ondragover={(e) => handleDragOver(e, i)}
+        ondrop={(e) => handleDrop(e, i)}
+        ondragend={handleDragEnd}
         onclick={() => handleTabClick(tab.tabId)}
       >
         {#if tabProgress && tabProgress.progressSteps < tabProgress.progressTotal}
@@ -160,5 +204,14 @@
   .tab.active .tab-close:hover {
     color: #fff;
     background: #444;
+  }
+
+  /* Drag-and-drop styles */
+  .tab.dragging {
+    opacity: 0.4;
+  }
+
+  .tab.drop-before {
+    box-shadow: inset 2px 0 0 0 #0066cc;
   }
 </style>

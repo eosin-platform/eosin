@@ -113,6 +113,19 @@ function createTabStore() {
     );
   }
 
+  /**
+   * Move a tab from one index to another (for drag-and-drop reordering).
+   */
+  function reorder(fromIndex: number, toIndex: number) {
+    if (fromIndex === toIndex) return;
+    tabs.update((t) => {
+      const updated = [...t];
+      const [moved] = updated.splice(fromIndex, 1);
+      updated.splice(toIndex, 0, moved);
+      return updated;
+    });
+  }
+
   return {
     tabs,
     activeTabId,
@@ -122,6 +135,7 @@ function createTabStore() {
     closeTab,
     setActive,
     saveViewport,
+    reorder,
   };
 }
 
