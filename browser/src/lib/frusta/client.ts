@@ -30,6 +30,8 @@ export interface FrustaClientOptions {
   reconnectDelay?: number;
   /** Maximum reconnect attempts (default: 5, 0 = infinite) */
   maxReconnectAttempts?: number;
+  /** Connection timeout in milliseconds (default: 10000) */
+  connectTimeout?: number;
   /** Called when connection state changes */
   onStateChange?: (state: ConnectionState) => void;
   /** Called when a tile is received */
@@ -52,12 +54,14 @@ export class FrustaClient {
   private _state: ConnectionState = 'disconnected';
   private intentionalClose = false;
   private _rateLimited = false;
+  private connectTimeoutHandle: ReturnType<typeof setTimeout> | null = null;
   private rateLimitCooldownTimeout: ReturnType<typeof setTimeout> | null = null;
 
   constructor(options: FrustaClientOptions) {
     this.options = {
       reconnectDelay: 1000,
       maxReconnectAttempts: 5,
+      connectTimeout: 10000,
       onStateChange: () => {},
       onTile: () => {},
       onOpenResponse: () => {},
@@ -110,7 +114,22 @@ export class FrustaClient {
       this.ws = new WebSocket(this.options.url);
       this.ws.binaryType = 'arraybuffer';
 
+      // Set up connection timeout
+      if (this.options.connectTimeout > 0) {
+        this.connectTimeoutHandle = setTimeout(() => {
+          this.connectTimeoutHandle = null;
+          if (this.ws?.readyState === WebSocket.CONNECTING) {
+            this.options.onError(new Error('Connection timed out'));
+            this.ws.close();
+          }
+        }, this.options.connectTimeout);
+      }
+
       this.ws.onopen = () => {
+        if (this.connectTimeoutHandle) {
+          clearTimeout(this.connectTimeoutHandle);
+          this.connectTimeoutHandle = null;
+        }
         this.reconnectAttempts = 0;
         this.setState('connected');
       };
@@ -145,6 +164,10 @@ export class FrustaClient {
     if (this.reconnectTimeout) {
       clearTimeout(this.reconnectTimeout);
       this.reconnectTimeout = null;
+    }
+    if (this.connectTimeoutHandle) {
+      clearTimeout(this.connectTimeoutHandle);
+      this.connectTimeoutHandle = null;
     }
     if (this.rateLimitCooldownTimeout) {
       clearTimeout(this.rateLimitCooldownTimeout);

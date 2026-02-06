@@ -43,17 +43,24 @@
     currentLiveProgress = value;
     // Update the matching slide in the list so the percentage stays in sync
     if (value) {
-      // IMPORTANT: avoid in-place index mutation so Svelte reliably re-renders
-      // when progress changes (especially under Svelte 5 runes).
-      slides = slides.map((s) =>
-        s.id === value.slideId
-          ? {
-              ...s,
-              progress_steps: value.progressSteps,
-              progress_total: value.progressTotal,
-            }
-          : s
-      );
+      const existing = slides.find((s) => s.id === value.slideId);
+      // Only reassign (creating a new array) when values actually changed,
+      // otherwise the new reference triggers an infinite reactive loop.
+      if (
+        existing &&
+        (existing.progress_steps !== value.progressSteps ||
+          existing.progress_total !== value.progressTotal)
+      ) {
+        slides = slides.map((s) =>
+          s.id === value.slideId
+            ? {
+                ...s,
+                progress_steps: value.progressSteps,
+                progress_total: value.progressTotal,
+              }
+            : s
+        );
+      }
     }
   });
 

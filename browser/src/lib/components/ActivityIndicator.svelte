@@ -3,6 +3,7 @@
    * A small green circle that plays a single fade-out blink animation
    * each time `trigger` changes, signifying activity for an entity.
    */
+  import { untrack } from 'svelte';
 
   interface Props {
     /** Change this value to trigger a new blink animation */
@@ -16,8 +17,12 @@
   $effect(() => {
     // Access trigger to subscribe to it
     void trigger;
-    // Increment key to force remount of the animation element
-    blinkKey++;
+    // Increment key to force remount of the animation element.
+    // Use untrack so the write to blinkKey doesn't create a
+    // circular dependency within this effect.
+    untrack(() => {
+      blinkKey++;
+    });
   });
 </script>
 

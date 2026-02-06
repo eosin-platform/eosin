@@ -713,6 +713,13 @@ async fn progress_subscription_task(
                     continue;
                 };
 
+                tracing::debug!(
+                    slide_id = %slide_id,
+                    progress_steps = event.progress_steps,
+                    progress_total = event.progress_total,
+                    "received progress event"
+                );
+
                 // Build and send progress message to client
                 let payload = MessageBuilder::progress(slot, event.progress_steps, event.progress_total);
                 if let Err(e) = send_tx.send(payload).await {

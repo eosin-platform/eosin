@@ -222,6 +222,7 @@
       url: wsUrl,
       reconnectDelay: 1000,
       maxReconnectAttempts: 0, // Infinite retries
+      connectTimeout: 6000,
       onStateChange: (state) => {
         connectionState = state;
 
