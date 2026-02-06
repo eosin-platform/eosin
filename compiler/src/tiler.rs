@@ -13,8 +13,8 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use crate::db::{
-    CHECKPOINT_INTERVAL, CHECKPOINT_MIN_TILES, clear_all_tile_checkpoints, clear_tile_checkpoint,
-    get_tile_checkpoint, update_tile_checkpoint,
+    CHECKPOINT_INTERVAL, CHECKPOINT_MIN_TILES, clear_all_tile_checkpoints, get_tile_checkpoint,
+    mark_level_complete, update_tile_checkpoint,
 };
 use crate::meta_client::MetaClient;
 
@@ -106,8 +106,34 @@ pub async fn process_slide(
 
     // Initialize progress: set total and report to meta
     let progress_total = total_tiles as i32;
+
+    // Calculate how many tiles are already done from checkpoints so that
+    // progress is not reset to 0 when the compiler restarts.
+    // Completed levels have checkpoint rows with completed_up_to == total_tiles.
+    // Levels that were never started have no row (returns 0).
+    let mut tiles_already_done: usize = 0;
+    if let Some(pool) = pg_pool {
+        for level in 0..=max_mip_level {
+            match get_tile_checkpoint(pool, slide_id, level).await {
+                Ok(checkpoint) => {
+                    tiles_already_done += checkpoint;
+                }
+                Err(e) => {
+                    tracing::warn!(level = level, error = ?e, "failed to query checkpoint for initial progress");
+                }
+            }
+        }
+    }
+
+    let initial_progress = tiles_already_done as i32;
+    tracing::info!(
+        tiles_already_done = tiles_already_done,
+        total_tiles = total_tiles,
+        "calculated initial progress from checkpoints"
+    );
+
     if let Err(e) = meta_client
-        .update_progress(slide_id, 0, progress_total)
+        .update_progress(slide_id, initial_progress, progress_total)
         .await
     {
         tracing::warn!(error = ?e, "failed to set initial progress");
@@ -116,7 +142,7 @@ pub async fn process_slide(
     // Publish initial progress to NATS
     let topic = topics::slide_progress(slide_id);
     let event = SlideProgressEvent {
-        progress_steps: 0,
+        progress_steps: initial_progress,
         progress_total,
     };
     if let Err(e) = nats_client
@@ -126,8 +152,8 @@ pub async fn process_slide(
         tracing::warn!(error = %e, "failed to publish initial progress");
     }
 
-    // Track global progress across all levels
-    let global_tiles_done = Arc::new(AtomicUsize::new(0));
+    // Track global progress across all levels, starting from previously completed work
+    let global_tiles_done = Arc::new(AtomicUsize::new(tiles_already_done));
     let last_reported_step = Arc::new(AtomicUsize::new(0));
 
     // Process each mip level from highest (lowest resolution) to 0 (full resolution)
@@ -585,10 +611,11 @@ async fn process_level(
         "level complete"
     );
 
-    // Clear checkpoint for this level since it's now complete
-    if use_checkpoint {
-        if let Err(e) = clear_tile_checkpoint(pg_pool.unwrap(), slide_id, level).await {
-            tracing::warn!(error = ?e, "failed to clear checkpoint for completed level");
+    // Mark this level as complete in the checkpoint table so that on restart
+    // we can correctly count its tiles toward overall progress.
+    if let Some(pool) = pg_pool {
+        if let Err(e) = mark_level_complete(pool, slide_id, level, total_tiles).await {
+            tracing::warn!(error = ?e, "failed to mark level as complete");
         }
     }
 

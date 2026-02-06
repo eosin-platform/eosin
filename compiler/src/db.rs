@@ -208,21 +208,43 @@ pub async fn update_tile_checkpoint(
     Ok(())
 }
 
-/// Mark a slide level as complete by removing its checkpoint entry.
-/// This indicates the level is fully processed.
-pub async fn clear_tile_checkpoint(pool: &Pool, slide_id: Uuid, level: u32) -> Result<()> {
+/// Mark a slide level as complete by setting completed_up_to = total_tiles.
+/// We keep the row (rather than deleting it) so that on restart we can
+/// distinguish "fully completed" from "never started".
+pub async fn mark_level_complete(
+    pool: &Pool,
+    slide_id: Uuid,
+    level: u32,
+    total_tiles: usize,
+) -> Result<()> {
+    // Upsert so this works even if no checkpoint row existed yet (e.g. small levels
+    // that skipped checkpointing).
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
+
     let client = pool.get().await.context("failed to get db connection")?;
 
     client
         .execute(
             r"
-            DELETE FROM compiler_tile_progress
-            WHERE slide_id = $1 AND level = $2
+            INSERT INTO compiler_tile_progress (slide_id, level, completed_up_to, total_tiles, updated_at)
+            VALUES ($1, $2, $3, $3, $4)
+            ON CONFLICT (slide_id, level) DO UPDATE
+            SET completed_up_to = EXCLUDED.completed_up_to,
+                total_tiles = EXCLUDED.total_tiles,
+                updated_at = EXCLUDED.updated_at
             ",
-            &[&slide_id, &(level as i32)],
+            &[
+                &slide_id,
+                &(level as i32),
+                &(total_tiles as i32),
+                &now_ms,
+            ],
         )
         .await
-        .context("failed to clear tile checkpoint")?;
+        .context("failed to mark level complete")?;
 
     Ok(())
 }
