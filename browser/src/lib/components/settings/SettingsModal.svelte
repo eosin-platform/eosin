@@ -571,7 +571,7 @@
     flex-direction: column;
     width: 100%;
     max-width: 640px;
-    max-height: calc(100vh - 2rem);
+    height: min(600px, calc(100vh - 2rem));
     background: #1f1f1f;
     border-radius: 1rem;
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
@@ -622,6 +622,7 @@
   .modal-body {
     display: flex;
     flex: 1;
+    min-height: 0;
     overflow: hidden;
   }
 
@@ -668,6 +669,25 @@
     flex: 1;
     overflow-y: auto;
     padding: 1.25rem;
+    scrollbar-width: thin;
+    scrollbar-color: #333 transparent;
+  }
+
+  .tab-content::-webkit-scrollbar {
+    width: 9px;
+  }
+
+  .tab-content::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .tab-content::-webkit-scrollbar-thumb {
+    background: #333;
+    border-radius: 3px;
+  }
+
+  .tab-content::-webkit-scrollbar-thumb:hover {
+    background: #555;
   }
 
   .panel {

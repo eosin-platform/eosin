@@ -17,6 +17,8 @@
     TILE_SIZE,
     computeIdealLevel,
     visibleTilesForLevel,
+    MIN_ZOOM,
+    MAX_ZOOM,
   } from '$lib/frusta';
   import Minimap from '$lib/components/Minimap.svelte';
   import ActivityIndicator from '$lib/components/ActivityIndicator.svelte';
@@ -96,6 +98,44 @@
   let zoomSensitivityFactor = $derived(sensitivityMap[$navigationSettings.zoomSensitivity] || 1.0);
   let panSensitivityFactor = $derived(sensitivityMap[$navigationSettings.panSensitivity] || 1.0);
   let minimapVisible = $derived($navigationSettings.minimapVisible);
+
+  // Zoom slider: convert linear slider value to logarithmic zoom
+  // Slider value 0-100 maps to MIN_ZOOM to MAX_ZOOM logarithmically
+  let zoomSliderValue = $derived({
+    get value() {
+      // Convert zoom to slider position (0-100)
+      const logMin = Math.log(MIN_ZOOM);
+      const logMax = Math.log(MAX_ZOOM);
+      const logZoom = Math.log(viewport.zoom);
+      return ((logZoom - logMin) / (logMax - logMin)) * 100;
+    }
+  });
+
+  function handleZoomSliderChange(e: Event) {
+    if (!imageDesc || !container) return;
+    const target = e.target as HTMLInputElement;
+    const sliderValue = parseFloat(target.value);
+    
+    // Convert slider position (0-100) to zoom level (logarithmic)
+    const logMin = Math.log(MIN_ZOOM);
+    const logMax = Math.log(MAX_ZOOM);
+    const logZoom = logMin + (sliderValue / 100) * (logMax - logMin);
+    const newZoom = Math.exp(logZoom);
+    
+    // Apply zoom centered on viewport
+    const rect = container.getBoundingClientRect();
+    const centerX = rect.width / 2;
+    const centerY = rect.height / 2;
+    
+    // Calculate zoom delta from current to new
+    const zoomDelta = newZoom / viewport.zoom;
+    viewport = zoomAround(viewport, centerX, centerY, zoomDelta, imageDesc.width, imageDesc.height);
+    scheduleViewportUpdate();
+  }
+
+  function stopSliderPropagation(e: Event) {
+    e.stopPropagation();
+  }
 
   // Image adjustment settings - compute CSS filter string
   // Brightness: -100 to 100 maps to CSS brightness 0 to 2 (0 = black, 1 = normal, 2 = double)
@@ -665,13 +705,36 @@
     
     <!-- Minimap (bottom-right) - controlled by settings -->
     {#if minimapVisible}
-      <Minimap
-        image={imageDesc}
-        {viewport}
-        {cache}
-        {renderTrigger}
-        onViewportChange={handleMinimapViewportChange}
-      />
+      <div class="bottom-right-controls">
+        <!-- Vertical zoom slider -->
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div 
+          class="zoom-slider-container"
+          onmousedown={stopSliderPropagation}
+          ontouchstart={stopSliderPropagation}
+          onwheel={stopSliderPropagation}
+        >
+          <span class="zoom-slider-label">+</span>
+          <input
+            type="range"
+            min="0"
+            max="100"
+            step="0.5"
+            value={zoomSliderValue.value}
+            oninput={handleZoomSliderChange}
+            class="zoom-slider"
+            aria-label="Zoom level"
+          />
+          <span class="zoom-slider-label">−</span>
+        </div>
+        <Minimap
+          image={imageDesc}
+          {viewport}
+          {cache}
+          {renderTrigger}
+          onViewportChange={handleMinimapViewportChange}
+        />
+      </div>
     {/if}
   {:else}
     <div class="no-image">
@@ -772,5 +835,70 @@
     color: #ef4444;
     margin: 0;
     font-size: 0.8125rem;
+  }
+
+  .bottom-right-controls {
+    position: absolute;
+    bottom: 1rem;
+    right: 1rem;
+    display: flex;
+    align-items: flex-end;
+    gap: 0.5rem;
+    z-index: 10;
+  }
+
+  .zoom-slider-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.5rem 0.25rem;
+    background: rgba(20, 20, 20, 0.75);
+    backdrop-filter: blur(12px);
+    border-radius: 0.5rem;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .zoom-slider-label {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #9ca3af;
+    user-select: none;
+    line-height: 1;
+  }
+
+  .zoom-slider {
+    writing-mode: vertical-lr;
+    direction: rtl;
+    width: 6px;
+    height: 120px;
+    appearance: none;
+    background: #374151;
+    border-radius: 3px;
+    cursor: pointer;
+    margin: 0.25rem 0;
+  }
+
+  .zoom-slider::-webkit-slider-thumb {
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    background: #3b82f6;
+    border-radius: 50%;
+    cursor: pointer;
+    transition: transform 0.1s;
+  }
+
+  .zoom-slider::-webkit-slider-thumb:hover {
+    transform: scale(1.2);
+  }
+
+  .zoom-slider::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    background: #3b82f6;
+    border: none;
+    border-radius: 50%;
+    cursor: pointer;
   }
 </style>
