@@ -27,7 +27,7 @@
   import { tabStore, type Tab } from '$lib/stores/tabs';
   import { acquireCache, releaseCache } from '$lib/stores/slideCache';
   import { updatePerformanceMetrics } from '$lib/stores/metrics';
-  import { settings, navigationSettings, imageSettings } from '$lib/stores/settings';
+  import { settings, navigationSettings, imageSettings, type StainNormalization } from '$lib/stores/settings';
 
   interface Props {
     /** The pane ID this viewer belongs to */
@@ -104,6 +104,64 @@
   
   // Stain normalization mode from image settings
   let stainNormalization = $derived($imageSettings.stainNormalization);
+
+  // HUD notification state for keyboard shortcut feedback
+  let hudNotification = $state<string | null>(null);
+  let hudNotificationTimeout: ReturnType<typeof setTimeout> | null = null;
+  let hudNotificationFading = $state(false);
+
+  // Normalization modes for cycling with 'n' key
+  const normalizationModes: StainNormalization[] = ['none', 'macenko', 'vahadane'];
+
+  function showHudNotification(message: string) {
+    // Clear any existing timeout
+    if (hudNotificationTimeout) {
+      clearTimeout(hudNotificationTimeout);
+    }
+    
+    // Show notification
+    hudNotification = message;
+    hudNotificationFading = false;
+    
+    // After 800ms, start fade out
+    hudNotificationTimeout = setTimeout(() => {
+      hudNotificationFading = true;
+      // After 600ms fade, hide completely
+      hudNotificationTimeout = setTimeout(() => {
+        hudNotification = null;
+        hudNotificationFading = false;
+        hudNotificationTimeout = null;
+      }, 600);
+    }, 800);
+  }
+
+  function cycleNormalization() {
+    const currentIndex = normalizationModes.indexOf($imageSettings.stainNormalization);
+    const nextIndex = (currentIndex + 1) % normalizationModes.length;
+    const nextMode = normalizationModes[nextIndex];
+    
+    settings.setSetting('image', 'stainNormalization', nextMode);
+    
+    // Show notification
+    if (nextMode === 'none') {
+      showHudNotification('Normalization disabled');
+    } else {
+      const modeName = nextMode.charAt(0).toUpperCase() + nextMode.slice(1);
+      showHudNotification(`Normalization: ${modeName}`);
+    }
+  }
+
+  function handleKeyDown(e: KeyboardEvent) {
+    // Ignore if user is typing in an input field
+    const target = e.target as HTMLElement;
+    if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+      return;
+    }
+    
+    if (e.key === 'n' || e.key === 'N') {
+      cycleNormalization();
+    }
+  }
 
   // Zoom slider: convert linear slider value to logarithmic zoom
   // Slider value 0-100 maps to MIN_ZOOM to MAX_ZOOM logarithmically
@@ -651,6 +709,7 @@
     registerHandler();
 
     window.addEventListener('mouseup', handleMouseUp);
+    window.addEventListener('keydown', handleKeyDown);
   });
 
   onDestroy(() => {
@@ -664,8 +723,12 @@
     if (viewportUpdateTimeout) {
       clearTimeout(viewportUpdateTimeout);
     }
+    if (hudNotificationTimeout) {
+      clearTimeout(hudNotificationTimeout);
+    }
     if (browser) {
       window.removeEventListener('mouseup', handleMouseUp);
+      window.removeEventListener('keydown', handleKeyDown);
     }
   });
 </script>
@@ -700,6 +763,13 @@
       onZoomChange={handleHudZoomChange}
       onFitView={handleHudFitView}
     />
+    
+    <!-- Keyboard shortcut notification (center) -->
+    {#if hudNotification}
+      <div class="hud-notification" class:fading={hudNotificationFading}>
+        {hudNotification}
+      </div>
+    {/if}
     
     <!-- Minimap (bottom-right) - controlled by settings -->
     {#if minimapVisible}
@@ -898,5 +968,28 @@
     border: none;
     border-radius: 50%;
     cursor: pointer;
+  }
+
+  /* HUD notification for keyboard shortcuts */
+  .hud-notification {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(0, 0, 0, 0.8);
+    backdrop-filter: blur(8px);
+    color: #fff;
+    padding: 0.75rem 1.5rem;
+    border-radius: 0.5rem;
+    font-size: 1rem;
+    font-weight: 500;
+    pointer-events: none;
+    z-index: 100;
+    opacity: 1;
+    transition: opacity 600ms ease-out;
+  }
+
+  .hud-notification.fading {
+    opacity: 0;
   }
 </style>
