@@ -520,24 +520,17 @@
     scheduleViewportUpdate();
   }
 
-  // HUD zoom controls - zoom centered on viewport
-  function handleHudZoomIn() {
+  // HUD zoom change - set zoom to specific level centered on viewport
+  function handleHudZoomChange(newZoom: number) {
     if (!imageDesc || !container) return;
     const rect = container.getBoundingClientRect();
     const centerX = rect.width / 2;
     const centerY = rect.height / 2;
-    const zoomFactor = 1.5; // Larger step for button click
-    viewport = zoomAround(viewport, centerX, centerY, zoomFactor, imageDesc.width, imageDesc.height);
-    scheduleViewportUpdate();
-  }
-
-  function handleHudZoomOut() {
-    if (!imageDesc || !container) return;
-    const rect = container.getBoundingClientRect();
-    const centerX = rect.width / 2;
-    const centerY = rect.height / 2;
-    const zoomFactor = 1 / 1.5;
-    viewport = zoomAround(viewport, centerX, centerY, zoomFactor, imageDesc.width, imageDesc.height);
+    
+    // Clamp zoom to valid range
+    const clampedZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, newZoom));
+    const zoomDelta = clampedZoom / viewport.zoom;
+    viewport = zoomAround(viewport, centerX, centerY, zoomDelta, imageDesc.width, imageDesc.height);
     scheduleViewportUpdate();
   }
 
@@ -698,8 +691,7 @@
     <!-- Viewer HUD overlay (top-left) -->
     <ViewerHud
       zoom={viewport.zoom}
-      onZoomIn={handleHudZoomIn}
-      onZoomOut={handleHudZoomOut}
+      onZoomChange={handleHudZoomChange}
       onFitView={handleHudFitView}
     />
     
