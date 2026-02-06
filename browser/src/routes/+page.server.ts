@@ -24,6 +24,23 @@ export interface SlideInfo {
   height: number;
   levels: number;
   filename: string;
+  /** Optional viewport from permalink */
+  viewport: { x: number; y: number; zoom: number } | null;
+}
+
+/**
+ * Parse viewport parameters (x, y, zoom) from the URL if present.
+ */
+function parseViewport(url: URL): { x: number; y: number; zoom: number } | null {
+  const xStr = url.searchParams.get('x');
+  const yStr = url.searchParams.get('y');
+  const zoomStr = url.searchParams.get('zoom');
+  if (!xStr || !yStr || !zoomStr) return null;
+  const x = parseFloat(xStr);
+  const y = parseFloat(yStr);
+  const zoom = parseFloat(zoomStr);
+  if (!isFinite(x) || !isFinite(y) || !isFinite(zoom) || zoom <= 0) return null;
+  return { x, y, zoom };
 }
 
 export const load = async ({ url }: { url: URL }) => {
@@ -63,6 +80,7 @@ export const load = async ({ url }: { url: URL }) => {
       height: data.height,
       levels: computeLevels(data.width, data.height),
       filename: data.filename || data.id.slice(0, 8),
+      viewport: parseViewport(url),
     };
 
     return { slide, error: null };

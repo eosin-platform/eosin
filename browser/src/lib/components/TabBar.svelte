@@ -1,26 +1,34 @@
 <script lang="ts">
-  import { tabStore, type Tab } from '$lib/stores/tabs';
+  import { tabStore, type Tab, type SplitState } from '$lib/stores/tabs';
   import { liveProgress, type SlideProgress } from '$lib/stores/progress';
   import ActivityIndicator from './ActivityIndicator.svelte';
   import TabContextMenu from './TabContextMenu.svelte';
 
-  let tabs = $state<Tab[]>([]);
-  let activeTabId = $state<string | null>(null);
+  interface Props {
+    paneId: string;
+  }
+
+  let { paneId }: Props = $props();
+
+  let splitState = $state<SplitState>({ panes: [], focusedPaneId: '', splitRatio: 0.5 });
   let progressMap = $state<Map<string, SlideProgress>>(new Map());
 
-  const unsubTabs = tabStore.tabs.subscribe((v) => (tabs = v));
-  const unsubActive = tabStore.activeTabId.subscribe((v) => (activeTabId = v));
+  const unsubSplit = tabStore.splitState.subscribe((v) => (splitState = v));
   const unsubProgress = liveProgress.subscribe((v) => (progressMap = v));
 
   import { onDestroy } from 'svelte';
   onDestroy(() => {
-    unsubTabs();
-    unsubActive();
+    unsubSplit();
     unsubProgress();
   });
 
+  let pane = $derived(splitState.panes.find((p) => p.paneId === paneId));
+  let tabs = $derived(pane?.tabs ?? []);
+  let activeTabId = $derived(pane?.activeTabId ?? null);
+  let isFocused = $derived(splitState.focusedPaneId === paneId);
+
   function handleTabClick(tabId: string) {
-    tabStore.setActive(tabId);
+    tabStore.setActiveInPane(paneId, tabId);
   }
 
   function handleCloseTab(e: MouseEvent, tabId: string) {
@@ -35,6 +43,10 @@
     }
   }
 
+  function handlePaneFocus() {
+    tabStore.setFocusedPane(paneId);
+  }
+
   // --- Drag-and-drop reordering ---
   let dragTabId = $state<string | null>(null);
   let dropTargetIndex = $state<number | null>(null);
@@ -44,11 +56,11 @@
     if (e.dataTransfer) {
       e.dataTransfer.effectAllowed = 'move';
       e.dataTransfer.setData('text/plain', tabId);
+      e.dataTransfer.setData('application/x-pane-id', paneId);
     }
   }
 
   function handleDragOver(e: DragEvent, index: number) {
-    if (dragTabId === null) return;
     e.preventDefault();
     if (e.dataTransfer) {
       e.dataTransfer.dropEffect = 'move';
@@ -58,16 +70,48 @@
 
   function handleDrop(e: DragEvent, index: number) {
     e.preventDefault();
-    if (dragTabId === null) return;
-    const fromIndex = tabs.findIndex((t) => t.tabId === dragTabId);
-    if (fromIndex !== -1 && fromIndex !== index) {
-      tabStore.reorder(fromIndex, index);
+    const droppedTabId = e.dataTransfer?.getData('text/plain');
+    const sourcePaneId = e.dataTransfer?.getData('application/x-pane-id');
+
+    if (!droppedTabId) return;
+
+    if (sourcePaneId && sourcePaneId !== paneId) {
+      // Cross-pane drag
+      tabStore.moveTabToPane(droppedTabId, paneId, index);
+    } else {
+      // Same pane reorder
+      const fromIndex = tabs.findIndex((t) => t.tabId === droppedTabId);
+      if (fromIndex !== -1 && fromIndex !== index) {
+        tabStore.reorder(paneId, fromIndex, index);
+      }
     }
     dragTabId = null;
     dropTargetIndex = null;
   }
 
   function handleDragEnd() {
+    dragTabId = null;
+    dropTargetIndex = null;
+  }
+
+  // Allow dropping on the empty area of the tab bar
+  function handleBarDragOver(e: DragEvent) {
+    e.preventDefault();
+    if (e.dataTransfer) {
+      e.dataTransfer.dropEffect = 'move';
+    }
+  }
+
+  function handleBarDrop(e: DragEvent) {
+    e.preventDefault();
+    const droppedTabId = e.dataTransfer?.getData('text/plain');
+    const sourcePaneId = e.dataTransfer?.getData('application/x-pane-id');
+
+    if (!droppedTabId) return;
+
+    if (sourcePaneId && sourcePaneId !== paneId) {
+      tabStore.moveTabToPane(droppedTabId, paneId);
+    }
     dragTabId = null;
     dropTargetIndex = null;
   }
@@ -99,9 +143,20 @@
   let disableCloseRight = $derived(
     contextMenuTabIndex === -1 || contextMenuTabIndex >= tabs.length - 1
   );
+  // Disable "Split Right" if there's only 1 tab total (nothing to show in left pane)
+  let disableSplitRight = $derived(tabs.length <= 1 && splitState.panes.length < 2);
 </script>
 
-<div class="tab-bar" role="tablist">
+<!-- svelte-ignore a11y_interactive_supports_focus -->
+<!-- svelte-ignore a11y_click_events_have_key_events -->
+<div
+  class="tab-bar"
+  class:focused={isFocused}
+  role="tablist"
+  onclick={handlePaneFocus}
+  ondragover={handleBarDragOver}
+  ondrop={handleBarDrop}
+>
   {#if tabs.length === 0}
     <div class="tab-bar-empty">No slides open</div>
   {:else}
@@ -145,10 +200,26 @@
   visible={contextMenuVisible}
   disableCloseOthers={disableCloseOthers}
   disableCloseRight={disableCloseRight}
+  disableSplitRight={disableSplitRight}
+  onSplitRight={() => { if (contextMenuTabId) tabStore.splitRight(contextMenuTabId); }}
+  onCopyPermalink={() => {
+    if (!contextMenuTabId) return;
+    const tab = tabs.find((t) => t.tabId === contextMenuTabId);
+    if (!tab) return;
+    const params = new URLSearchParams();
+    params.set('slide', tab.slideId);
+    if (tab.savedViewport) {
+      params.set('x', tab.savedViewport.x.toFixed(2));
+      params.set('y', tab.savedViewport.y.toFixed(2));
+      params.set('zoom', tab.savedViewport.zoom.toFixed(6));
+    }
+    const url = `${window.location.origin}?${params.toString()}`;
+    navigator.clipboard.writeText(url);
+  }}
   onCloseTab={() => { if (contextMenuTabId) tabStore.closeTab(contextMenuTabId); }}
   onCloseOthers={() => { if (contextMenuTabId) tabStore.closeOtherTabs(contextMenuTabId); }}
   onCloseRight={() => { if (contextMenuTabId) tabStore.closeTabsToRight(contextMenuTabId); }}
-  onCloseAll={() => tabStore.closeAllTabs()}
+  onCloseAll={() => tabStore.closeAllTabsInPane(paneId)}
   onClose={closeContextMenu}
 />
 
@@ -164,6 +235,10 @@
     min-height: 36px;
     scrollbar-width: thin;
     scrollbar-color: #444 transparent;
+  }
+
+  .tab-bar.focused {
+    border-bottom-color: #0066cc44;
   }
 
   .tab-bar::-webkit-scrollbar {

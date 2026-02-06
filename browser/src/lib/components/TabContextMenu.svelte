@@ -13,6 +13,12 @@
     disableCloseOthers: boolean;
     /** Whether "Close Others to the Right" should be disabled */
     disableCloseRight: boolean;
+    /** Whether "Split Right" should be disabled (e.g. only one tab and no split yet) */
+    disableSplitRight: boolean;
+    /** Callback for "Split Right" action */
+    onSplitRight: () => void;
+    /** Callback for "Copy Permalink" action */
+    onCopyPermalink: () => void;
     /** Callback for "Close Tab" action */
     onCloseTab: () => void;
     /** Callback for "Close Others" action */
@@ -31,6 +37,9 @@
     visible,
     disableCloseOthers,
     disableCloseRight,
+    disableSplitRight,
+    onSplitRight,
+    onCopyPermalink,
     onCloseTab,
     onCloseOthers,
     onCloseRight,
@@ -39,6 +48,17 @@
   }: Props = $props();
 
   let menuEl = $state<HTMLDivElement>();
+
+  function handleSplitRight() {
+    if (disableSplitRight) return;
+    onSplitRight();
+    onClose();
+  }
+
+  function handleCopyPermalink() {
+    onCopyPermalink();
+    onClose();
+  }
 
   function handleCloseTab() {
     onCloseTab();
@@ -101,6 +121,19 @@
     style="left: {adjustedX}px; top: {adjustedY}px;"
     role="menu"
   >
+    <button
+      class="context-menu-item"
+      class:disabled={disableSplitRight}
+      role="menuitem"
+      aria-disabled={disableSplitRight}
+      onclick={handleSplitRight}
+    >
+      Split Right
+    </button>
+    <button class="context-menu-item" role="menuitem" onclick={handleCopyPermalink}>
+      Copy Permalink
+    </button>
+    <div class="separator"></div>
     <button class="context-menu-item" role="menuitem" onclick={handleCloseTab}>
       Close Tab
     </button>
