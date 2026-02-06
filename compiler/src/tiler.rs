@@ -303,7 +303,8 @@ async fn process_level(
 
     // Process tiles in parallel using rayon
     // Each thread will open its own OpenSlide handle via thread_local
-    let (tx_channel, rx_channel) = async_channel::bounded::<(u32, u32, Vec<u8>)>(64);
+    // Channel sends Option: None for skipped (empty) tiles, Some for real tile data
+    let (tx_channel, rx_channel) = async_channel::bounded::<Option<(u32, u32, Vec<u8>)>>(64);
 
     // Shared flag to signal rayon threads to stop
     let cancelled = Arc::new(AtomicBool::new(false));
@@ -334,13 +335,22 @@ async fn process_level(
 
                 let slide = handle_ref.as_ref().unwrap();
 
-                // Extract and encode the tile
+                // Extract the tile
                 let tile = extract_tile(slide, &metadata_clone, level, tx, ty, native_level)?;
+
+                // Skip empty tiles (sparse TIF regions with no content)
+                if is_tile_empty(&tile) {
+                    tx_channel
+                        .send_blocking(None)
+                        .map_err(|e| anyhow::anyhow!("failed to send skip signal: {e}"))?;
+                    return Ok(());
+                }
+
                 let webp_data = encode_tile_webp(&tile, level);
 
                 // Send the encoded tile to the upload channel
                 tx_channel
-                    .send_blocking((tx, ty, webp_data))
+                    .send_blocking(Some((tx, ty, webp_data)))
                     .map_err(|e| anyhow::anyhow!("failed to send tile: {e}"))?;
 
                 Ok::<(), anyhow::Error>(())
@@ -350,6 +360,7 @@ async fn process_level(
 
     // Receive and upload tiles as they are processed
     let mut uploaded = 0usize;
+    let mut skipped = 0usize;
     let mut last_progress = 0usize;
     let mut last_checkpoint = 0usize;
 
@@ -360,8 +371,9 @@ async fn process_level(
             () = cancel.cancelled() => {
                 tracing::info!(level = level, "cancellation requested, stopping tile upload");
                 // Save checkpoint before stopping (if checkpointing is enabled)
-                if use_checkpoint && uploaded > 0 {
-                    let absolute_progress = start_index + uploaded;
+                let processed = uploaded + skipped;
+                if use_checkpoint && processed > 0 {
+                    let absolute_progress = start_index + processed;
                     if let Err(e) = update_tile_checkpoint(
                         pg_pool.unwrap(),
                         slide_id,
@@ -391,7 +403,74 @@ async fn process_level(
 
             result = rx_channel.recv() => {
                 match result {
-                    Ok((tx, ty, webp_data)) => {
+                    Ok(None) => {
+                        // Empty tile skipped (sparse TIF region with no content)
+                        skipped += 1;
+
+                        // Still update global progress counter for skipped tiles
+                        let new_global = global_tiles_done.fetch_add(1, Ordering::Relaxed) + 1;
+
+                        // Report progress every PROGRESS_INTERVAL tiles
+                        const PROGRESS_INTERVAL_SKIP: usize = 1_000;
+                        let current_step = new_global / PROGRESS_INTERVAL_SKIP;
+                        let prev_step = last_reported_step.load(Ordering::Relaxed);
+                        if current_step > prev_step {
+                            last_reported_step.store(current_step, Ordering::Relaxed);
+                            let progress_steps = (current_step * PROGRESS_INTERVAL_SKIP) as i32;
+
+                            if let Err(e) = meta_client.update_progress(slide_id, progress_steps, progress_total).await {
+                                tracing::warn!(error = ?e, "failed to update progress");
+                            }
+
+                            let progress_topic = topics::slide_progress(slide_id);
+                            let event = SlideProgressEvent {
+                                progress_steps,
+                                progress_total,
+                            };
+                            if let Err(e) = nats_client.publish(progress_topic, bytes::Bytes::from(event.to_bytes().to_vec())).await {
+                                tracing::warn!(error = %e, "failed to publish progress event");
+                            }
+
+                            tracing::info!(
+                                progress_steps = progress_steps,
+                                progress_total = progress_total,
+                                pct = format!("{:.1}%", (progress_steps as f64 / progress_total as f64) * 100.0),
+                                "reported progress"
+                            );
+                        }
+
+                        // Update checkpoint for skipped tiles too
+                        let processed = uploaded + skipped;
+                        if use_checkpoint && processed - last_checkpoint >= CHECKPOINT_INTERVAL {
+                            let absolute_progress = start_index + processed;
+                            if let Err(e) = update_tile_checkpoint(
+                                pg_pool.unwrap(),
+                                slide_id,
+                                level,
+                                absolute_progress,
+                                total_tiles,
+                            )
+                            .await
+                            {
+                                tracing::warn!(error = ?e, "failed to update checkpoint");
+                            }
+                            last_checkpoint = processed;
+                        }
+
+                        // Log progress
+                        let total_done = start_index + processed;
+                        let progress_pct = (total_done * 100) / total_tiles;
+                        if progress_pct >= last_progress + 10 || processed == tiles_remaining {
+                            tracing::info!(
+                                level = level,
+                                progress = format!("{total_done}/{total_tiles} ({progress_pct}%)"),
+                                skipped = skipped,
+                                "tiles processed"
+                            );
+                            last_progress = progress_pct;
+                        }
+                    }
+                    Ok(Some((tx, ty, webp_data))) => {
                         storage_client
                             .put_tile(slide_id, tx, ty, level, webp_data)
                             .await
@@ -447,8 +526,9 @@ async fn process_level(
                         }
 
                         // Update checkpoint every CHECKPOINT_INTERVAL tiles
-                        if use_checkpoint && uploaded - last_checkpoint >= CHECKPOINT_INTERVAL {
-                            let absolute_progress = start_index + uploaded;
+                        let processed = uploaded + skipped;
+                        if use_checkpoint && processed - last_checkpoint >= CHECKPOINT_INTERVAL {
+                            let absolute_progress = start_index + processed;
                             if let Err(e) = update_tile_checkpoint(
                                 pg_pool.unwrap(),
                                 slide_id,
@@ -466,17 +546,18 @@ async fn process_level(
                                     "updated checkpoint"
                                 );
                             }
-                            last_checkpoint = uploaded;
+                            last_checkpoint = processed;
                         }
 
                         // Log progress every 10%
-                        let total_done = start_index + uploaded;
+                        let total_done = start_index + processed;
                         let progress_pct = (total_done * 100) / total_tiles;
-                        if progress_pct >= last_progress + 10 || uploaded == tiles_remaining {
+                        if progress_pct >= last_progress + 10 || processed == tiles_remaining {
                             tracing::info!(
                                 level = level,
                                 progress = format!("{total_done}/{total_tiles} ({progress_pct}%)"),
-                                "tiles uploaded"
+                                skipped = skipped,
+                                "tiles processed"
                             );
                             last_progress = progress_pct;
                         }
@@ -495,6 +576,14 @@ async fn process_level(
         .await
         .context("tile extraction task panicked")?
         .context("tile extraction failed")?;
+
+    tracing::info!(
+        level = level,
+        uploaded = uploaded,
+        skipped = skipped,
+        total_tiles = total_tiles,
+        "level complete"
+    );
 
     // Clear checkpoint for this level since it's now complete
     if use_checkpoint {
@@ -673,6 +762,16 @@ fn resize_image(img: &RgbaImage, new_width: u32, new_height: u32) -> RgbaImage {
         new_height,
         image::imageops::FilterType::Lanczos3,
     )
+}
+
+/// Check if a tile is entirely empty (all pixel channel values are zero).
+/// Sparse TIF files have large regions with no content that produce all-zero tiles.
+/// We skip storing these to save space and avoid rendering black squares in the client.
+fn is_tile_empty(img: &RgbaImage) -> bool {
+    // Sum all pixel components. If the sum is zero, the tile is empty.
+    // Using u64 to avoid any overflow concerns.
+    let sum: u64 = img.as_raw().iter().map(|&b| u64::from(b)).sum();
+    sum == 0
 }
 
 /// Encode a tile as WebP

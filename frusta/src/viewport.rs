@@ -325,9 +325,12 @@ impl ViewManager {
                 let sent = self.sent.read();
                 for meta in tiles {
                     let key = meta.index_unchecked();
-                    // Skip tiles we've already sent recently (simple de-dupe).
-                    if sent.contains_key(&key) {
-                        continue;
+                    // Skip tiles we've already sent recently (simple de-dupe),
+                    // but allow re-requesting after 30 seconds.
+                    if let Some(info) = sent.get(&key) {
+                        if now - info.last_requested_at < 30_000 {
+                            continue;
+                        }
                     }
                     candidates.push(meta);
                     if candidates.len() >= MAX_TILES_PER_UPDATE {
@@ -411,6 +414,24 @@ impl ViewManager {
     pub async fn request_tile(&mut self, meta: TileMeta) -> Result<()> {
         let now = chrono::Utc::now().timestamp_millis();
         let key = meta.index_unchecked();
+
+        // Check if this tile was requested recently (within 30 seconds).
+        // If so, skip re-dispatch to avoid redundant work.
+        {
+            let sent = self.sent.read();
+            if let Some(info) = sent.get(&key) {
+                if now - info.last_requested_at < 30_000 {
+                    tracing::debug!(
+                        x = meta.x,
+                        y = meta.y,
+                        level = meta.level,
+                        elapsed_ms = now - info.last_requested_at,
+                        "skipping tile request (requested recently)"
+                    );
+                    return Ok(());
+                }
+            }
+        }
 
         // Update or insert the request tracking
         {

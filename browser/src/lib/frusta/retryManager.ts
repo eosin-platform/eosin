@@ -147,7 +147,7 @@ export class TileRetryManager {
 
     // Log the tile request for debugging
     console.log(
-      `[TileRetry] Requesting tile (${pending.coord.x}, ${pending.coord.y}) level=${pending.coord.level} retry=${pending.retryCount}`
+      `[TileRetry] Re-requesting tile (${pending.coord.x}, ${pending.coord.y}) level=${pending.coord.level} retry=${pending.retryCount}/${this.maxRetries}`
     );
 
     // Request the tile

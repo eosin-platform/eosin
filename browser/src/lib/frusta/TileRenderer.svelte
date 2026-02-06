@@ -32,6 +32,25 @@
   let pendingImages = new Set<string>();
   let animationFrameId: number | null = null;
   let retryManager: TileRetryManager | null = null;
+  let checkerboardPattern: CanvasPattern | null = null;
+
+  /** Create a checkerboard transparency pattern (like Photoshop). */
+  function createCheckerboardPattern(context: CanvasRenderingContext2D): CanvasPattern | null {
+    const size = 16; // size of each checker square in pixels
+    const patternCanvas = document.createElement('canvas');
+    patternCanvas.width = size * 2;
+    patternCanvas.height = size * 2;
+    const pctx = patternCanvas.getContext('2d');
+    if (!pctx) return null;
+    // Light squares
+    pctx.fillStyle = '#ffffff';
+    pctx.fillRect(0, 0, size * 2, size * 2);
+    // Dark squares
+    pctx.fillStyle = '#e0e0e0';
+    pctx.fillRect(0, 0, size, size);
+    pctx.fillRect(size, size, size, size);
+    return context.createPattern(patternCanvas, 'repeat');
+  }
 
   // Debug mode state
   let shiftHeld = $state(false);
@@ -130,10 +149,19 @@
       canvas.style.width = `${displayWidth}px`;
       canvas.style.height = `${displayHeight}px`;
       ctx.scale(dpr, dpr);
+      // Invalidate pattern since context was reset
+      checkerboardPattern = null;
     }
 
-    // Clear canvas with a background color
-    ctx.fillStyle = '#1a1a1a';
+    // Clear canvas with a checkerboard transparency pattern
+    if (!checkerboardPattern) {
+      checkerboardPattern = createCheckerboardPattern(ctx);
+    }
+    if (checkerboardPattern) {
+      ctx.fillStyle = checkerboardPattern;
+    } else {
+      ctx.fillStyle = '#ffffff';
+    }
     ctx.fillRect(0, 0, displayWidth, displayHeight);
 
     // Compute the ideal mip level for current zoom
@@ -342,21 +370,38 @@
       return;
     }
 
-    // Tile not found at ideal level - start tracking for retry
-    // Track tiles at the ideal level (screen resolution)
+    // Tile not found at ideal level - request it from the server and track for retry
+    if (client && slot !== undefined && targetCoord.level === idealLevel) {
+      // Check if we've already recently requested this tile (avoid spamming)
+      if (!retryManager || !retryManager.isTracking(targetCoord.x, targetCoord.y, targetCoord.level)) {
+        console.log(
+          `[TileRequest] Requesting tile (${targetCoord.x}, ${targetCoord.y}) level=${targetCoord.level}`
+        );
+        client.requestTile(slot, targetCoord.x, targetCoord.y, targetCoord.level);
+      }
+    }
     if (retryManager && targetCoord.level === idealLevel) {
       retryManager.trackTile(targetCoord);
     }
 
-    // Also track finer level tiles (up to 2x screen DPI) when ideal tile is missing
-    if (retryManager && finerLevel < idealLevel) {
-      // Each ideal tile maps to 4 finer tiles (2x2 grid)
+    // Also request and track finer level tiles (up to 2x screen DPI) when ideal tile is missing
+    if (finerLevel < idealLevel) {
       const scale = Math.pow(2, idealLevel - finerLevel);
       for (let dy = 0; dy < scale; dy++) {
         for (let dx = 0; dx < scale; dx++) {
           const finerX = targetCoord.x * scale + dx;
           const finerY = targetCoord.y * scale + dy;
-          retryManager.trackTile({ x: finerX, y: finerY, level: finerLevel });
+          if (client && slot !== undefined) {
+            if (!retryManager || !retryManager.isTracking(finerX, finerY, finerLevel)) {
+              console.log(
+                `[TileRequest] Requesting finer tile (${finerX}, ${finerY}) level=${finerLevel}`
+              );
+              client.requestTile(slot, finerX, finerY, finerLevel);
+            }
+          }
+          if (retryManager) {
+            retryManager.trackTile({ x: finerX, y: finerY, level: finerLevel });
+          }
         }
       }
     }
@@ -435,11 +480,18 @@
   function renderPlaceholder(rect: { x: number; y: number; width: number; height: number }) {
     if (!ctx) return;
 
-    // Draw a subtle grid pattern for missing tiles
-    ctx.fillStyle = '#2a2a2a';
+    // Draw a checkerboard transparency pattern for missing tiles
+    if (!checkerboardPattern) {
+      checkerboardPattern = createCheckerboardPattern(ctx);
+    }
+    if (checkerboardPattern) {
+      ctx.fillStyle = checkerboardPattern;
+    } else {
+      ctx.fillStyle = '#ffffff';
+    }
     ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
 
-    ctx.strokeStyle = '#333';
+    ctx.strokeStyle = '#ccc';
     ctx.lineWidth = 1;
     ctx.strokeRect(rect.x + 0.5, rect.y + 0.5, rect.width - 1, rect.height - 1);
   }
