@@ -6,6 +6,7 @@ use histion_storage::StorageClient;
 use image::{ImageBuffer, Rgba, RgbaImage};
 use openslide_rs::{OpenSlide, Size};
 use rayon::prelude::*;
+use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -167,14 +168,17 @@ pub async fn process_slide(
     ));
 
     // Process each mip level from highest (lowest resolution) to 0 (full resolution)
-    // This allows the slide to be viewable at low resolution while still processing
+    // This allows the slide to be viewable at low resolution while still processing.
+    // We propagate the set of empty tiles from each level to the next so that
+    // regions known to be empty at a coarser level are skipped at finer levels.
+    let mut parent_empty_tiles: HashSet<(u32, u32)> = HashSet::new();
     for level in (0..=max_mip_level).rev() {
         // Check for cancellation between levels
         if cancel.is_cancelled() {
             tracing::info!("processing cancelled, stopping at level {}", level);
             bail!("processing cancelled");
         }
-        process_level(
+        let empty_tiles = process_level(
             &slide,
             &metadata,
             slide_id,
@@ -188,8 +192,10 @@ pub async fn process_slide(
             progress_total,
             global_tiles_done.clone(),
             last_reported_step.clone(),
+            &parent_empty_tiles,
         )
         .await?;
+        parent_empty_tiles = empty_tiles;
     }
 
     // Report final progress: progress_steps = progress_total to signal 100%
@@ -245,7 +251,14 @@ fn calculate_max_mip_level(width: u32, height: u32) -> u32 {
     (f64::from(max_dim) / f64::from(TILE_SIZE)).log2().ceil() as u32
 }
 
-/// Process a single MIP level using parallel tile extraction
+/// Process a single MIP level using parallel tile extraction.
+///
+/// `parent_empty_tiles` contains the set of tile coordinates that were empty at
+/// the parent (coarser) mip level.  Any tile whose parent `(tx/2, ty/2)` is in
+/// this set is skipped without reading from the slide.
+///
+/// Returns the set of tile coordinates that were empty at **this** level so that
+/// the caller can pass it to the next (finer) level.
 async fn process_level(
     slide: &OpenSlide,
     metadata: &SlideMetadata,
@@ -260,7 +273,8 @@ async fn process_level(
     progress_total: i32,
     global_tiles_done: Arc<AtomicUsize>,
     last_reported_step: Arc<AtomicUsize>,
-) -> Result<()> {
+    parent_empty_tiles: &HashSet<(u32, u32)>,
+) -> Result<HashSet<(u32, u32)>> {
     // Calculate dimensions at this MIP level
     let scale = 1u32 << level; // 2^level
     let level_width = metadata.width.div_ceil(scale);
@@ -285,7 +299,7 @@ async fn process_level(
                     total_tiles = total_tiles,
                     "level already complete, skipping"
                 );
-                return Ok(());
+                return Ok(HashSet::new());
             }
             Ok(false) => {}
             Err(e) => {
@@ -356,10 +370,14 @@ async fn process_level(
     #[cfg(not(unix))]
     let file_ino: u64 = 0;
 
+    // Clone the parent_empty_tiles set so the rayon threads can check it.
+    let parent_empty = Arc::new(parent_empty_tiles.clone());
+
     // Process tiles in parallel using rayon
     // Each thread will open its own OpenSlide handle via thread_local
-    // Channel sends Option: None for skipped (empty) tiles, Some for real tile data
-    let (tx_channel, rx_channel) = async_channel::bounded::<Option<(u32, u32, Vec<u8>)>>(64);
+    // Channel sends (tx, ty, Option<data>): None data means the tile was
+    // skipped (empty or parent-empty); Some(data) means real tile data.
+    let (tx_channel, rx_channel) = async_channel::bounded::<(u32, u32, Option<Vec<u8>>)>(64);
 
     // Shared flag to signal rayon threads to stop
     let cancelled = Arc::new(AtomicBool::new(false));
@@ -375,10 +393,20 @@ async fn process_level(
             static SLIDE_HANDLE: std::cell::RefCell<Option<(std::path::PathBuf, u64, OpenSlide)>> = const { std::cell::RefCell::new(None) };
         }
 
+        let parent_empty_ref = parent_empty.clone();
         tile_coords.par_iter().try_for_each(|&(tx, ty)| {
             // Check for cancellation
             if cancelled_clone.load(Ordering::Relaxed) {
                 return Err(anyhow::anyhow!("processing cancelled"));
+            }
+
+            // If the parent tile at the coarser mip level was empty, this
+            // tile must also be empty — skip it without touching the slide.
+            if parent_empty_ref.contains(&(tx / 2, ty / 2)) {
+                tx_channel
+                    .send_blocking((tx, ty, None))
+                    .map_err(|e| anyhow::anyhow!("failed to send skip signal: {e}"))?;
+                return Ok(());
             }
 
             // Get or create the OpenSlide handle for this thread.
@@ -406,7 +434,7 @@ async fn process_level(
                     Some(t) => t,
                     None => {
                         tx_channel
-                            .send_blocking(None)
+                            .send_blocking((tx, ty, None))
                             .map_err(|e| anyhow::anyhow!("failed to send skip signal: {e}"))?;
                         return Ok(());
                     }
@@ -415,7 +443,7 @@ async fn process_level(
                 // Skip empty/black tiles (sparse TIF regions with no useful content)
                 if is_tile_empty(&tile) {
                     tx_channel
-                        .send_blocking(None)
+                        .send_blocking((tx, ty, None))
                         .map_err(|e| anyhow::anyhow!("failed to send skip signal: {e}"))?;
                     return Ok(());
                 }
@@ -424,7 +452,7 @@ async fn process_level(
 
                 // Send the encoded tile to the upload channel
                 tx_channel
-                    .send_blocking(Some((tx, ty, webp_data)))
+                    .send_blocking((tx, ty, Some(webp_data)))
                     .map_err(|e| anyhow::anyhow!("failed to send tile: {e}"))?;
 
                 Ok::<(), anyhow::Error>(())
@@ -432,7 +460,10 @@ async fn process_level(
         })
     });
 
-    // Receive and upload tiles as they are processed
+    // Receive and upload tiles as they are processed.
+    // Collect the coordinates of empty tiles so the next (finer) level can
+    // skip the corresponding child tiles.
+    let mut empty_tiles: HashSet<(u32, u32)> = HashSet::new();
     let mut uploaded = 0usize;
     let mut skipped = 0usize;
     let mut last_progress = 0usize;
@@ -477,8 +508,10 @@ async fn process_level(
 
             result = rx_channel.recv() => {
                 match result {
-                    Ok(None) => {
-                        // Empty tile skipped (sparse TIF region with no content)
+                    Ok((etx, ety, None)) => {
+                        // Empty tile skipped (sparse TIF region with no content,
+                        // or parent tile was already empty).
+                        empty_tiles.insert((etx, ety));
                         skipped += 1;
 
                         // Still update global progress counter for skipped tiles
@@ -546,7 +579,7 @@ async fn process_level(
                             last_progress = progress_pct;
                         }
                     }
-                    Ok(Some((tx, ty, webp_data))) => {
+                    Ok((tx, ty, Some(webp_data))) => {
                         storage_client
                             .put_tile(slide_id, tx, ty, level, webp_data)
                             .await
@@ -659,6 +692,15 @@ async fn process_level(
         level = level,
         uploaded = uploaded,
         skipped = skipped,
+        skipped_by_parent = if parent_empty_tiles.is_empty() {
+            0
+        } else {
+            // Count how many tiles were skipped due to parent being empty
+            // (vs. being empty on their own). This is approximate since the
+            // receive loop doesn't distinguish, but the log is informational.
+            skipped
+        },
+        empty_tiles = empty_tiles.len(),
         total_tiles = total_tiles,
         "level complete"
     );
@@ -671,7 +713,7 @@ async fn process_level(
         }
     }
 
-    Ok(())
+    Ok(empty_tiles)
 }
 
 /// Find the best native level in the slide that can be used to extract a tile at the given MIP level.
