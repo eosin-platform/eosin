@@ -101,7 +101,10 @@ export function computeVisibleTiles(
 }
 
 /**
- * Clamp viewport position to keep it within image bounds.
+ * Clamp viewport position so that the slide is always at least 50% visible
+ * on screen, but allow panning past the edges by a comfortable margin
+ * (similar to Photoshop / GIMP). The margin on each axis is capped at
+ * half the visible area or half the image size, whichever is smaller.
  */
 export function clampViewport(
   viewport: ViewportState,
@@ -114,16 +117,27 @@ export function clampViewport(
   const visibleWidth = viewport.width / zoom;
   const visibleHeight = viewport.height / zoom;
 
-  // Clamp position
-  let x = viewport.x;
-  let y = viewport.y;
+  // Allow panning past each edge by up to this many image pixels.
+  // Capped so at least half the image remains on-screen.
+  const marginX = Math.min(visibleWidth * 0.5, imageWidth * 0.5);
+  const marginY = Math.min(visibleHeight * 0.5, imageHeight * 0.5);
 
-  // Don't let the viewport go past the image edges
-  const maxX = Math.max(0, imageWidth - visibleWidth);
-  const maxY = Math.max(0, imageHeight - visibleHeight);
+  let minX = -marginX;
+  let maxX = imageWidth - visibleWidth + marginX;
+  let minY = -marginY;
+  let maxY = imageHeight - visibleHeight + marginY;
 
-  x = Math.max(0, Math.min(x, maxX));
-  y = Math.max(0, Math.min(y, maxY));
+  // When the image (plus margins) is smaller than the viewport,
+  // collapse to the midpoint so the image stays roughly centred.
+  if (minX > maxX) {
+    minX = maxX = (minX + maxX) / 2;
+  }
+  if (minY > maxY) {
+    minY = maxY = (minY + maxY) / 2;
+  }
+
+  const x = Math.max(minX, Math.min(viewport.x, maxX));
+  const y = Math.max(minY, Math.min(viewport.y, maxY));
 
   return { ...viewport, x, y };
 }
@@ -256,8 +270,8 @@ export function centerViewport(
   const y = (imageHeight - visibleHeight) / 2;
 
   return {
-    x: Math.max(0, x),
-    y: Math.max(0, y),
+    x,
+    y,
     width: viewportWidth,
     height: viewportHeight,
     zoom,

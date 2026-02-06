@@ -162,14 +162,8 @@
     const mouseY = e.clientY - rect.top;
     
     // Convert to image coordinates, centering the viewport on click point
-    let newX = (mouseX / s) - (visibleWidth / 2);
-    let newY = (mouseY / s) - (visibleHeight / 2);
-    
-    // Clamp to image bounds
-    const maxX = Math.max(0, image.width - visibleWidth);
-    const maxY = Math.max(0, image.height - visibleHeight);
-    newX = Math.max(0, Math.min(newX, maxX));
-    newY = Math.max(0, Math.min(newY, maxY));
+    const newX = (mouseX / s) - (visibleWidth / 2);
+    const newY = (mouseY / s) - (visibleHeight / 2);
     
     onViewportChange({
       ...viewport,
@@ -211,13 +205,8 @@
     const touchX = touch.clientX - rect.left;
     const touchY = touch.clientY - rect.top;
     
-    let newX = (touchX / s) - (visibleWidth / 2);
-    let newY = (touchY / s) - (visibleHeight / 2);
-    
-    const maxX = Math.max(0, image.width - visibleWidth);
-    const maxY = Math.max(0, image.height - visibleHeight);
-    newX = Math.max(0, Math.min(newX, maxX));
-    newY = Math.max(0, Math.min(newY, maxY));
+    const newX = (touchX / s) - (visibleWidth / 2);
+    const newY = (touchY / s) - (visibleHeight / 2);
     
     onViewportChange({
       ...viewport,

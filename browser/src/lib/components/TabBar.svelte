@@ -1,16 +1,21 @@
 <script lang="ts">
   import { tabStore, type Tab } from '$lib/stores/tabs';
+  import { liveProgress, type SlideProgress } from '$lib/stores/progress';
+  import ActivityIndicator from './ActivityIndicator.svelte';
 
   let tabs = $state<Tab[]>([]);
   let activeTabId = $state<string | null>(null);
+  let currentProgress = $state<SlideProgress | null>(null);
 
   const unsubTabs = tabStore.tabs.subscribe((v) => (tabs = v));
   const unsubActive = tabStore.activeTabId.subscribe((v) => (activeTabId = v));
+  const unsubProgress = liveProgress.subscribe((v) => (currentProgress = v));
 
   import { onDestroy } from 'svelte';
   onDestroy(() => {
     unsubTabs();
     unsubActive();
+    unsubProgress();
   });
 
   function handleTabClick(tabId: string) {
@@ -42,6 +47,9 @@
         aria-selected={tab.tabId === activeTabId}
         onclick={() => handleTabClick(tab.tabId)}
       >
+        {#if currentProgress && currentProgress.slideId === tab.slideId && currentProgress.progressSteps < currentProgress.progressTotal}
+          <ActivityIndicator trigger={currentProgress.lastUpdate} />
+        {/if}
         <span class="tab-label" title={tab.label}>{tab.label}</span>
         <span
           class="tab-close"
