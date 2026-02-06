@@ -143,8 +143,8 @@
   let disableCloseRight = $derived(
     contextMenuTabIndex === -1 || contextMenuTabIndex >= tabs.length - 1
   );
-  // Disable "Split Right" if there's only 1 tab total (nothing to show in left pane)
-  let disableSplitRight = $derived(tabs.length <= 1 && splitState.panes.length < 2);
+  // Split Right is always available — if this is the only tab, it will be duplicated
+  let disableSplitRight = false;
 </script>
 
 <!-- svelte-ignore a11y_interactive_supports_focus -->

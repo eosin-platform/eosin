@@ -444,6 +444,23 @@ function createTabStore() {
 
         // Remove from source
         const srcTabs = srcPane.tabs.filter((t) => t.tabId !== tabId);
+
+        // If source pane would be empty, duplicate the tab instead of moving it
+        if (srcTabs.length === 0) {
+          const duplicateTabId = generateTabId();
+          const duplicateTab: Tab = { ...tab, tabId: duplicateTabId, savedViewport: tab.savedViewport ? { ...tab.savedViewport } : null };
+          return {
+            ...s,
+            panes: s.panes.map((p) => {
+              if (p.paneId === dstPane.paneId) {
+                return { ...p, tabs: [...p.tabs, duplicateTab], activeTabId: duplicateTabId };
+              }
+              return p;
+            }),
+            focusedPaneId: dstPane.paneId,
+          };
+        }
+
         let srcActive = srcPane.activeTabId;
         if (srcActive === tabId) {
           const idx = srcPane.tabs.findIndex((t) => t.tabId === tabId);
@@ -453,7 +470,7 @@ function createTabStore() {
               : null;
         }
 
-        let newState: SplitState = {
+        return {
           ...s,
           panes: s.panes.map((p) => {
             if (p.paneId === srcPane.paneId) {
@@ -466,17 +483,6 @@ function createTabStore() {
           }),
           focusedPaneId: dstPane.paneId,
         };
-
-        // If source pane is now empty, remove it
-        if (srcTabs.length === 0) {
-          newState = {
-            ...newState,
-            panes: newState.panes.filter((p) => p.paneId !== srcPane.paneId),
-            focusedPaneId: dstPane.paneId,
-          };
-        }
-
-        return newState;
       }
 
       // Create a new pane to the right
@@ -499,9 +505,19 @@ function createTabStore() {
             : null;
       }
 
-      // If source pane would be empty, don't split
+      // If source pane would be empty, duplicate the tab instead of moving it
       if (srcTabs.length === 0) {
-        return s;
+        const duplicateTabId = generateTabId();
+        const duplicateTab: Tab = { ...tab, tabId: duplicateTabId, savedViewport: tab.savedViewport ? { ...tab.savedViewport } : null };
+        return {
+          ...s,
+          panes: [
+            { ...srcPane, tabs: [tab], activeTabId: tabId },
+            { paneId: newPaneId, tabs: [duplicateTab], activeTabId: duplicateTabId },
+          ],
+          focusedPaneId: newPaneId,
+          splitRatio: 0.5,
+        };
       }
 
       return {
