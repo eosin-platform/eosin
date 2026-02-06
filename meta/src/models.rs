@@ -8,6 +8,8 @@ pub struct Slide {
     pub width: i32,
     pub height: i32,
     pub url: String,
+    /// Original filename (with extension) extracted from the S3 key
+    pub filename: String,
     /// Full size of the original slide file in bytes
     pub full_size: i64,
     /// Current processing progress in steps of 10,000 tiles
@@ -23,6 +25,8 @@ pub struct CreateSlideRequest {
     pub width: i32,
     pub height: i32,
     pub url: String,
+    /// Original filename (with extension) extracted from the S3 key
+    pub filename: String,
     /// Full size of the original slide file in bytes
     pub full_size: i64,
 }
@@ -33,6 +37,8 @@ pub struct UpdateSlideRequest {
     pub width: Option<i32>,
     pub height: Option<i32>,
     pub url: Option<String>,
+    /// Original filename (with extension) extracted from the S3 key
+    pub filename: Option<String>,
     /// Full size of the original slide file in bytes
     pub full_size: Option<i64>,
 }
@@ -50,6 +56,8 @@ pub struct SlideListItem {
     pub id: Uuid,
     pub width: i32,
     pub height: i32,
+    /// Original filename (with extension) extracted from the S3 key
+    pub filename: String,
     /// Full size of the original slide file in bytes
     pub full_size: i64,
     /// Current processing progress in steps of 10,000 tiles

@@ -10,6 +10,8 @@
 		id: string;
 		width: number;
 		height: number;
+		/** Original filename extracted from the S3 key */
+		filename: string;
 		/** Full size of the original slide file in bytes */
 		full_size: number;
 		/** Current processing progress in steps */

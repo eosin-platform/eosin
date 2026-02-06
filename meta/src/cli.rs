@@ -17,7 +17,7 @@ pub async fn run_create_slide(args: CreateSlideArgs) -> Result<()> {
 
     let id: Uuid = args.id.parse()?;
     let slide = client
-        .create_slide(id, args.width, args.height, &args.url, args.full_size.unwrap_or(0))
+        .create_slide(id, args.width, args.height, &args.url, &args.filename, args.full_size.unwrap_or(0))
         .await?;
 
     println!("Created slide:");
@@ -58,7 +58,7 @@ pub async fn run_update_slide(args: UpdateSlideArgs) -> Result<()> {
 
     let id: Uuid = args.id.parse()?;
     match client
-        .update_slide(id, args.width, args.height, args.url, args.full_size)
+        .update_slide(id, args.width, args.height, args.url, args.filename, args.full_size)
         .await?
     {
         Some(slide) => {

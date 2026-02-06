@@ -251,6 +251,13 @@ async fn process_downloaded_slide(
     // Get slide metadata first
     let metadata = tiler::get_slide_metadata(path).context("failed to extract slide metadata")?;
 
+    // Extract filename (with extension) from the S3 key
+    let filename = std::path::Path::new(key)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or(key)
+        .to_string();
+
     tracing::info!(
         key = %key,
         slide_id = %slide_id,
@@ -258,13 +265,14 @@ async fn process_downloaded_slide(
         height = metadata.height,
         levels = metadata.level_count,
         full_size = full_size,
+        filename = %filename,
         "extracted slide metadata"
     );
 
     // Insert metadata into meta service FIRST
     // This allows the slide to be visible immediately (at low resolution)
     let slide = meta_client
-        .create_slide(slide_id, metadata.width, metadata.height, key, full_size)
+        .create_slide(slide_id, metadata.width, metadata.height, key, &filename, full_size)
         .await
         .context("failed to create slide in meta service")?;
 

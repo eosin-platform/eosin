@@ -30,6 +30,7 @@ pub async fn create_slide(
         req.width,
         req.height,
         &req.url,
+        &req.filename,
         req.full_size,
     )
     .await
@@ -75,6 +76,7 @@ pub async fn update_slide(
         req.width,
         req.height,
         req.url.as_deref(),
+        req.filename.as_deref(),
         req.full_size,
     )
     .await

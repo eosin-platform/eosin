@@ -16,6 +16,7 @@ pub async fn init_schema(pool: &Pool) -> Result<()> {
                 width INT NOT NULL,
                 height INT NOT NULL,
                 url TEXT NOT NULL,
+                filename TEXT NOT NULL DEFAULT '',
                 full_size BIGINT NOT NULL DEFAULT 0,
                 progress_steps INT NOT NULL DEFAULT 0,
                 progress_total INT NOT NULL DEFAULT 0
@@ -37,6 +38,17 @@ pub async fn init_schema(pool: &Pool) -> Result<()> {
         .await
         .context("failed to create url index")?;
 
+    // Add filename column to existing tables (migration for existing databases)
+    client
+        .execute(
+            r#"
+            ALTER TABLE slides ADD COLUMN IF NOT EXISTS filename TEXT NOT NULL DEFAULT ''
+            "#,
+            &[],
+        )
+        .await
+        .context("failed to add filename column")?;
+
     tracing::info!("database schema initialized");
     Ok(())
 }
@@ -48,6 +60,7 @@ pub async fn insert_slide(
     width: i32,
     height: i32,
     url: &str,
+    filename: &str,
     full_size: i64,
 ) -> Result<Slide> {
     let client = pool.get().await.context("failed to get db connection")?;
@@ -55,13 +68,13 @@ pub async fn insert_slide(
     let row = client
         .query_one(
             r#"
-            INSERT INTO slides (id, width, height, url, full_size)
-            VALUES ($1, $2, $3, $4, $5)
+            INSERT INTO slides (id, width, height, url, filename, full_size)
+            VALUES ($1, $2, $3, $4, $5, $6)
             ON CONFLICT (id) DO UPDATE
             SET id = slides.id
-            RETURNING id, width, height, url, full_size, progress_steps, progress_total;
+            RETURNING id, width, height, url, filename, full_size, progress_steps, progress_total;
             "#,
-            &[&id, &width, &height, &url, &full_size],
+            &[&id, &width, &height, &url, &filename, &full_size],
         )
         .await
         .context("failed to insert slide")?;
@@ -71,6 +84,7 @@ pub async fn insert_slide(
         width: row.get("width"),
         height: row.get("height"),
         url: row.get("url"),
+        filename: row.get("filename"),
         full_size: row.get("full_size"),
         progress_steps: row.get("progress_steps"),
         progress_total: row.get("progress_total"),
@@ -84,7 +98,7 @@ pub async fn get_slide(pool: &Pool, id: Uuid) -> Result<Option<Slide>> {
     let row = client
         .query_opt(
             r#"
-            SELECT id, width, height, url, full_size, progress_steps, progress_total
+            SELECT id, width, height, url, filename, full_size, progress_steps, progress_total
             FROM slides
             WHERE id = $1
             "#,
@@ -98,6 +112,7 @@ pub async fn get_slide(pool: &Pool, id: Uuid) -> Result<Option<Slide>> {
         width: r.get("width"),
         height: r.get("height"),
         url: r.get("url"),
+        filename: r.get("filename"),
         full_size: r.get("full_size"),
         progress_steps: r.get("progress_steps"),
         progress_total: r.get("progress_total"),
@@ -111,6 +126,7 @@ pub async fn update_slide(
     width: Option<i32>,
     height: Option<i32>,
     url: Option<&str>,
+    filename: Option<&str>,
     full_size: Option<i64>,
 ) -> Result<Option<Slide>> {
     let client = pool.get().await.context("failed to get db connection")?;
@@ -136,6 +152,11 @@ pub async fn update_slide(
         params.push(u);
         param_idx += 1;
     }
+    if let Some(ref f) = filename {
+        set_clauses.push(format!("filename = ${}", param_idx));
+        params.push(f);
+        param_idx += 1;
+    }
     if let Some(ref fs) = full_size {
         set_clauses.push(format!("full_size = ${}", param_idx));
         params.push(fs);
@@ -148,7 +169,7 @@ pub async fn update_slide(
     }
 
     let query = format!(
-        "UPDATE slides SET {} WHERE id = ${} RETURNING id, width, height, url, full_size, progress_steps, progress_total",
+        "UPDATE slides SET {} WHERE id = ${} RETURNING id, width, height, url, filename, full_size, progress_steps, progress_total",
         set_clauses.join(", "),
         param_idx
     );
@@ -164,6 +185,7 @@ pub async fn update_slide(
         width: r.get("width"),
         height: r.get("height"),
         url: r.get("url"),
+        filename: r.get("filename"),
         full_size: r.get("full_size"),
         progress_steps: r.get("progress_steps"),
         progress_total: r.get("progress_total"),
@@ -202,6 +224,7 @@ pub async fn list_slides(pool: &Pool, offset: i64, limit: i64) -> Result<ListSli
                 id, 
                 width, 
                 height,
+                filename,
                 full_size,
                 progress_steps,
                 progress_total,
@@ -225,6 +248,7 @@ pub async fn list_slides(pool: &Pool, offset: i64, limit: i64) -> Result<ListSli
             id: r.get("id"),
             width: r.get("width"),
             height: r.get("height"),
+            filename: r.get("filename"),
             full_size: r.get("full_size"),
             progress_steps: r.get("progress_steps"),
             progress_total: r.get("progress_total"),

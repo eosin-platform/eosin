@@ -516,7 +516,7 @@
         <span>Image: {imageDesc.width}×{imageDesc.height} ({imageDesc.levels} levels)</span>
       {/if}
       {#if progressTotal > 0 && progressSteps < progressTotal}
-        <span class="progress-indicator"><ActivityIndicator trigger={progressUpdateTrigger} />Processing: {((progressSteps / progressTotal) * 100).toFixed(0)}%</span>
+        <span class="progress-indicator"><ActivityIndicator trigger={progressUpdateTrigger} />Processing: {((progressSteps / progressTotal) * 100).toPrecision(3)}%</span>
       {/if}
     </div>
 

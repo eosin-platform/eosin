@@ -9,6 +9,8 @@ pub struct Slide {
     pub width: i32,
     pub height: i32,
     pub url: String,
+    /// Original filename (with extension) extracted from the S3 key
+    pub filename: String,
     /// Full size of the original slide file in bytes
     pub full_size: i64,
     /// Current processing progress in steps of 10,000 tiles
@@ -24,6 +26,8 @@ pub struct CreateSlideRequest {
     pub width: i32,
     pub height: i32,
     pub url: String,
+    /// Original filename (with extension) extracted from the S3 key
+    pub filename: String,
     /// Full size of the original slide file in bytes
     pub full_size: i64,
 }
@@ -58,6 +62,7 @@ impl MetaClient {
         width: u32,
         height: u32,
         url: &str,
+        filename: &str,
         full_size: i64,
     ) -> Result<Slide> {
         let request = CreateSlideRequest {
@@ -65,6 +70,7 @@ impl MetaClient {
             width: width as i32,
             height: height as i32,
             url: url.to_string(),
+            filename: filename.to_string(),
             full_size,
         };
 

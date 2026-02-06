@@ -9,6 +9,8 @@
     id: string;
     width: number;
     height: number;
+    /** Original filename extracted from the S3 key */
+    filename: string;
     /** Full size of the original slide file in bytes */
     full_size: number;
     /** Current processing progress in steps */
@@ -148,8 +150,8 @@
   }
 
   function getSlideLabel(slide: SlideListItem): string {
-    // Use shortened ID as label
-    return slide.id.slice(0, 8);
+    // Use filename if available, otherwise fall back to shortened ID
+    return slide.filename || slide.id.slice(0, 8);
   }
 
   function formatProgress(slide: SlideListItem): string | null {
@@ -160,7 +162,7 @@
       return null; // Complete - don't show percentage
     }
     const pct = (slide.progress_steps / slide.progress_total) * 100;
-    return `${pct.toFixed(0)}%`;
+    return `${pct.toPrecision(3)}%`;
   }
 
   function handleToggle() {
@@ -199,7 +201,7 @@
         title={collapsed ? `${getSlideLabel(slide)} - ${formatDimensions(slide.width, slide.height)} - ${formatSize(slide.full_size)}${progress ? ` - ${progress}` : ''}` : undefined}
       >
         {#if collapsed}
-          <span class="slide-icon">{slide.id.slice(0, 2).toUpperCase()}</span>
+          <span class="slide-icon">{(slide.filename || slide.id).slice(0, 2).toUpperCase()}</span>
         {:else}
           <div class="slide-row">
             <span class="slide-name">{getSlideLabel(slide)}</span>

@@ -65,6 +65,10 @@ pub struct CreateSlideArgs {
     #[arg(long)]
     pub url: String,
 
+    /// Original filename of the slide
+    #[arg(long, default_value = "")]
+    pub filename: String,
+
     /// Full size of the slide file in bytes
     #[arg(long)]
     pub full_size: Option<i64>,
@@ -102,6 +106,10 @@ pub struct UpdateSlideArgs {
     /// New S3 URL of the slide (s3://...)
     #[arg(long)]
     pub url: Option<String>,
+
+    /// New filename of the slide
+    #[arg(long)]
+    pub filename: Option<String>,
 
     /// Full size of the slide file in bytes
     #[arg(long)]
