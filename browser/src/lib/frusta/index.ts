@@ -55,3 +55,17 @@ export {
   applyStainEnhancementToImageData,
   createEnhancedBitmap,
 } from './stainEnhancement';
+
+// Stain normalization utilities
+export {
+  getOrComputeNormalizationParams,
+  applyStainNormalizationToTile,
+  applyStainNormalizationToImageData,
+  createNormalizedBitmap,
+  clearNormalizationCache,
+} from './stainNormalization';
+export type {
+  StainNormalizationMode,
+  NormalizationParams,
+  RGB,
+} from './stainNormalization';
