@@ -25,7 +25,6 @@
   let minimapElement: HTMLDivElement;
   let canvas: HTMLCanvasElement;
   let ctx: CanvasRenderingContext2D | null = null;
-  let imageCache = new Map<string, HTMLImageElement>();
 
   // Calculate the scale to fit the image in the minimap
   const scale = $derived(() => {
@@ -61,7 +60,7 @@
   });
 
   onDestroy(() => {
-    imageCache.clear();
+    // No cleanup needed — bitmaps are owned by the TileCache
   });
 
   // Re-render when cache updates or image changes
@@ -113,29 +112,16 @@
     const pxPerTile = downsample * TILE_SIZE;
 
     for (const tile of tiles) {
-      const key = `${tile.meta.x}-${tile.meta.y}-${tile.meta.level}`;
-      
+      // Use pre-decoded ImageBitmap for immediate, synchronous drawing.
+      // This avoids the async HTMLImageElement loading that caused black tiles.
+      if (!tile.bitmap) continue;
+
       // Calculate tile position in minimap coordinates
       const tileX = tile.meta.x * pxPerTile * s;
       const tileY = tile.meta.y * pxPerTile * s;
       const tileSize = pxPerTile * s;
 
-      // Check if we have this image cached
-      let img = imageCache.get(key);
-      
-      if (img && img.complete) {
-        ctx.drawImage(img, tileX, tileY, tileSize, tileSize);
-      } else if (!img) {
-        // Load the image
-        img = new Image();
-        img.src = tile.blobUrl;
-        imageCache.set(key, img);
-        
-        img.onload = () => {
-          // Re-render when image loads
-          renderThumbnail();
-        };
-      }
+      ctx.drawImage(tile.bitmap, tileX, tileY, tileSize, tileSize);
     }
   }
 
