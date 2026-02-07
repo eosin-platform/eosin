@@ -46,25 +46,58 @@ class SlideMetadata:
 
 
 def load_csv(csv_path: str) -> List[SlideMetadata]:
-    """Load slide metadata from CSV file."""
+    """Load slide metadata from CSV file.
+    
+    Supports both:
+    - CSV with header: slide_id,width_px,height_px
+    - CSV without header: slide_id,width_px,height_px (auto-detected)
+    """
     slides = []
     with open(csv_path, 'r', newline='') as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            slide_id = row['slide_id'].strip()
-            width_px = int(row['width_px'])
-            height_px = int(row['height_px'])
-            max_tiles_x = width_px // 512
-            max_tiles_y = height_px // 512
-            # Only include slides with at least one full tile
-            if max_tiles_x > 0 and max_tiles_y > 0:
-                slides.append(SlideMetadata(
-                    slide_id=slide_id,
-                    width_px=width_px,
-                    height_px=height_px,
-                    max_tiles_x=max_tiles_x,
-                    max_tiles_y=max_tiles_y,
-                ))
+        # Peek at first line to detect if there's a header
+        first_line = f.readline().strip()
+        f.seek(0)
+        
+        # Check if first line looks like a header
+        has_header = 'slide_id' in first_line.lower() or not any(c == '-' for c in first_line.split(',')[0])
+        
+        if has_header and 'slide_id' in first_line.lower():
+            reader = csv.DictReader(f)
+            for row in reader:
+                slide_id = row['slide_id'].strip()
+                width_px = int(row['width_px'])
+                height_px = int(row['height_px'])
+                max_tiles_x = width_px // 512
+                max_tiles_y = height_px // 512
+                # Only include slides with at least one full tile
+                if max_tiles_x > 0 and max_tiles_y > 0:
+                    slides.append(SlideMetadata(
+                        slide_id=slide_id,
+                        width_px=width_px,
+                        height_px=height_px,
+                        max_tiles_x=max_tiles_x,
+                        max_tiles_y=max_tiles_y,
+                    ))
+        else:
+            # No header - assume format: slide_id,width_px,height_px
+            reader = csv.reader(f)
+            for row in reader:
+                if len(row) < 3:
+                    continue
+                slide_id = row[0].strip()
+                width_px = int(row[1])
+                height_px = int(row[2])
+                max_tiles_x = width_px // 512
+                max_tiles_y = height_px // 512
+                # Only include slides with at least one full tile
+                if max_tiles_x > 0 and max_tiles_y > 0:
+                    slides.append(SlideMetadata(
+                        slide_id=slide_id,
+                        width_px=width_px,
+                        height_px=height_px,
+                        max_tiles_x=max_tiles_x,
+                        max_tiles_y=max_tiles_y,
+                    ))
     return slides
 
 
@@ -144,10 +177,11 @@ class GrpcTileDataset(Dataset):
                 # Decode image from bytes
                 img = Image.open(io.BytesIO(response.data))
                 img = img.convert('RGB')
+                print(f"Fetched tile [{slide.slide_id}, {tile_x}, {tile_y}, level {self.train_level}] (attempt {attempt + 1})")
                 return img
             except grpc.RpcError as e:
                 if attempt == self.max_retries - 1:
-                    print(f"Failed to fetch tile after {self.max_retries} attempts: {e}")
+                    print(f"Failed to fetch tile [{slide.slide_id}, {tile_x}, {tile_y}, {self.train_level}] after {self.max_retries} attempts: {e}")
                     return None
                 time.sleep(0.1 * (attempt + 1))
             except Exception as e:
@@ -694,7 +728,7 @@ def main():
     parser.add_argument(
         '--csv',
         type=str,
-        required=True,
+        default='slides.csv',
         help='Path to CSV file with columns: slide_id,width_px,height_px',
     )
 
@@ -702,7 +736,7 @@ def main():
     parser.add_argument(
         '--grpc-address',
         type=str,
-        default='localhost:50051',
+        default='localhost:8080',
         help='Address of the StorageApi gRPC server',
     )
     parser.add_argument(

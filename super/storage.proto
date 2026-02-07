@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package storage;
+
+service StorageApi {
+    rpc GetTile(GetTileRequest) returns (GetTileResponse);
+}
+
+message GetTileRequest {
+    bytes id = 1;  // 16-byte UUID
+    uint32 x = 2;
+    uint32 y = 3;
+    uint32 level = 4;
+}
+
+message GetTileResponse {
+    bytes data = 1;
+}
