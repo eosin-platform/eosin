@@ -135,7 +135,7 @@
         <div class="help-card creator-card">
           <h3>Creator</h3>
           <p class="citation-text">
-            Made by Thomas Havlik in 2026. Link to portfolio:
+            Made by Thomas Havlik in 2026.
             <a href="https://thavlik.dev" target="_blank" rel="noopener noreferrer" class="citation-link">https://thavlik.dev</a>
           </p>
         </div>
