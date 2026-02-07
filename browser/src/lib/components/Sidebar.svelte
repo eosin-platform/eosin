@@ -510,9 +510,9 @@
 
   .sidebar.collapsed .logo-btn {
     cursor: pointer;
-    width: 56px;
+    width: 32px;
     height: 32px;
-    border-radius: 0;
+    border-radius: 6px;
   }
 
   .sidebar.collapsed .logo-btn:hover {
