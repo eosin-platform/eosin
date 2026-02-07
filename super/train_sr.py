@@ -1719,8 +1719,8 @@ def main():
     parser.add_argument(
         '--batch-size',
         type=int,
-        default=4,
-        help='Training batch size',
+        default=8,
+        help='Training batch size (reduce if OOM)',
     )
     parser.add_argument(
         '--num-steps',
@@ -1777,14 +1777,14 @@ def main():
     parser.add_argument(
         '--g-channels',
         type=int,
-        default=64,
-        help='Base channels for generator',
+        default=48,
+        help='Base channels for generator (reduce for lower VRAM)',
     )
     parser.add_argument(
         '--g-blocks',
         type=int,
-        default=16,
-        help='Number of RRDB/residual blocks in generator',
+        default=8,
+        help='Number of RRDB/residual blocks in generator (reduce for lower VRAM)',
     )
     parser.add_argument(
         '--use-rrdb',
@@ -1801,14 +1801,14 @@ def main():
     parser.add_argument(
         '--growth-channels',
         type=int,
-        default=32,
-        help='Growth channels for RRDB dense blocks',
+        default=24,
+        help='Growth channels for RRDB dense blocks (reduce for lower VRAM)',
     )
     parser.add_argument(
         '--d-channels',
         type=int,
-        default=64,
-        help='Base channels for discriminator',
+        default=48,
+        help='Base channels for discriminator (reduce for lower VRAM)',
     )
 
     # Data augmentation
