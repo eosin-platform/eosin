@@ -177,12 +177,13 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div 
-  class="viewer-hud"
-  onmousedown={stopPropagation}
-  ontouchstart={stopPropagation}
-  onwheel={stopPropagation}
->
+<div class="hud-container">
+  <div 
+    class="viewer-hud"
+    onmousedown={stopPropagation}
+    ontouchstart={stopPropagation}
+    onwheel={stopPropagation}
+  >
   <!-- Brightness slider -->
   <div class="slider-control">
     <span class="slider-label" aria-hidden="true">
@@ -329,19 +330,24 @@
       <path d="M17 4.25a.75.75 0 01-.75.75h-5.5a.75.75 0 010-1.5h5.5a.75.75 0 01.75.75zM17 10a.75.75 0 01-.75.75h-10.5a.75.75 0 010-1.5h10.5a.75.75 0 01.75.75zM17 15.75a.75.75 0 01-.75.75h-5.5a.75.75 0 010-1.5h5.5a.75.75 0 01.75.75zM4.25 5.5a1.25 1.25 0 100-2.5 1.25 1.25 0 000 2.5zM4.25 11.25a1.25 1.25 0 100-2.5 1.25 1.25 0 000 2.5zM4.25 17a1.25 1.25 0 100-2.5 1.25 1.25 0 000 2.5z" />
     </svg>
   </button>
+  </div>
+
+  <!-- More menu popover - rendered inside hud-container for proper positioning -->
+  {#if $hudMoreMenuOpen}
+    <ViewerHudMoreMenu />
+  {/if}
 </div>
 
-<!-- More menu popover - rendered outside .viewer-hud to avoid backdrop-filter containing block issue -->
-{#if $hudMoreMenuOpen}
-  <ViewerHudMoreMenu />
-{/if}
-
 <style>
-  .viewer-hud {
+  .hud-container {
     position: absolute;
     top: 1rem;
     left: 1rem;
     z-index: 30;
+    max-width: calc(100vw - 2rem);
+  }
+
+  .viewer-hud {
     display: flex;
     flex-direction: row;
     flex-wrap: wrap;
@@ -354,7 +360,6 @@
     border: 1px solid rgba(255, 255, 255, 0.1);
     overflow: visible;
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
-    max-width: calc(100vw - 2rem);
   }
 
   .hud-divider {

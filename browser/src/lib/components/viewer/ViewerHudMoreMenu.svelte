@@ -370,9 +370,9 @@
   }
 
   .more-menu {
-    position: fixed;
-    top: calc(1rem + 48px + 0.5rem);
-    left: 1rem;
+    position: absolute;
+    top: calc(100% + 0.5rem);
+    left: 0;
     min-width: 240px;
     max-height: calc(100vh - 120px);
     overflow-y: auto;
