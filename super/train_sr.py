@@ -23,8 +23,9 @@ import torch.nn.functional as F
 from PIL import Image
 from torch.cuda.amp import GradScaler, autocast
 from torch.utils.data import DataLoader, Dataset
+from torch.utils.tensorboard import SummaryWriter
 from torchvision import transforms
-from torchvision.utils import save_image
+from torchvision.utils import make_grid, save_image
 
 try:
     import openslide
@@ -586,7 +587,9 @@ def save_sample_grid(
     out_dir: str,
     num_samples: int = 4,
 ) -> None:
-    """Save a grid showing original, bicubic upsampled, and SR output."""
+    """Save a grid showing original, bicubic upsampled, and SR output with labels."""
+    from PIL import ImageDraw, ImageFont
+
     x = x[:num_samples].cpu()
     y = y[:num_samples].cpu()
 
@@ -600,9 +603,52 @@ def save_sample_grid(
     # Stack horizontally: original | bicubic | SR
     grid = torch.cat([x_vis, x_up, y], dim=3)  # Concat along width
 
+    # Convert to PIL for annotation
+    grid_np = (grid * 255).clamp(0, 255).byte()
+    # Stack samples vertically
+    rows = []
+    for i in range(num_samples):
+        row_tensor = grid_np[i]  # (C, H, W)
+        row_np = row_tensor.permute(1, 2, 0).numpy()  # (H, W, C)
+        rows.append(row_np)
+    
+    # Combine all rows vertically
+    combined = np.vstack(rows)
+    img = Image.fromarray(combined, mode='RGB')
+    
+    # Draw labels
+    draw = ImageDraw.Draw(img)
+    
+    # Try to load a font, fall back to default if unavailable
+    try:
+        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 24)
+    except (IOError, OSError):
+        try:
+            font = ImageFont.truetype("/usr/share/fonts/TTF/DejaVuSans-Bold.ttf", 24)
+        except (IOError, OSError):
+            font = ImageFont.load_default()
+    
+    # Image width for each panel (1024 pixels each)
+    panel_width = x_vis.shape[3]
+    row_height = x_vis.shape[2]
+    labels = ["Original (nearest)", "Bicubic", "Super-Res"]
+    
+    # Draw labels on each row
+    for row_idx in range(num_samples):
+        y_offset = row_idx * row_height
+        for col_idx, label in enumerate(labels):
+            x_pos = col_idx * panel_width + 10
+            y_pos = y_offset + 10
+            # Draw text with outline for visibility
+            outline_color = (0, 0, 0)
+            text_color = (255, 255, 255)
+            for dx, dy in [(-1, -1), (-1, 1), (1, -1), (1, 1), (-2, 0), (2, 0), (0, -2), (0, 2)]:
+                draw.text((x_pos + dx, y_pos + dy), label, font=font, fill=outline_color)
+            draw.text((x_pos, y_pos), label, font=font, fill=text_color)
+
     # Save
     save_path = os.path.join(out_dir, f'sample_step_{step:06d}.png')
-    save_image(grid, save_path, nrow=1, normalize=False)
+    img.save(save_path)
     print(f"Saved sample to {save_path}")
 
 
@@ -698,6 +744,11 @@ def train(args: argparse.Namespace) -> None:
         drop_last=True,
     )
 
+    # TensorBoard writer
+    os.makedirs(args.log_dir, exist_ok=True)
+    writer = SummaryWriter(log_dir=args.log_dir)
+    print(f"TensorBoard logs: {args.log_dir}")
+
     # Create models
     print("Initializing models...")
     generator = Generator(
@@ -785,12 +836,15 @@ def train(args: argparse.Namespace) -> None:
             scaler.update()
 
             # Logging
-            if global_step % 100 == 0:
+            if global_step % args.log_interval == 0:
                 print(
                     f"[Pretrain] Step {global_step}/{args.num_steps} | "
                     f"L_recon: {loss_recon.item():.4f} | "
                     f"L_reg: {loss_reg.item():.4f}"
                 )
+                writer.add_scalar('Loss/reconstruction', loss_recon.item(), global_step)
+                writer.add_scalar('Loss/regularization', loss_reg.item(), global_step)
+                writer.add_scalar('Loss/generator_total', loss_g.item(), global_step)
 
         # Adversarial phase
         else:
@@ -848,7 +902,7 @@ def train(args: argparse.Namespace) -> None:
             scaler.update()
 
             # Logging
-            if global_step % 100 == 0:
+            if global_step % args.log_interval == 0:
                 print(
                     f"Step {global_step}/{args.num_steps} | "
                     f"L_recon: {loss_recon.item():.4f} | "
@@ -856,10 +910,32 @@ def train(args: argparse.Namespace) -> None:
                     f"L_reg: {loss_reg.item():.4f} | "
                     f"L_D: {loss_d.item():.4f}"
                 )
+                writer.add_scalar('Loss/reconstruction', loss_recon.item(), global_step)
+                writer.add_scalar('Loss/adversarial', loss_adv.item(), global_step)
+                writer.add_scalar('Loss/regularization', loss_reg.item(), global_step)
+                writer.add_scalar('Loss/generator_total', loss_g.item(), global_step)
+                writer.add_scalar('Loss/discriminator', loss_d.item(), global_step)
 
         # VRAM logging
         if global_step % 1000 == 0:
             log_vram_usage(args.max_vram_gb)
+
+        # Log images to TensorBoard
+        if global_step > 0 and global_step % args.log_images_interval == 0:
+            generator.eval()
+            with torch.no_grad():
+                y_sample, r_sample = generator(sample_batch)
+                # Input images (upsampled for comparison)
+                x_up = F.interpolate(sample_batch, scale_factor=2, mode='bicubic', align_corners=False)
+                x_up = torch.clamp(x_up, 0, 1)
+                # Create comparison grids
+                input_grid = make_grid(x_up[:4].cpu(), nrow=2, normalize=False)
+                output_grid = make_grid(y_sample[:4].cpu(), nrow=2, normalize=False)
+                residual_grid = make_grid((r_sample[:4].cpu() + 0.5).clamp(0, 1), nrow=2, normalize=False)
+                writer.add_image('Images/input_bicubic', input_grid, global_step)
+                writer.add_image('Images/output_sr', output_grid, global_step)
+                writer.add_image('Images/residual', residual_grid, global_step)
+            generator.train()
 
         # Save samples
         if global_step > 0 and global_step % args.sample_interval == 0:
@@ -898,6 +974,9 @@ def train(args: argparse.Namespace) -> None:
         'scaler_state_dict': scaler.state_dict(),
     }, final_path)
     print(f"Training complete! Final checkpoint saved to {final_path}")
+
+    # Close TensorBoard writer
+    writer.close()
 
 
 # =============================================================================
@@ -969,7 +1048,8 @@ def main():
     parser.add_argument(
         '--pretrain-steps',
         type=int,
-        default=20000,
+        #default=20000,
+        default=100,
         help='Steps to train generator without adversarial loss',
     )
 
@@ -1056,7 +1136,7 @@ def main():
     parser.add_argument(
         '--sample-interval',
         type=int,
-        default=1000,
+        default=200,
         help='Steps between saving sample SR images',
     )
     parser.add_argument(
@@ -1064,6 +1144,26 @@ def main():
         type=int,
         default=5000,
         help='Steps between saving model checkpoints',
+    )
+
+    # TensorBoard logging
+    parser.add_argument(
+        '--log-dir',
+        type=str,
+        default='./runs',
+        help='Directory for TensorBoard logs',
+    )
+    parser.add_argument(
+        '--log-interval',
+        type=int,
+        default=100,
+        help='Steps between logging metrics to TensorBoard',
+    )
+    parser.add_argument(
+        '--log-images-interval',
+        type=int,
+        default=1000,
+        help='Steps between logging image pairs to TensorBoard',
     )
 
     args = parser.parse_args()
