@@ -23,8 +23,8 @@
     unsubProgress();
   });
 
-  let pane = $derived(splitState.panes.find((p) => p.paneId === paneId));
-  let tabs = $derived(pane?.tabs ?? []);
+  let pane = $derived(splitState.panes.find((p) => p?.paneId === paneId));
+  let tabs = $derived((pane?.tabs ?? []).filter(t => t != null));
   let activeTabId = $derived(pane?.activeTabId ?? null);
   let isFocused = $derived(splitState.focusedPaneId === paneId);
 
@@ -81,7 +81,7 @@
       tabStore.moveTabToPane(droppedTabId, paneId, index);
     } else {
       // Same pane reorder
-      const fromIndex = tabs.findIndex((t) => t.tabId === droppedTabId);
+      const fromIndex = tabs.findIndex((t) => t?.tabId === droppedTabId);
       if (fromIndex !== -1 && fromIndex !== index) {
         tabStore.reorder(paneId, fromIndex, index);
       }
@@ -218,7 +218,7 @@
   }
 
   let contextMenuTabIndex = $derived(
-    contextMenuTabId ? tabs.findIndex((t) => t.tabId === contextMenuTabId) : -1
+    contextMenuTabId ? tabs.findIndex((t) => t?.tabId === contextMenuTabId) : -1
   );
   let disableCloseOthers = $derived(tabs.length <= 1);
   let disableCloseRight = $derived(
@@ -247,7 +247,7 @@
         class="tab"
         class:active={tab.tabId === activeTabId}
         class:dragging={dragTabId === tab.tabId}
-        class:drop-before={dropTargetIndex === i && dragTabId !== null && tabs.findIndex((t) => t.tabId === dragTabId) !== i}
+        class:drop-before={dropTargetIndex === i && dragTabId !== null && tabs.findIndex((t) => t?.tabId === dragTabId) !== i}
         role="tab"
         aria-selected={tab.tabId === activeTabId}
         draggable={!isTouchDevice}
@@ -288,7 +288,7 @@
   onSplitRight={() => { if (contextMenuTabId) tabStore.splitRight(contextMenuTabId); }}
   onCopyPermalink={() => {
     if (!contextMenuTabId) return;
-    const tab = tabs.find((t) => t.tabId === contextMenuTabId);
+    const tab = tabs.find((t) => t?.tabId === contextMenuTabId);
     if (!tab) return;
     const params = new URLSearchParams();
     params.set('slide', tab.slideId);

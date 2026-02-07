@@ -51,9 +51,11 @@ const PERSIST_DEBOUNCE_MS = 300;
 function extractMaxId(state: SplitState): number {
   let max = 0;
   for (const pane of state.panes) {
+    if (!pane?.paneId) continue;
     const pm = pane.paneId.match(/^(?:tab|pane)-(\d+)$/);
     if (pm) max = Math.max(max, parseInt(pm[1], 10));
-    for (const tab of pane.tabs) {
+    for (const tab of pane.tabs ?? []) {
+      if (!tab?.tabId) continue;
       const tm = tab.tabId.match(/^(?:tab|pane)-(\d+)$/);
       if (tm) max = Math.max(max, parseInt(tm[1], 10));
     }
@@ -149,21 +151,21 @@ function createTabStore() {
 
   /** Focused pane's tabs */
   const tabs = derived(splitState, ($s) => {
-    const focused = $s.panes.find((p) => p.paneId === $s.focusedPaneId);
+    const focused = $s.panes.find((p) => p?.paneId === $s.focusedPaneId);
     return focused?.tabs ?? [];
   });
 
   /** Focused pane's active tab ID */
   const activeTabId = derived(splitState, ($s) => {
-    const focused = $s.panes.find((p) => p.paneId === $s.focusedPaneId);
+    const focused = $s.panes.find((p) => p?.paneId === $s.focusedPaneId);
     return focused?.activeTabId ?? null;
   });
 
   /** Focused pane's active tab */
   const activeTab = derived(splitState, ($s) => {
-    const focused = $s.panes.find((p) => p.paneId === $s.focusedPaneId);
+    const focused = $s.panes.find((p) => p?.paneId === $s.focusedPaneId);
     if (!focused || !focused.activeTabId) return null;
-    return focused.tabs.find((t) => t.tabId === focused.activeTabId) ?? null;
+    return focused.tabs.find((t) => t?.tabId === focused.activeTabId) ?? null;
   });
 
   /** Whether the view is currently split */
@@ -172,17 +174,17 @@ function createTabStore() {
   // ---- Pane helpers ----
 
   function getPaneForTab(state: SplitState, tabId: string): Pane | undefined {
-    return state.panes.find((p) => p.tabs.some((t) => t.tabId === tabId));
+    return state.panes.find((p) => p?.tabs?.some((t) => t?.tabId === tabId));
   }
 
   function getFocusedPane(state: SplitState): Pane {
-    return state.panes.find((p) => p.paneId === state.focusedPaneId) ?? state.panes[0];
+    return state.panes.find((p) => p?.paneId === state.focusedPaneId) ?? state.panes[0];
   }
 
   function updatePane(state: SplitState, paneId: string, updater: (p: Pane) => Pane): SplitState {
     return {
       ...state,
-      panes: state.panes.map((p) => (p.paneId === paneId ? updater(p) : p)),
+      panes: state.panes.filter((p) => p != null).map((p) => (p.paneId === paneId ? updater(p) : p)),
     };
   }
 
@@ -261,14 +263,16 @@ function createTabStore() {
    * Close a tab by its tabId (auto-detects which pane it's in).
    */
   function closeTab(tabId: string) {
+    console.debug('[tabs] closeTab called:', tabId);
     splitState.update((s) => {
       const pane = getPaneForTab(s, tabId);
       if (!pane) return s;
 
-      const idx = pane.tabs.findIndex((t) => t.tabId === tabId);
+      const tabs = pane.tabs ?? [];
+      const idx = tabs.findIndex((t) => t?.tabId === tabId);
       if (idx === -1) return s;
 
-      const newTabs = pane.tabs.filter((t) => t.tabId !== tabId);
+      const newTabs = tabs.filter((t) => t?.tabId !== tabId);
       let newActiveTabId = pane.activeTabId;
 
       if (pane.activeTabId === tabId) {
@@ -276,7 +280,7 @@ function createTabStore() {
           newActiveTabId = null;
         } else {
           const newIdx = Math.min(idx, newTabs.length - 1);
-          newActiveTabId = newTabs[newIdx].tabId;
+          newActiveTabId = newTabs[newIdx]?.tabId ?? null;
         }
       }
 
@@ -290,14 +294,18 @@ function createTabStore() {
       if (newTabs.length === 0 && newState.panes.length > 1) {
         newState = {
           ...newState,
-          panes: newState.panes.filter((p) => p.paneId !== pane.paneId),
+          panes: newState.panes.filter((p) => p?.paneId !== pane.paneId),
         };
         // If focused pane was removed, focus the remaining one
-        if (newState.focusedPaneId === pane.paneId) {
-          newState.focusedPaneId = newState.panes[0].paneId;
+        if (newState.focusedPaneId === pane.paneId && newState.panes[0]) {
+          newState.focusedPaneId = newState.panes[0]?.paneId ?? '';
         }
       }
 
+      console.debug('[tabs] closeTab result:', { 
+        paneCount: newState.panes.length, 
+        totalTabs: newState.panes.reduce((sum, p) => sum + (p?.tabs?.length ?? 0), 0) 
+      });
       return newState;
     });
   }
@@ -364,7 +372,7 @@ function createTabStore() {
       if (!pane) return s;
       return updatePane(s, pane.paneId, (p) => ({
         ...p,
-        tabs: p.tabs.filter((t) => t.tabId === tabId),
+        tabs: (p.tabs ?? []).filter((t) => t?.tabId === tabId),
         activeTabId: tabId,
       }));
     });
@@ -377,11 +385,12 @@ function createTabStore() {
     splitState.update((s) => {
       const pane = getPaneForTab(s, tabId);
       if (!pane) return s;
-      const idx = pane.tabs.findIndex((t) => t.tabId === tabId);
+      const tabs = pane.tabs ?? [];
+      const idx = tabs.findIndex((t) => t?.tabId === tabId);
       if (idx === -1) return s;
-      const newTabs = pane.tabs.slice(0, idx + 1);
+      const newTabs = tabs.slice(0, idx + 1);
       let newActiveTabId = pane.activeTabId;
-      if (newActiveTabId && !newTabs.find((t) => t.tabId === newActiveTabId)) {
+      if (newActiveTabId && !newTabs.find((t) => t?.tabId === newActiveTabId)) {
         newActiveTabId = tabId;
       }
       return updatePane(s, pane.paneId, () => ({
@@ -436,14 +445,14 @@ function createTabStore() {
         // Move the tab to the other pane instead
         const srcPane = getPaneForTab(s, tabId);
         if (!srcPane) return s;
-        const tab = srcPane.tabs.find((t) => t.tabId === tabId);
+        const tab = srcPane.tabs?.find((t) => t?.tabId === tabId);
         if (!tab) return s;
 
-        const dstPane = s.panes.find((p) => p.paneId !== srcPane.paneId);
+        const dstPane = s.panes.find((p) => p?.paneId !== srcPane.paneId);
         if (!dstPane) return s;
 
         // Remove from source
-        const srcTabs = srcPane.tabs.filter((t) => t.tabId !== tabId);
+        const srcTabs = (srcPane.tabs ?? []).filter((t) => t?.tabId !== tabId);
 
         // If source pane would be empty, duplicate the tab instead of moving it
         if (srcTabs.length === 0) {

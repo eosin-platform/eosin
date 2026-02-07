@@ -183,15 +183,19 @@ export function buildSessionUrl(splitState: SplitState, imageSettings: {
 }): URLSearchParams {
   const params = new URLSearchParams();
   
+  // Filter out any null/undefined panes
+  const validPanes = splitState.panes.filter((p) => p != null);
+  
   // Build session state
   const session: SessionState = {
-    p: splitState.panes.map((pane) => {
+    p: validPanes.map((pane) => {
+      const tabs = pane.tabs?.filter(t => t != null) ?? [];
       const activeIdx = pane.activeTabId 
-        ? pane.tabs.findIndex(t => t.tabId === pane.activeTabId)
+        ? tabs.findIndex(t => t?.tabId === pane.activeTabId)
         : 0;
       
       return {
-        t: pane.tabs.map((tab) => {
+        t: tabs.map((tab) => {
           const tabState: TabState = {
             s: tab.slideId,
             w: tab.width,
@@ -214,7 +218,7 @@ export function buildSessionUrl(splitState: SplitState, imageSettings: {
         a: Math.max(0, activeIdx),
       };
     }),
-    f: splitState.panes.findIndex(p => p.paneId === splitState.focusedPaneId),
+    f: validPanes.findIndex(p => p?.paneId === splitState.focusedPaneId),
     r: roundForUrl(splitState.splitRatio, 2),
   };
   
@@ -271,16 +275,40 @@ export function createUrlSyncManager() {
    * This is debounced to avoid excessive URL updates during rapid viewport changes.
    */
   function scheduleUrlUpdate() {
+    console.debug('[urlSync] scheduleUrlUpdate called, enabled:', enabled, 'browser:', browser);
     if (!enabled || !browser) return;
 
     if (urlUpdateTimeout) {
       clearTimeout(urlUpdateTimeout);
     }
 
+    // Use requestAnimationFrame + microtask to ensure state has settled
+    // This handles cases where multiple store updates happen synchronously
     urlUpdateTimeout = setTimeout(() => {
+      console.debug('[urlSync] debounce complete, calling updateUrl');
       updateUrl();
       urlUpdateTimeout = null;
     }, URL_UPDATE_DEBOUNCE_MS);
+  }
+
+  /**
+   * Called when tab state changes to immediately update URL mode if needed.
+   * This handles transitions between single-slide and multi-tab modes.
+   */
+  function handleTabStateChange() {
+    console.debug('[urlSync] handleTabStateChange - forcing immediate update for tab changes');
+    if (!enabled || !browser) return;
+    
+    // Clear any pending debounced update
+    if (urlUpdateTimeout) {
+      clearTimeout(urlUpdateTimeout);
+      urlUpdateTimeout = null;
+    }
+    
+    // Use a short delay to let the state settle, then update
+    setTimeout(() => {
+      updateUrl();
+    }, 50);
   }
 
   /**
@@ -292,24 +320,45 @@ export function createUrlSyncManager() {
     const splitState = get(tabStore.splitState);
     const currentSettings = settings.get();
     
+    // Filter out any null/undefined panes that might exist due to race conditions
+    const validPanes = splitState.panes.filter((p) => p != null);
+    
     // Count total tabs across all panes
-    const totalTabs = splitState.panes.reduce((sum, pane) => sum + pane.tabs.length, 0);
+    const totalTabs = validPanes.reduce((sum, pane) => sum + (pane.tabs?.length ?? 0), 0);
+    
+    console.debug('[urlSync] updateUrl called:', { 
+      totalTabs, 
+      paneCount: validPanes.length,
+      tabsPerPane: validPanes.map(p => p.tabs?.length ?? 0)
+    });
     
     if (totalTabs === 0) {
       // No slides open - clear URL
+      console.debug('[urlSync] No tabs, clearing URL');
       replaceState('/', {});
       return;
     }
     
-    const isSplitView = splitState.panes.length > 1;
+    // Filter out empty panes for the split view check
+    const nonEmptyPanes = validPanes.filter(pane => pane?.tabs?.length > 0);
+    const isSplitView = nonEmptyPanes.length > 1;
     const hasMultipleTabs = totalTabs > 1;
+    
+    console.debug('[urlSync] Mode check:', { isSplitView, hasMultipleTabs, nonEmptyPaneCount: nonEmptyPanes.length });
     
     if (!isSplitView && !hasMultipleTabs) {
       // Single slide mode - use individual query params
-      const pane = splitState.panes[0];
-      const activeTab = pane.tabs.find(t => t.tabId === pane.activeTabId);
+      // Find the pane with the single tab (may not be panes[0] if first pane was empty)
+      const pane = nonEmptyPanes[0] || validPanes[0];
+      if (!pane) {
+        console.debug('[urlSync] No valid pane found, clearing URL');
+        replaceState('/', {});
+        return;
+      }
+      const activeTab = pane.tabs?.find(t => t?.tabId === pane.activeTabId) || pane.tabs?.[0];
       
       if (!activeTab) {
+        console.debug('[urlSync] No active tab found, clearing URL');
         replaceState('/', {});
         return;
       }
@@ -330,10 +379,21 @@ export function createUrlSyncManager() {
       };
       
       const params = buildSingleSlideUrl(state);
+      console.debug('[urlSync] Setting single-slide URL:', params.toString());
       replaceState(`?${params.toString()}`, {});
     } else {
       // Split/multi-tab mode - use compact base64 encoding
-      const params = buildSessionUrl(splitState, {
+      // Only include non-empty panes in the encoded session
+      const filteredState: SplitState = {
+        ...splitState,
+        panes: nonEmptyPanes,
+        // Update focusedPaneId if it was pointing to an empty pane
+        focusedPaneId: nonEmptyPanes.find(p => p?.paneId === splitState.focusedPaneId)?.paneId 
+          || nonEmptyPanes[0]?.paneId 
+          || splitState.focusedPaneId,
+      };
+      
+      const params = buildSessionUrl(filteredState, {
         stainEnhancement: currentSettings.image.stainEnhancement,
         stainNormalization: currentSettings.image.stainNormalization,
         sharpeningIntensity: currentSettings.image.sharpeningEnabled ? currentSettings.image.sharpeningIntensity : 0,
@@ -341,6 +401,7 @@ export function createUrlSyncManager() {
         brightness: currentSettings.image.brightness,
         contrast: currentSettings.image.contrast,
       });
+      console.debug('[urlSync] Setting multi-tab URL:', params.toString());
       replaceState(`?${params.toString()}`, {});
     }
   }
@@ -351,10 +412,35 @@ export function createUrlSyncManager() {
   function start() {
     if (enabled) return;
     enabled = true;
+    console.debug('[urlSync] Starting URL sync');
+
+    let lastTabCount = -1;
+    let lastPaneCount = -1;
 
     // Subscribe to split state changes
-    unsubSplit = tabStore.splitState.subscribe(() => {
-      scheduleUrlUpdate();
+    unsubSplit = tabStore.splitState.subscribe((state) => {
+      // Filter out null/undefined panes
+      const validPanes = state.panes.filter((p) => p != null);
+      const totalTabs = validPanes.reduce((sum, p) => sum + (p.tabs?.length ?? 0), 0);
+      const paneCount = validPanes.length;
+      
+      console.debug('[urlSync] splitState changed:', { 
+        paneCount, 
+        totalTabs,
+        lastPaneCount,
+        lastTabCount
+      });
+      
+      // If tab count or pane count changed, use immediate update
+      // This ensures mode transitions (multi-tab <-> single-slide) happen promptly
+      if (lastTabCount !== -1 && (totalTabs !== lastTabCount || paneCount !== lastPaneCount)) {
+        handleTabStateChange();
+      } else {
+        scheduleUrlUpdate();
+      }
+      
+      lastTabCount = totalTabs;
+      lastPaneCount = paneCount;
     });
 
     // Subscribe to settings changes
@@ -412,6 +498,16 @@ export function createUrlSyncManager() {
 let urlSyncManager: ReturnType<typeof createUrlSyncManager> | null = null;
 
 export function getUrlSyncManager() {
+  // Only create the singleton in the browser, not during SSR
+  if (!browser) {
+    // Return a no-op version for SSR
+    return {
+      start: () => {},
+      stop: () => {},
+      scheduleUpdate: () => {},
+      forceUpdate: () => {},
+    };
+  }
   if (!urlSyncManager) {
     urlSyncManager = createUrlSyncManager();
   }

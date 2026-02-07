@@ -27,9 +27,13 @@
   const unsub = tabStore.splitState.subscribe((v) => (splitState = v));
   onDestroy(() => unsub());
 
-  let panes = $derived(splitState.panes);
+  let panes = $derived(splitState.panes.filter(p => p != null));
   let isSplit = $derived(panes.length > 1);
   let splitRatio = $derived(splitState.splitRatio);
+  
+  // Safe pane accessors - guaranteed non-null or fallback
+  let pane0 = $derived(panes[0] ?? { paneId: '', tabs: [], activeTabId: null });
+  let pane1 = $derived(panes[1] ?? { paneId: '', tabs: [], activeTabId: null });
 
   // Map of paneId -> tile handler for routing incoming tiles
   let tileHandlers = new Map<string, TileHandler>();
@@ -92,11 +96,11 @@
     <!-- Single pane mode -->
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="pane" onclick={() => handlePaneFocus(panes[0].paneId)}>
-      <TabBar paneId={panes[0].paneId} />
+    <div class="pane" onclick={() => pane0.paneId && handlePaneFocus(pane0.paneId)}>
+      <TabBar paneId={pane0.paneId} />
       <div class="pane-content">
         <ViewerPane
-          paneId={panes[0].paneId}
+          paneId={pane0.paneId}
           {client}
           {connectionState}
           {progressInfo}
@@ -111,14 +115,14 @@
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
       class="pane"
-      class:focused={splitState.focusedPaneId === panes[0].paneId}
+      class:focused={splitState.focusedPaneId === pane0.paneId}
       style="width: {splitRatio * 100}%"
-      onclick={() => handlePaneFocus(panes[0].paneId)}
+      onclick={() => pane0.paneId && handlePaneFocus(pane0.paneId)}
     >
-      <TabBar paneId={panes[0].paneId} />
+      <TabBar paneId={pane0.paneId} />
       <div class="pane-content">
         <ViewerPane
-          paneId={panes[0].paneId}
+          paneId={pane0.paneId}
           {client}
           {connectionState}
           {progressInfo}
@@ -139,14 +143,14 @@
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
       class="pane"
-      class:focused={splitState.focusedPaneId === panes[1].paneId}
+      class:focused={splitState.focusedPaneId === pane1.paneId}
       style="width: {(1 - splitRatio) * 100}%"
-      onclick={() => handlePaneFocus(panes[1].paneId)}
+      onclick={() => pane1.paneId && handlePaneFocus(pane1.paneId)}
     >
-      <TabBar paneId={panes[1].paneId} />
+      <TabBar paneId={pane1.paneId} />
       <div class="pane-content">
         <ViewerPane
-          paneId={panes[1].paneId}
+          paneId={pane1.paneId}
           {client}
           {connectionState}
           {progressInfo}
