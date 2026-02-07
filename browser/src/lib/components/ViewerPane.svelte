@@ -989,7 +989,7 @@
     <div class="welcome-screen">
       <div class="welcome-content">
         <img src="/logo_full.png" alt="Eosin Logo" class="welcome-logo" />
-        <h2>Note: data is temporarily unavailable as a system migration takes place.</h2>
+        <h2>Welcome to Eosin.AI</h2>
         <p class="welcome-subtitle">Multi-gigapixel histopathology at your fingertips.</p>
         <div class="getting-started">
           <h3>Getting Started</h3>
