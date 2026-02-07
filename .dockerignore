@@ -1,5 +1,7 @@
 target
 .buildx-cache
+node_modules
+super
 .venv
 .git
 Dockerfile
@@ -11,3 +13,4 @@ up.sh
 build.sh
 secrets
 target
+__pycache__
