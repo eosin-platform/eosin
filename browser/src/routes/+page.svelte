@@ -1,7 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { browser } from '$app/environment';
-  import { replaceState } from '$app/navigation';
   import { env } from '$env/dynamic/public';
   import {
     createFrustaClient,
@@ -16,10 +15,11 @@
   import { tabStore, type Tab } from '$lib/stores/tabs';
   import { performanceMetrics, type PerformanceMetrics } from '$lib/stores/metrics';
   import { settings } from '$lib/stores/settings';
-  import type { SlideInfo } from './+page.server';
+  import { getUrlSyncManager } from '$lib/stores/urlSync';
+  import type { SlideInfo, ParsedSession } from './+page.server';
 
   // Server-provided data
-  let { data } = $props<{ data: { slide: SlideInfo | null; error: string | null } }>();
+  let { data } = $props<{ data: { slide: SlideInfo | null; error: string | null; session: ParsedSession | null } }>();
 
   // Connection state
   let connectionState = $state<ConnectionState>('disconnected');
@@ -39,6 +39,9 @@
   const unsubMetrics = performanceMetrics.subscribe((m) => {
     metrics = m;
   });
+
+  // URL sync manager
+  const urlSyncManager = getUrlSyncManager();
 
   /**
    * Format bytes to human readable string (KB, MB, etc.)
@@ -92,25 +95,6 @@
       .join('');
     return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
   }
-
-  // URL syncing based on focused pane's active tab
-  let mounted = false;
-  let urlUpdateTimeout: ReturnType<typeof setTimeout> | null = null;
-  const URL_UPDATE_DEBOUNCE_MS = 300;
-
-  const unsubActiveTab = tabStore.activeTab.subscribe((tab) => {
-    if (!browser || !mounted) return;
-    if (!tab) {
-      replaceState('/', {});
-      return;
-    }
-    if (urlUpdateTimeout) clearTimeout(urlUpdateTimeout);
-    urlUpdateTimeout = setTimeout(() => {
-      const params = new URLSearchParams();
-      params.set('slide', tab.slideId);
-      replaceState(`?${params.toString()}`, {});
-    }, URL_UPDATE_DEBOUNCE_MS);
-  });
 
   function connect() {
     if (client) {
@@ -182,10 +166,37 @@
   }
 
   onMount(() => {
-    // Load initial slide from server-provided data
-    if (data.error) {
+    // Check if we have a session state from URL (?v= parameter)
+    if (data.session) {
+      // Restore session from URL - this is handled by the tab store restoration
+      // The session state contains the full pane/tab layout
+      tabStore.restoreFromSession(data.session.state);
+      
+      // Apply image settings from session
+      const imgSettings = data.session.imageSettings;
+      if (imgSettings.stainEnhancement) {
+        settings.setSetting('image', 'stainEnhancement', imgSettings.stainEnhancement);
+      }
+      if (imgSettings.stainNormalization) {
+        settings.setSetting('image', 'stainNormalization', imgSettings.stainNormalization);
+      }
+      if (imgSettings.sharpeningIntensity !== null) {
+        settings.setSetting('image', 'sharpeningIntensity', imgSettings.sharpeningIntensity);
+        settings.setSetting('image', 'sharpeningEnabled', imgSettings.sharpeningIntensity > 0);
+      }
+      if (imgSettings.gamma !== null) {
+        settings.setSetting('image', 'gamma', imgSettings.gamma);
+      }
+      if (imgSettings.brightness !== null) {
+        settings.setSetting('image', 'brightness', imgSettings.brightness);
+      }
+      if (imgSettings.contrast !== null) {
+        settings.setSetting('image', 'contrast', imgSettings.contrast);
+      }
+    } else if (data.error) {
       // Error is shown in toast
     } else if (data.slide) {
+      // Load single slide from server-provided data
       tabStore.open(
         data.slide.id,
         data.slide.filename,
@@ -216,16 +227,18 @@
     }
 
     connect();
-    mounted = true;
+    
+    // Start URL sync after initial state is loaded
+    // Use a small delay to let the initial viewport settle
+    setTimeout(() => {
+      urlSyncManager.start();
+    }, 500);
   });
 
   onDestroy(() => {
-    unsubActiveTab();
+    urlSyncManager.stop();
     unsubMetrics();
     client?.disconnect();
-    if (urlUpdateTimeout) {
-      clearTimeout(urlUpdateTimeout);
-    }
     if (toastTimeout) {
       clearTimeout(toastTimeout);
     }

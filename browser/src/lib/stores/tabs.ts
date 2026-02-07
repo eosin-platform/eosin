@@ -608,6 +608,67 @@ function createTabStore() {
     splitState.update((s) => ({ ...s, splitRatio: Math.max(0.15, Math.min(0.85, ratio)) }));
   }
 
+  /**
+   * Restore session state from a URL-decoded session object.
+   * This is used when loading from ?v= URL parameter.
+   */
+  function restoreFromSession(session: {
+    p: Array<{
+      t: Array<{
+        s: string;
+        l?: string;
+        w: number;
+        h: number;
+        v?: [number, number, number];
+      }>;
+      a: number;
+    }>;
+    f: number;
+    r: number;
+  }) {
+    // Build panes from session state
+    const panes: Pane[] = session.p.map((paneState) => {
+      const paneId = generatePaneId();
+      const tabs: Tab[] = paneState.t.map((tabState) => {
+        const tabId = generateTabId();
+        let savedViewport: SavedViewport | null = null;
+        if (tabState.v) {
+          savedViewport = {
+            x: tabState.v[0],
+            y: tabState.v[1],
+            zoom: tabState.v[2],
+          };
+        }
+        return {
+          tabId,
+          slideId: tabState.s,
+          label: tabState.l || tabState.s.slice(0, 8),
+          width: tabState.w,
+          height: tabState.h,
+          savedViewport,
+        };
+      });
+
+      return {
+        paneId,
+        tabs,
+        activeTabId:
+          tabs.length > paneState.a
+            ? tabs[paneState.a]?.tabId
+            : tabs[0]?.tabId || null,
+      };
+    });
+
+    // Ensure focusedPaneId is valid
+    const focusedPaneIndex = Math.max(0, Math.min(session.f, panes.length - 1));
+
+    splitState.set({
+      panes,
+      focusedPaneId: panes[focusedPaneIndex]?.paneId || panes[0]?.paneId || '',
+      splitRatio: session.r ?? 0.5,
+    });
+  }
+
   return {
     // Core state
     splitState,
@@ -637,6 +698,7 @@ function createTabStore() {
     splitRight,
     moveTabToPane,
     setSplitRatio,
+    restoreFromSession,
   };
 }
 

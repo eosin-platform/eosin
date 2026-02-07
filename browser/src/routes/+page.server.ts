@@ -18,6 +18,81 @@ function isValidUuid(id: string): boolean {
   return uuidRegex.test(id);
 }
 
+// ============================================================================
+// Session State Types (matches urlSync.ts)
+// ============================================================================
+
+type StainEnhancementMode = 'none' | 'gram' | 'afb' | 'gms';
+type StainNormalization = 'none' | 'macenko' | 'vahadane';
+
+interface TabState {
+  s: string;
+  l?: string;
+  w: number;
+  h: number;
+  v?: [number, number, number];
+}
+
+interface PaneState {
+  t: TabState[];
+  a: number;
+}
+
+interface SessionState {
+  p: PaneState[];
+  f: number;
+  r: number;
+  i?: {
+    e?: StainEnhancementMode;
+    n?: StainNormalization;
+    s?: number;
+    g?: number;
+    b?: number;
+    c?: number;
+  };
+}
+
+/**
+ * Decode session state from URL-safe base64.
+ */
+function decodeSessionState(encoded: string): SessionState | null {
+  try {
+    let base64 = encoded
+      .replace(/-/g, '+')
+      .replace(/_/g, '/');
+    while (base64.length % 4 !== 0) {
+      base64 += '=';
+    }
+    const json = atob(base64);
+    return JSON.parse(json) as SessionState;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Validate that a session state has the required structure.
+ */
+function validateSessionState(state: unknown): state is SessionState {
+  if (!state || typeof state !== 'object') return false;
+  const s = state as Record<string, unknown>;
+  if (!Array.isArray(s.p) || s.p.length === 0) return false;
+  if (typeof s.f !== 'number' || typeof s.r !== 'number') return false;
+  
+  for (const pane of s.p) {
+    if (!pane || typeof pane !== 'object') return false;
+    const p = pane as Record<string, unknown>;
+    if (!Array.isArray(p.t) || typeof p.a !== 'number') return false;
+    for (const tab of p.t) {
+      if (!tab || typeof tab !== 'object') return false;
+      const t = tab as Record<string, unknown>;
+      if (typeof t.s !== 'string' || typeof t.w !== 'number' || typeof t.h !== 'number') return false;
+      if (!isValidUuid(t.s)) return false;
+    }
+  }
+  return true;
+}
+
 export interface SlideInfo {
   id: string;
   width: number;
@@ -121,33 +196,73 @@ function parseContrast(url: URL): number | null {
   return contrast;
 }
 
+/** Parsed session info for the ?v= parameter */
+export interface ParsedSession {
+  state: SessionState;
+  imageSettings: {
+    stainEnhancement: StainEnhancementMode | null;
+    stainNormalization: StainNormalization | null;
+    sharpeningIntensity: number | null;
+    gamma: number | null;
+    brightness: number | null;
+    contrast: number | null;
+  };
+}
+
 export const load = async ({ url }: { url: URL }) => {
+  const metaEndpoint = env.META_ENDPOINT;
+  
+  // Check for session state first (?v= parameter)
+  const encodedSession = url.searchParams.get('v');
+  if (encodedSession) {
+    const sessionState = decodeSessionState(encodedSession);
+    if (sessionState && validateSessionState(sessionState)) {
+      // Extract image settings from session
+      const imageSettings = {
+        stainEnhancement: sessionState.i?.e ?? null,
+        stainNormalization: sessionState.i?.n ?? null,
+        sharpeningIntensity: sessionState.i?.s ?? null,
+        gamma: sessionState.i?.g ?? null,
+        brightness: sessionState.i?.b ?? null,
+        contrast: sessionState.i?.c ?? null,
+      };
+      
+      return { 
+        slide: null, 
+        error: null, 
+        session: { state: sessionState, imageSettings } as ParsedSession 
+      };
+    } else {
+      return { slide: null, error: 'Invalid session state in URL', session: null };
+    }
+  }
+  
+  // Fall back to single slide mode (?slide= parameter)
   const id = url.searchParams.get('slide');
 
   if (!id) {
-    return { slide: null, error: null };
+    return { slide: null, error: null, session: null };
   }
 
   if (!isValidUuid(id)) {
-    return { slide: null, error: 'Invalid slide ID format' };
+    return { slide: null, error: 'Invalid slide ID format', session: null };
   }
 
-  const metaEndpoint = env.META_ENDPOINT;
   if (!metaEndpoint) {
     console.error('META_ENDPOINT environment variable is not set');
-    return { slide: null, error: 'Server configuration error' };
+    return { slide: null, error: 'Server configuration error', session: null };
   }
 
   try {
     const response = await fetch(`${metaEndpoint}/slides/${id}`);
 
     if (response.status === 404) {
-      return { slide: null, error: 'Slide not found' };
+      return { slide: null, error: 'Slide not found', session: null };
     }
 
     if (!response.ok) {
       console.error(`Meta server returned ${response.status}: ${await response.text()}`);
-      return { slide: null, error: 'Failed to fetch slide information' };
+      return { slide: null, error: 'Failed to fetch slide information', session: null };
     }
 
     const data = await response.json();
@@ -167,9 +282,9 @@ export const load = async ({ url }: { url: URL }) => {
       contrast: parseContrast(url),
     };
 
-    return { slide, error: null };
+    return { slide, error: null, session: null };
   } catch (err) {
     console.error('Failed to fetch slide from meta server:', err);
-    return { slide: null, error: 'Failed to connect to metadata server' };
+    return { slide: null, error: 'Failed to connect to metadata server', session: null };
   }
 };
