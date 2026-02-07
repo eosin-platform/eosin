@@ -8,11 +8,9 @@
     showMenuButton?: boolean;
     /** Callback when menu button is clicked */
     onMenuClick?: () => void;
-    /** Title to display */
-    title?: string;
   }
 
-  let { showMenuButton = false, onMenuClick, title = 'Histion' }: Props = $props();
+  let { showMenuButton = false, onMenuClick }: Props = $props();
 
   // Help button pulse animation state (plays on mount for 1500ms)
   let helpButtonPulsing = $state(true);
@@ -49,7 +47,7 @@
         </svg>
       </button>
     {/if}
-    <span class="header-title">{title}</span>
+    <span class="dim">(real-time analysis goes here)</span>
   </div>
 
   <div class="header-right">
@@ -439,6 +437,11 @@
     .help-card {
       padding: 14px 16px;
     }
+  }
+
+  .dim {
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.35);
   }
 
   /* Touch device adaptations - larger touch targets */
