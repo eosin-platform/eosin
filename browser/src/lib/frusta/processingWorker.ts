@@ -73,21 +73,50 @@ const BACKGROUND_THRESHOLD = 240;
 // Color Space Utilities
 // ============================================================================
 
+/** Small epsilon to avoid log(0) */
+const OD_EPSILON = 1e-6;
+
+/** Maximum OD value to prevent extreme values from dark pixels */
+const OD_MAX = 2.5;
+
+/**
+ * Convert RGB (0-255) to Optical Density using log10.
+ * Must match the implementation in stainNormalization.ts exactly.
+ */
 function rgbToOd(r: number, g: number, b: number): number[] {
-  const rNorm = Math.max(r, 1) / 255;
-  const gNorm = Math.max(g, 1) / 255;
-  const bNorm = Math.max(b, 1) / 255;
-  return [
-    -Math.log(rNorm),
-    -Math.log(gNorm),
-    -Math.log(bNorm),
-  ];
+  // Normalize to [0, 1] with epsilon to avoid log(0)
+  const rNorm = Math.max(OD_EPSILON, r / 255);
+  const gNorm = Math.max(OD_EPSILON, g / 255);
+  const bNorm = Math.max(OD_EPSILON, b / 255);
+
+  // Convert to optical density using log10 (via natural log / LN10)
+  const odR = Math.min(OD_MAX, -Math.log(rNorm) / Math.LN10);
+  const odG = Math.min(OD_MAX, -Math.log(gNorm) / Math.LN10);
+  const odB = Math.min(OD_MAX, -Math.log(bNorm) / Math.LN10);
+
+  return [odR, odG, odB];
 }
 
+/**
+ * Convert Optical Density back to RGB (0-255) using 10^(-OD).
+ * Must match the implementation in stainNormalization.ts exactly.
+ */
 function odToRgb(odR: number, odG: number, odB: number): number[] {
-  const r = Math.round(Math.max(0, Math.min(255, 255 * Math.exp(-odR))));
-  const g = Math.round(Math.max(0, Math.min(255, 255 * Math.exp(-odG))));
-  const b = Math.round(Math.max(0, Math.min(255, 255 * Math.exp(-odB))));
+  // Clamp OD to reasonable range
+  odR = Math.max(0, Math.min(OD_MAX, odR));
+  odG = Math.max(0, Math.min(OD_MAX, odG));
+  odB = Math.max(0, Math.min(OD_MAX, odB));
+
+  // Convert back to intensity using 10^(-OD)
+  const ir = Math.pow(10, -odR);
+  const ig = Math.pow(10, -odG);
+  const ib = Math.pow(10, -odB);
+
+  // Scale to 0-255 and clamp
+  const r = Math.max(0, Math.min(255, Math.round(ir * 255)));
+  const g = Math.max(0, Math.min(255, Math.round(ig * 255)));
+  const b = Math.max(0, Math.min(255, Math.round(ib * 255)));
+
   return [r, g, b];
 }
 
