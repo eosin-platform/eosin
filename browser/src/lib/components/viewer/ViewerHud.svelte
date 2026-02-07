@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { settings, hudMoreMenuOpen, type StainEnhancementMode } from '$lib/stores/settings';
   import ViewerHudMoreMenu from './ViewerHudMoreMenu.svelte';
 
@@ -18,6 +19,17 @@
   }
 
   let { zoom, onZoomChange, onFitView, magnification, onHelpToggle, helpActive = false }: Props = $props();
+
+  // Help button pulse animation state (plays on mount for 1500ms)
+  let helpButtonPulsing = $state(true);
+
+  onMount(() => {
+    // Stop the pulse animation after 1500ms
+    const timer = setTimeout(() => {
+      helpButtonPulsing = false;
+    }, 1500);
+    return () => clearTimeout(timer);
+  });
 
   // Bind to settings store
   let brightness = $state($settings.image.brightness);
@@ -189,6 +201,7 @@
     ontouchstart={stopPropagation}
     class="help-btn"
     class:active={helpActive}
+    class:pulsing={helpButtonPulsing && !helpActive}
     title="Help (H)"
   >
     <!-- Question mark icon -->
@@ -392,6 +405,42 @@
     background: #3b82f6;
     border-color: #3b82f6;
     color: white;
+  }
+
+  /* Eye-catching pulse/breathing animation for help button on page load */
+  @keyframes help-pulse {
+    0% {
+      transform: scale(1);
+      box-shadow: 
+        0 4px 16px rgba(0, 0, 0, 0.3),
+        0 0 0 0 rgba(59, 130, 246, 0.7),
+        0 0 0 0 rgba(59, 130, 246, 0.4);
+    }
+    50% {
+      transform: scale(1.08);
+      box-shadow: 
+        0 6px 24px rgba(0, 0, 0, 0.4),
+        0 0 20px 4px rgba(59, 130, 246, 0.6),
+        0 0 40px 8px rgba(59, 130, 246, 0.3);
+    }
+    100% {
+      transform: scale(1);
+      box-shadow: 
+        0 4px 16px rgba(0, 0, 0, 0.3),
+        0 0 0 0 rgba(59, 130, 246, 0.7),
+        0 0 0 0 rgba(59, 130, 246, 0.4);
+    }
+  }
+
+  .help-btn.pulsing {
+    animation: help-pulse 0.75s ease-in-out 2;
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.9), rgba(99, 102, 241, 0.9));
+    border-color: rgba(99, 102, 241, 0.8);
+    color: white;
+  }
+
+  .help-btn.pulsing .help-icon {
+    filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.6));
   }
 
   .help-icon {
