@@ -1473,10 +1473,16 @@ def train(args: argparse.Namespace) -> None:
         drop_last=True,
     )
 
-    # TensorBoard writer
-    os.makedirs(args.log_dir, exist_ok=True)
-    writer = SummaryWriter(log_dir=args.log_dir)
-    print(f"TensorBoard logs: {args.log_dir}")
+    # TensorBoard writer with unique run directory
+    from datetime import datetime
+    if args.run_name:
+        run_name = args.run_name
+    else:
+        run_name = datetime.now().strftime("%Y%m%d_%H%M%S")
+    run_log_dir = os.path.join(args.log_dir, run_name)
+    os.makedirs(run_log_dir, exist_ok=True)
+    writer = SummaryWriter(log_dir=run_log_dir)
+    print(f"TensorBoard logs: {run_log_dir}")
 
     # Create models
     print("Initializing models...")
@@ -1835,7 +1841,7 @@ def main():
     parser.add_argument(
         '--lr',
         type=float,
-        default=2e-4,
+        default=1e-4,
         help='Learning rate for Adam optimizer',
     )
     parser.add_argument(
@@ -1967,7 +1973,13 @@ def main():
         '--log-dir',
         type=str,
         default='./runs',
-        help='Directory for TensorBoard logs',
+        help='Base directory for TensorBoard logs (each run gets a timestamped subdirectory)',
+    )
+    parser.add_argument(
+        '--run-name',
+        type=str,
+        default=None,
+        help='Custom name for this run (used as subdirectory name). If not specified, uses timestamp.',
     )
     parser.add_argument(
         '--log-interval',
