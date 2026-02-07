@@ -1,6 +1,5 @@
 <script lang="ts">
 	import './layout.css';
-	import favicon from '$lib/assets/favicon.svg';
 	import Sidebar from '$lib/components/Sidebar.svelte';
 	import AppHeader from '$lib/components/AppHeader.svelte';
 	import type { Snippet } from 'svelte';
@@ -87,7 +86,10 @@
 	});
 </script>
 
-<svelte:head><link rel="icon" href={favicon} /></svelte:head>
+<svelte:head>
+	<title>Histion • WSI</title>
+	<link rel="icon" type="image/png" href="/favicon.png" />
+</svelte:head>
 <div class="app-layout" class:mobile={isMobile}>
 	<!-- Mobile overlay when sidebar is open -->
 	{#if isMobile && !sidebarCollapsed}
