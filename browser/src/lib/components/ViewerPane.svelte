@@ -846,10 +846,21 @@
       </div>
     {/if}
   {:else}
-    <div class="no-image">
-      <h2>No Image Loaded</h2>
-      <p>Select a slide from the sidebar, or add a slide ID to the URL:</p>
-      <code>?slide=&lt;uuid&gt;</code>
+    <div class="welcome-screen">
+      <div class="welcome-content">
+        <img src="/logo_full.png" alt="Histion Logo" class="welcome-logo" />
+        <h2>Welcome to Histion</h2>
+        <p class="welcome-subtitle">Multi-gigapixel histopathology at your fingertips.</p>
+        <div class="getting-started">
+          <h3>Getting Started</h3>
+          <ul>
+            <li><strong>Browse slides:</strong> Open the sidebar to browse available slides</li>
+            <li><strong>Open a slide:</strong> Click on any slide in the sidebar to view it</li>
+            <li><strong>Navigate:</strong> Drag to pan, scroll to zoom, or use the minimap</li>
+            <li><strong>Keyboard shortcuts:</strong> Press <kbd>H</kbd> for help</li>
+          </ul>
+        </div>
+      </div>
     </div>
   {/if}
 
@@ -892,25 +903,94 @@
     z-index: 0;
   }
 
-  .no-image {
+  .welcome-screen {
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     height: 100%;
-    color: #888;
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+    padding: 2rem;
+    box-sizing: border-box;
+  }
+
+  .welcome-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
     text-align: center;
+    max-width: 500px;
   }
 
-  .no-image h2 {
-    margin-bottom: 1rem;
+  .welcome-logo {
+    max-width: 280px;
+    width: 100%;
+    height: auto;
+    margin-bottom: 1.5rem;
+    filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.3));
   }
 
-  .no-image code {
-    background: #2a2a2a;
-    padding: 0.5rem 1rem;
-    border-radius: 4px;
+  .welcome-screen h2 {
+    color: #e8e8e8;
+    font-size: 1.75rem;
+    font-weight: 600;
+    margin: 0 0 0.5rem 0;
+  }
+
+  .welcome-subtitle {
+    color: #94a3b8;
+    font-size: 1rem;
+    margin: 0 0 2rem 0;
+  }
+
+  .getting-started {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    padding: 1.25rem 1.5rem;
+    width: 100%;
+    text-align: left;
+    margin-bottom: 1.5rem;
+  }
+
+  .getting-started h3 {
+    color: #e2e8f0;
+    font-size: 1rem;
+    font-weight: 600;
+    margin: 0 0 0.75rem 0;
+  }
+
+  .getting-started ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+
+  .getting-started li {
+    color: #cbd5e1;
     font-size: 0.875rem;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  }
+
+  .getting-started li:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+  }
+
+  .getting-started li strong {
+    color: #60a5fa;
+  }
+
+  .getting-started kbd {
+    display: inline-block;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 4px;
+    padding: 0.125rem 0.375rem;
+    font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', monospace;
+    font-size: 0.75rem;
+    color: #e2e8f0;
   }
 
   .controls {
