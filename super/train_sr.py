@@ -1134,6 +1134,7 @@ def save_sample_grid_v2(
     lr = lr[:num_samples].cpu()
     hr = hr[:num_samples].cpu()
     sr = sr[:num_samples].cpu()
+    num_samples = lr.shape[0]  # Actual batch size after slicing
 
     # Bicubic upsample LR for comparison
     bicubic = F.interpolate(lr, scale_factor=2, mode='bicubic', align_corners=False)
