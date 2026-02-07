@@ -96,13 +96,31 @@ const normalizationCache = new Map<string, NormalizationParams>();
 const sampleAccumulator = new Map<string, number[][]>();
 
 /** Minimum number of OD samples needed for reliable parameter estimation */
-const MIN_SAMPLES_FOR_ESTIMATION = 1000;
+const MIN_SAMPLES_FOR_ESTIMATION = 5000;
 
 /** Maximum samples to accumulate (for memory efficiency) */
-const MAX_ACCUMULATED_SAMPLES = 50000;
+const MAX_ACCUMULATED_SAMPLES = 100000;
 
 /** Number of tiles we've sampled from, for tracking */
 const tilesContributed = new Map<string, number>();
+
+/** Minimum number of tiles required before computing parameters */
+const MIN_TILES_FOR_ESTIMATION = 8;
+
+/**
+ * Interval of tiles at which to compute candidate parameters for stability checking.
+ * E.g., every 4 tiles we recompute and compare to cached params.
+ */
+const STABILITY_CHECK_INTERVAL = 4;
+
+/**
+ * Maximum relative difference in stain matrix or maxC before invalidating cache.
+ * If new candidate params differ by more than this threshold, we invalidate and re-estimate.
+ */
+const STABILITY_THRESHOLD = 0.25;
+
+/** Track last stability check tile count per cache key */
+const lastStabilityCheck = new Map<string, number>();
 
 /**
  * Clear cached normalization parameters for a specific slide or all slides.
@@ -125,10 +143,16 @@ export function clearNormalizationCache(slideId?: string): void {
         tilesContributed.delete(key);
       }
     }
+    for (const key of lastStabilityCheck.keys()) {
+      if (key.startsWith(`${slideId}_`)) {
+        lastStabilityCheck.delete(key);
+      }
+    }
   } else {
     normalizationCache.clear();
     sampleAccumulator.clear();
     tilesContributed.clear();
+    lastStabilityCheck.clear();
   }
 }
 
@@ -741,6 +765,99 @@ function nmf2(
 }
 
 // ============================================================================
+// Parameter Computation and Stability Checking
+// ============================================================================
+
+/**
+ * Compute normalization parameters from accumulated OD samples.
+ * This is the core computation, extracted for reuse in stability checking.
+ *
+ * @param samples - Accumulated OD samples
+ * @param mode - Normalization mode
+ * @returns Computed parameters, or null if computation fails
+ */
+function computeNormalizationParams(
+  samples: number[][],
+  mode: StainNormalizationMode
+): NormalizationParams | null {
+  if (samples.length < MIN_SAMPLES_FOR_ESTIMATION) {
+    return null;
+  }
+
+  let stainMatrix: number[][];
+  let concentrations: number[][];
+
+  if (mode === 'macenko') {
+    // Macenko: SVD-based estimation
+    stainMatrix = estimateMacenkoStainMatrix(samples);
+    concentrations = computeConcentrations(samples, stainMatrix);
+  } else {
+    // Vahadane: NMF-based estimation
+    const nmfResult = nmf2(samples, 2, 50);
+    stainMatrix = nmfResult.stainMatrix;
+    concentrations = nmfResult.concentrations;
+  }
+
+  // Compute 99th percentile of concentrations (max stain intensity)
+  const maxC = columnPercentile(concentrations, 0.99);
+
+  // Validate maxC - use reference values if computed values are invalid
+  const refMaxC = mode === 'macenko' ? REFERENCE_MAX_C_MACENKO : REFERENCE_MAX_C_VAHADANE;
+  if (maxC.length < 2 || maxC[0] < 0.1 || maxC[1] < 0.1 || !Number.isFinite(maxC[0]) || !Number.isFinite(maxC[1])) {
+    maxC[0] = refMaxC[0];
+    maxC[1] = refMaxC[1];
+  }
+
+  return {
+    stainMatrix,
+    maxC,
+    mode,
+  };
+}
+
+/**
+ * Check if two sets of normalization parameters are similar enough.
+ * Used for stability checking - if params diverge too much, we invalidate cache.
+ *
+ * @param a - First parameter set
+ * @param b - Second parameter set
+ * @returns true if parameters are within stability threshold
+ */
+function areParamsStable(a: NormalizationParams, b: NormalizationParams): boolean {
+  // Compare maxC values (most important for color appearance)
+  for (let i = 0; i < 2; i++) {
+    const valA = a.maxC[i];
+    const valB = b.maxC[i];
+    const avg = (valA + valB) / 2;
+    if (avg > 0) {
+      const relDiff = Math.abs(valA - valB) / avg;
+      if (relDiff > STABILITY_THRESHOLD) {
+        console.debug(`maxC[${i}] diverged: ${valA.toFixed(3)} vs ${valB.toFixed(3)} (${(relDiff * 100).toFixed(1)}%)`);
+        return false;
+      }
+    }
+  }
+
+  // Compare stain matrix vectors
+  for (let col = 0; col < 2; col++) {
+    for (let row = 0; row < 3; row++) {
+      const valA = a.stainMatrix[row][col];
+      const valB = b.stainMatrix[row][col];
+      const avg = (Math.abs(valA) + Math.abs(valB)) / 2;
+      if (avg > 0.01) { // Only check non-trivial values
+        const relDiff = Math.abs(valA - valB) / avg;
+        if (relDiff > STABILITY_THRESHOLD) {
+          console.debug(`stainMatrix[${row}][${col}] diverged: ${valA.toFixed(3)} vs ${valB.toFixed(3)} (${(relDiff * 100).toFixed(1)}%)`);
+          return false;
+        }
+      }
+    }
+  }
+
+  return true;
+}
+
+// ============================================================================
 // Main API
 // ============================================================================
 
@@ -748,6 +865,10 @@ function nmf2(
  * Get or compute normalization parameters for a slide.
  * Accumulates samples from multiple tiles for more robust estimation.
  * Results are cached per slide+mode combination.
+ * 
+ * Includes stability checking: every few tiles, we recompute candidate
+ * parameters and compare to cached. If they diverge significantly, we
+ * invalidate the cache and re-estimate with more samples.
  *
  * @param slideId - Unique identifier for the slide
  * @param pixels - Representative pixel buffer (RGBA) for parameter estimation
@@ -765,11 +886,6 @@ export function getOrComputeNormalizationParams(
 
   const cacheKey = `${slideId}_${mode}`;
 
-  // Return cached params if already computed
-  if (normalizationCache.has(cacheKey)) {
-    return normalizationCache.get(cacheKey) ?? null;
-  }
-
   // Extract OD samples from this tile
   const newSamples = extractOdFromPixels(pixels, 0.1, 5000);
   
@@ -784,49 +900,53 @@ export function getOrComputeNormalizationParams(
     sampleAccumulator.set(cacheKey, accumulated);
   }
   
-  // Need enough samples from at least 3 tiles for robust estimation
-  const MIN_TILES = 3;
-  if (accumulated.length < MIN_SAMPLES_FOR_ESTIMATION || numTiles < MIN_TILES) {
+  // Check if we have cached params and should do a stability check
+  const cachedParams = normalizationCache.get(cacheKey);
+  if (cachedParams) {
+    const lastCheck = lastStabilityCheck.get(cacheKey) || 0;
+    // Perform stability check every STABILITY_CHECK_INTERVAL tiles
+    if (numTiles - lastCheck >= STABILITY_CHECK_INTERVAL && accumulated.length >= MIN_SAMPLES_FOR_ESTIMATION) {
+      lastStabilityCheck.set(cacheKey, numTiles);
+      const candidateParams = computeNormalizationParams(accumulated, mode);
+      if (candidateParams && !areParamsStable(cachedParams, candidateParams)) {
+        // Parameters diverged too much - invalidate cache and re-estimate with more samples
+        console.warn(`Stain normalization params unstable for ${slideId}, invalidating cache`);
+        normalizationCache.delete(cacheKey);
+        // Don't clear accumulated samples - keep building up for better estimate
+      } else {
+        // Params are stable, return cached
+        return cachedParams;
+      }
+    } else {
+      // Not time for stability check yet, return cached
+      return cachedParams;
+    }
+  }
+  
+  // Need enough samples from sufficient tiles for robust estimation
+  if (accumulated.length < MIN_SAMPLES_FOR_ESTIMATION || numTiles < MIN_TILES_FOR_ESTIMATION) {
     // Not enough samples yet - return null to skip normalization for now
     // The tile will be re-processed once params are available
     return null;
   }
   
   // We have enough samples - compute parameters
-  let stainMatrix: number[][];
-  let concentrations: number[][];
-
-  if (mode === 'macenko') {
-    // Macenko: SVD-based estimation
-    stainMatrix = estimateMacenkoStainMatrix(accumulated);
-    concentrations = computeConcentrations(accumulated, stainMatrix);
-  } else {
-    // Vahadane: NMF-based estimation
-    const nmfResult = nmf2(accumulated, 2, 50);
-    stainMatrix = nmfResult.stainMatrix;
-    concentrations = nmfResult.concentrations;
+  const params = computeNormalizationParams(accumulated, mode);
+  if (!params) {
+    return null;
   }
 
-  // Compute 99th percentile of concentrations (max stain intensity)
-  const maxC = columnPercentile(concentrations, 0.99);
-
-  // Validate maxC - use reference values if computed values are invalid
-  const refMaxC = mode === 'macenko' ? REFERENCE_MAX_C_MACENKO : REFERENCE_MAX_C_VAHADANE;
-  if (maxC.length < 2 || maxC[0] < 0.1 || maxC[1] < 0.1 || !Number.isFinite(maxC[0]) || !Number.isFinite(maxC[1])) {
-    maxC[0] = refMaxC[0];
-    maxC[1] = refMaxC[1];
-  }
-
-  const params: NormalizationParams = {
-    stainMatrix,
-    maxC,
-    mode,
-  };
-
-  // Cache and clean up accumulated samples
+  // Cache the computed parameters
+  // Keep accumulator for stability checking - only clear when we've reached max samples
   normalizationCache.set(cacheKey, params);
-  sampleAccumulator.delete(cacheKey);
-  tilesContributed.delete(cacheKey);
+  lastStabilityCheck.set(cacheKey, numTiles);
+  
+  // Clean up if we've accumulated enough samples
+  if (accumulated.length >= MAX_ACCUMULATED_SAMPLES) {
+    sampleAccumulator.delete(cacheKey);
+    tilesContributed.delete(cacheKey);
+    lastStabilityCheck.delete(cacheKey);
+  }
   
   return params;
 }
