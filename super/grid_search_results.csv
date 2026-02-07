@@ -1,1 +1,4 @@
 run_name,lr,lambda_pixel,lambda_perceptual,lambda_edge,lambda_freq,lambda_adv,g_channels,g_blocks,final_loss_generator
+grid_lr5e-5_perc0.01_adv0.01,5e-5,1.0,0.01,0.1,0.05,0.01,128,20,0.0005
+grid_lr1e-4_perc0.01_adv0.01,1e-4,1.0,0.01,0.1,0.05,0.01,128,20,0.0003
+grid_lr2e-4_perc0.01_adv0.01,2e-4,1.0,0.01,0.1,0.05,0.01,128,20,0.0002
