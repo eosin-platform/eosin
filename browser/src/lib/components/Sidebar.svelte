@@ -818,4 +818,47 @@
     border-radius: 50%;
     animation: spin 0.8s linear infinite;
   }
+
+  /* Touch device adaptations - larger touch targets */
+  @media (pointer: coarse) {
+    .toggle-btn {
+      width: 44px;
+      height: 44px;
+    }
+
+    .toggle-btn svg {
+      width: 20px;
+      height: 20px;
+    }
+
+    /* Larger slide items for easier tapping */
+    .slide-item {
+      padding: 1rem;
+      gap: 0.375rem;
+      min-height: 60px;
+    }
+
+    .slide-name {
+      font-size: 1rem;
+    }
+
+    .slide-dimensions,
+    .slide-size,
+    .slide-progress {
+      font-size: 0.875rem;
+    }
+
+    .slide-icon {
+      width: 36px;
+      height: 36px;
+      font-size: 0.875rem;
+    }
+
+    /* Larger error button */
+    .error-state button {
+      padding: 0.625rem 1rem;
+      font-size: 0.875rem;
+      min-height: 44px;
+    }
+  }
 </style>

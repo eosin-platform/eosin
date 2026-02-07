@@ -1232,5 +1232,60 @@
     .tab-btn {
       padding: 0.75rem 1rem;
     }
+
+    /* Larger segmented control buttons for touch */
+    .segment {
+      padding: 0.75rem 1rem;
+      font-size: 0.9375rem;
+      min-height: 44px;
+    }
+
+    /* Larger slider for touch */
+    .slider-row input[type="range"] {
+      height: 8px;
+    }
+
+    .slider-row input[type="range"]::-webkit-slider-thumb {
+      width: 28px;
+      height: 28px;
+    }
+
+    .slider-row input[type="range"]::-moz-range-thumb {
+      width: 28px;
+      height: 28px;
+    }
+
+    /* Larger reset button for touch */
+    .reset-btn {
+      padding: 0.75rem 1rem;
+      font-size: 0.875rem;
+      min-height: 44px;
+    }
+
+    /* Larger primary button for touch */
+    .primary-btn {
+      padding: 0.875rem 1.5rem;
+      font-size: 1rem;
+      min-height: 48px;
+    }
+
+    /* Larger danger button for touch */
+    .danger-btn {
+      padding: 0.875rem 1.25rem;
+      font-size: 1rem;
+      min-height: 48px;
+    }
+
+    /* Larger color swatch for touch */
+    .color-swatch {
+      width: 44px;
+      height: 44px;
+    }
+
+    /* Larger text button for touch */
+    .text-btn {
+      font-size: 1rem;
+      padding: 0.5rem;
+    }
   }
 </style>

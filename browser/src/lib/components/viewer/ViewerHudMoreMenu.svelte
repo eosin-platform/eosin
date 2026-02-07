@@ -689,4 +689,94 @@
       flex-shrink: 0;
     }
   }
+
+  /* Touch device adaptations - larger touch targets */
+  @media (pointer: coarse) {
+    /* Larger slider track and thumb for touch */
+    .slider {
+      height: 8px;
+      border-radius: 4px;
+    }
+
+    .slider::-webkit-slider-thumb {
+      width: 28px;
+      height: 28px;
+    }
+
+    .slider::-moz-range-thumb {
+      width: 28px;
+      height: 28px;
+    }
+
+    .slider-value {
+      font-size: 0.875rem;
+      min-width: 2.5rem;
+    }
+
+    /* Larger segmented control buttons for touch */
+    .segmented-control {
+      padding: 3px;
+      gap: 3px;
+    }
+
+    .segment {
+      padding: 0.75rem 0.625rem;
+      font-size: 0.8125rem;
+      min-height: 44px;
+    }
+
+    .stain-enhancement-control .segment {
+      padding: 0.75rem 0.375rem;
+      font-size: 0.75rem;
+    }
+
+    /* Larger select input for touch */
+    .select-input {
+      padding: 0.75rem;
+      font-size: 0.9375rem;
+      min-height: 48px;
+    }
+
+    /* Larger toggle switch for touch */
+    .toggle-track {
+      width: 52px;
+      height: 28px;
+      border-radius: 14px;
+    }
+
+    .toggle-thumb {
+      width: 22px;
+      height: 22px;
+      top: 3px;
+      left: 3px;
+    }
+
+    .toggle-btn.active .toggle-thumb {
+      transform: translateX(24px);
+    }
+
+    /* Larger reset button for touch */
+    .reset-all-btn {
+      padding: 0.875rem 1rem;
+      font-size: 0.9375rem;
+      min-height: 48px;
+    }
+
+    /* Larger menu labels for readability */
+    .menu-label {
+      font-size: 0.75rem;
+      margin-bottom: 0.5rem;
+    }
+
+    /* Larger mobile close button */
+    .mobile-close {
+      width: 44px;
+      height: 44px;
+    }
+
+    .mobile-close svg {
+      width: 22px;
+      height: 22px;
+    }
+  }
 </style>

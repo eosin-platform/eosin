@@ -439,10 +439,24 @@
 
   /* Touch device adaptations - larger touch targets */
   @media (pointer: coarse) {
+    .tab-bar {
+      min-height: 48px;
+    }
+
+    .tab {
+      padding: 0 0.5rem 0 1rem;
+      font-size: 0.9375rem;
+      min-height: 48px;
+    }
+
     .tab-close {
-      width: 28px;
-      height: 28px;
+      width: 36px;
+      height: 36px;
       font-size: 1.25rem;
+    }
+
+    .tab-bar-empty {
+      font-size: 0.9375rem;
     }
   }
 </style>

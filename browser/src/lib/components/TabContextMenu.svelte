@@ -228,8 +228,13 @@
   /* Touch device adaptations - larger touch targets */
   @media (pointer: coarse) {
     .context-menu-item {
-      padding: 0.75rem 1rem;
-      font-size: 0.9375rem;
+      padding: 0.875rem 1rem;
+      font-size: 1rem;
+      min-height: 48px;
+    }
+
+    .separator {
+      margin: 6px 0;
     }
   }
 </style>

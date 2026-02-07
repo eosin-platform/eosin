@@ -563,5 +563,36 @@
       width: 1.25rem;
       height: 1.25rem;
     }
+
+    /* Larger slider track and thumb for touch */
+    .slider {
+      height: 8px;
+      border-radius: 4px;
+    }
+
+    .slider::-webkit-slider-thumb {
+      width: 24px;
+      height: 24px;
+    }
+
+    .slider::-moz-range-thumb {
+      width: 24px;
+      height: 24px;
+    }
+
+    /* Larger select/combobox for touch */
+    .stain-select {
+      padding: 0.625rem 0.75rem;
+      font-size: 0.875rem;
+      min-height: 44px;
+    }
+
+    /* Larger zoom input for touch */
+    .zoom-input {
+      padding: 0.625rem 0.75rem;
+      font-size: 0.875rem;
+      min-height: 44px;
+      width: 5rem;
+    }
   }
 </style>

@@ -145,8 +145,15 @@
   /* Touch device adaptations - larger touch targets */
   @media (pointer: coarse) {
     .context-menu-item {
-      padding: 0.75rem 1rem;
-      font-size: 0.9375rem;
+      padding: 0.875rem 1rem;
+      font-size: 1rem;
+      min-height: 48px;
+      gap: 0.75rem;
+    }
+
+    .context-menu-item svg {
+      width: 18px;
+      height: 18px;
     }
   }
 </style>
