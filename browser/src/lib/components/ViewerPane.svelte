@@ -1122,4 +1122,158 @@
   .hud-notification :global(.dim) {
     opacity: 0.6;
   }
+
+  /* Responsive styles for welcome screen - height constrained */
+  @media (max-height: 600px) {
+    .welcome-screen {
+      padding: 1rem;
+    }
+
+    .welcome-logo {
+      max-width: 160px;
+      margin-bottom: 0.75rem;
+    }
+
+    .welcome-screen h2 {
+      font-size: 1.25rem;
+      margin-bottom: 0.25rem;
+    }
+
+    .welcome-subtitle {
+      font-size: 0.875rem;
+      margin-bottom: 1rem;
+    }
+
+    .getting-started {
+      padding: 0.75rem 1rem;
+      margin-bottom: 0.75rem;
+    }
+
+    .getting-started h3 {
+      font-size: 0.875rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .getting-started li {
+      font-size: 0.8125rem;
+      padding: 0.375rem 0;
+    }
+  }
+
+  /* Responsive styles for welcome screen - very height constrained */
+  @media (max-height: 480px) {
+    .welcome-screen {
+      padding: 0.5rem;
+      justify-content: flex-start;
+      overflow: hidden;
+    }
+
+    .welcome-content {
+      max-width: 100%;
+    }
+
+    .welcome-logo {
+      max-width: 100px;
+      margin-bottom: 0.5rem;
+    }
+
+    .welcome-screen h2 {
+      font-size: 1rem;
+    }
+
+    .welcome-subtitle {
+      font-size: 0.75rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .getting-started {
+      padding: 0.5rem 0.75rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .getting-started h3 {
+      font-size: 0.8125rem;
+      margin-bottom: 0.375rem;
+    }
+
+    .getting-started li {
+      font-size: 0.75rem;
+      padding: 0.25rem 0;
+    }
+  }
+
+  /* Responsive styles for welcome screen - width constrained */
+  @media (max-width: 480px) {
+    .welcome-screen {
+      padding: 1rem;
+    }
+
+    .welcome-content {
+      max-width: 100%;
+      width: 100%;
+    }
+
+    .welcome-logo {
+      max-width: 200px;
+      margin-bottom: 1rem;
+    }
+
+    .welcome-screen h2 {
+      font-size: 1.375rem;
+    }
+
+    .welcome-subtitle {
+      font-size: 0.875rem;
+      margin-bottom: 1rem;
+    }
+
+    .getting-started {
+      padding: 1rem;
+    }
+
+    .getting-started li {
+      font-size: 0.8125rem;
+    }
+  }
+
+  /* Responsive styles for welcome screen - small mobile (both constrained) */
+  @media (max-width: 380px), (max-height: 400px) {
+    .welcome-screen {
+      padding: 0.5rem;
+    }
+
+    .welcome-logo {
+      max-width: 80px;
+      margin-bottom: 0.5rem;
+    }
+
+    .welcome-screen h2 {
+      font-size: 1rem;
+    }
+
+    .welcome-subtitle {
+      font-size: 0.75rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .getting-started {
+      padding: 0.5rem 0.75rem;
+      margin-bottom: 0;
+    }
+
+    .getting-started h3 {
+      font-size: 0.75rem;
+      margin-bottom: 0.25rem;
+    }
+
+    .getting-started li {
+      font-size: 0.6875rem;
+      padding: 0.25rem 0;
+    }
+
+    .getting-started kbd {
+      font-size: 0.625rem;
+      padding: 0.0625rem 0.25rem;
+    }
+  }
 </style>
