@@ -2,8 +2,16 @@ syntax = "proto3";
 
 package storage;
 
+// API service for client/server communication
 service StorageApi {
+    // Get a tile from storage
     rpc GetTile(GetTileRequest) returns (GetTileResponse);
+    
+    // Store a tile
+    rpc PutTile(PutTileRequest) returns (PutTileResponse);
+    
+    // Health check
+    rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
 }
 
 message GetTileRequest {
@@ -15,4 +23,22 @@ message GetTileRequest {
 
 message GetTileResponse {
     bytes data = 1;
+}
+
+message PutTileRequest {
+    bytes id = 1;  // 16-byte UUID
+    uint32 x = 2;
+    uint32 y = 3;
+    uint32 level = 4;
+    bytes data = 5;
+}
+
+message PutTileResponse {
+    bool success = 1;
+}
+
+message HealthCheckRequest {}
+
+message HealthCheckResponse {
+    bool healthy = 1;
 }

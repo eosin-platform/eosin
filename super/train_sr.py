@@ -108,6 +108,28 @@ def uuid_hex_to_bytes(uuid_hex: str) -> bytes:
     return bytes.fromhex(hex_clean)
 
 
+def check_grpc_health(grpc_address: str, timeout: float = 10.0) -> bool:
+    """Test gRPC connection with a health check."""
+    print(f"Testing gRPC connection to {grpc_address}...")
+    try:
+        channel = grpc.insecure_channel(grpc_address)
+        stub = storage_pb2_grpc.StorageApiStub(channel)
+        
+        # Try health check RPC
+        request = storage_pb2.HealthCheckRequest()
+        response = stub.HealthCheck(request, timeout=timeout)
+        print(f"Health check passed: healthy={response.healthy}")
+        channel.close()
+        return response.healthy
+    except grpc.RpcError as e:
+        print(f"Health check failed: {e.code()} - {e.details()}")
+        channel.close()
+        return False
+    except Exception as e:
+        print(f"Health check error: {e}")
+        return False
+
+
 # =============================================================================
 # Dataset
 # =============================================================================
@@ -491,6 +513,14 @@ def train(args: argparse.Namespace) -> None:
 
     if len(slides) == 0:
         raise ValueError("No valid slides found in CSV (need at least one 512x512 tile)")
+
+    # Test gRPC connection before starting training
+    if not check_grpc_health(args.grpc_address):
+        print("WARNING: gRPC health check failed. Continuing anyway...")
+        print("If you continue to see connection errors, check:")
+        print("  1. Is the storage server running?")
+        print("  2. Is kubectl port-forward active?")
+        print(f"  3. Is {args.grpc_address} the correct address?")
 
     # Create dataset and dataloader
     print(f"Creating dataset with gRPC address: {args.grpc_address}")

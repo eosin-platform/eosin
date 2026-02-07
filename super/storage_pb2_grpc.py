@@ -26,7 +26,8 @@ if _version_not_supported:
 
 
 class StorageApiStub(object):
-    """Missing associated documentation comment in .proto file."""
+    """API service for client/server communication
+    """
 
     def __init__(self, channel):
         """Constructor.
@@ -39,13 +40,39 @@ class StorageApiStub(object):
                 request_serializer=storage__pb2.GetTileRequest.SerializeToString,
                 response_deserializer=storage__pb2.GetTileResponse.FromString,
                 _registered_method=True)
+        self.PutTile = channel.unary_unary(
+                '/storage.StorageApi/PutTile',
+                request_serializer=storage__pb2.PutTileRequest.SerializeToString,
+                response_deserializer=storage__pb2.PutTileResponse.FromString,
+                _registered_method=True)
+        self.HealthCheck = channel.unary_unary(
+                '/storage.StorageApi/HealthCheck',
+                request_serializer=storage__pb2.HealthCheckRequest.SerializeToString,
+                response_deserializer=storage__pb2.HealthCheckResponse.FromString,
+                _registered_method=True)
 
 
 class StorageApiServicer(object):
-    """Missing associated documentation comment in .proto file."""
+    """API service for client/server communication
+    """
 
     def GetTile(self, request, context):
-        """Missing associated documentation comment in .proto file."""
+        """Get a tile from storage
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def PutTile(self, request, context):
+        """Store a tile
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def HealthCheck(self, request, context):
+        """Health check
+        """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
@@ -58,6 +85,16 @@ def add_StorageApiServicer_to_server(servicer, server):
                     request_deserializer=storage__pb2.GetTileRequest.FromString,
                     response_serializer=storage__pb2.GetTileResponse.SerializeToString,
             ),
+            'PutTile': grpc.unary_unary_rpc_method_handler(
+                    servicer.PutTile,
+                    request_deserializer=storage__pb2.PutTileRequest.FromString,
+                    response_serializer=storage__pb2.PutTileResponse.SerializeToString,
+            ),
+            'HealthCheck': grpc.unary_unary_rpc_method_handler(
+                    servicer.HealthCheck,
+                    request_deserializer=storage__pb2.HealthCheckRequest.FromString,
+                    response_serializer=storage__pb2.HealthCheckResponse.SerializeToString,
+            ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
             'storage.StorageApi', rpc_method_handlers)
@@ -67,7 +104,8 @@ def add_StorageApiServicer_to_server(servicer, server):
 
  # This class is part of an EXPERIMENTAL API.
 class StorageApi(object):
-    """Missing associated documentation comment in .proto file."""
+    """API service for client/server communication
+    """
 
     @staticmethod
     def GetTile(request,
@@ -86,6 +124,60 @@ class StorageApi(object):
             '/storage.StorageApi/GetTile',
             storage__pb2.GetTileRequest.SerializeToString,
             storage__pb2.GetTileResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def PutTile(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/storage.StorageApi/PutTile',
+            storage__pb2.PutTileRequest.SerializeToString,
+            storage__pb2.PutTileResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def HealthCheck(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/storage.StorageApi/HealthCheck',
+            storage__pb2.HealthCheckRequest.SerializeToString,
+            storage__pb2.HealthCheckResponse.FromString,
             options,
             channel_credentials,
             insecure,

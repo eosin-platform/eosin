@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\rstorage.proto\x12\x07storage\"A\n\x0eGetTileRequest\x12\n\n\x02id\x18\x01 \x01(\x0c\x12\t\n\x01x\x18\x02 \x01(\r\x12\t\n\x01y\x18\x03 \x01(\r\x12\r\n\x05level\x18\x04 \x01(\r\"\x1f\n\x0fGetTileResponse\x12\x0c\n\x04\x64\x61ta\x18\x01 \x01(\x0c\x32J\n\nStorageApi\x12<\n\x07GetTile\x12\x17.storage.GetTileRequest\x1a\x18.storage.GetTileResponseb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\rstorage.proto\x12\x07storage\"A\n\x0eGetTileRequest\x12\n\n\x02id\x18\x01 \x01(\x0c\x12\t\n\x01x\x18\x02 \x01(\r\x12\t\n\x01y\x18\x03 \x01(\r\x12\r\n\x05level\x18\x04 \x01(\r\"\x1f\n\x0fGetTileResponse\x12\x0c\n\x04\x64\x61ta\x18\x01 \x01(\x0c\"O\n\x0ePutTileRequest\x12\n\n\x02id\x18\x01 \x01(\x0c\x12\t\n\x01x\x18\x02 \x01(\r\x12\t\n\x01y\x18\x03 \x01(\r\x12\r\n\x05level\x18\x04 \x01(\r\x12\x0c\n\x04\x64\x61ta\x18\x05 \x01(\x0c\"\"\n\x0fPutTileResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\"\x14\n\x12HealthCheckRequest\"&\n\x13HealthCheckResponse\x12\x0f\n\x07healthy\x18\x01 \x01(\x08\x32\xd2\x01\n\nStorageApi\x12<\n\x07GetTile\x12\x17.storage.GetTileRequest\x1a\x18.storage.GetTileResponse\x12<\n\x07PutTile\x12\x17.storage.PutTileRequest\x1a\x18.storage.PutTileResponse\x12H\n\x0bHealthCheck\x12\x1b.storage.HealthCheckRequest\x1a\x1c.storage.HealthCheckResponseb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -35,6 +35,14 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_GETTILEREQUEST']._serialized_end=91
   _globals['_GETTILERESPONSE']._serialized_start=93
   _globals['_GETTILERESPONSE']._serialized_end=124
-  _globals['_STORAGEAPI']._serialized_start=126
-  _globals['_STORAGEAPI']._serialized_end=200
+  _globals['_PUTTILEREQUEST']._serialized_start=126
+  _globals['_PUTTILEREQUEST']._serialized_end=205
+  _globals['_PUTTILERESPONSE']._serialized_start=207
+  _globals['_PUTTILERESPONSE']._serialized_end=241
+  _globals['_HEALTHCHECKREQUEST']._serialized_start=243
+  _globals['_HEALTHCHECKREQUEST']._serialized_end=263
+  _globals['_HEALTHCHECKRESPONSE']._serialized_start=265
+  _globals['_HEALTHCHECKRESPONSE']._serialized_end=303
+  _globals['_STORAGEAPI']._serialized_start=306
+  _globals['_STORAGEAPI']._serialized_end=516
 # @@protoc_insertion_point(module_scope)
