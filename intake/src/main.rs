@@ -1,9 +1,9 @@
 use anyhow::Result;
 use async_nats::jetstream::{self, consumer::PullConsumer};
 use clap::Parser;
+use eosin_common::shutdown::shutdown_signal;
+use eosin_common::streams::{CacheMissEvent, topics::CACHE_MISS};
 use futures::StreamExt;
-use histion_common::shutdown::shutdown_signal;
-use histion_common::streams::{CacheMissEvent, topics::CACHE_MISS};
 use tokio_util::sync::CancellationToken;
 
 mod args;
@@ -75,7 +75,7 @@ async fn run_consumer(args: ConsumerArgs) -> Result<()> {
         signal_cancel.cancel();
     });
 
-    histion_common::signal_ready();
+    eosin_common::signal_ready();
 
     loop {
         tokio::select! {
@@ -115,7 +115,7 @@ async fn run_consumer(args: ConsumerArgs) -> Result<()> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    histion_common::init();
+    eosin_common::init();
 
     tracing_subscriber::fmt::init();
 

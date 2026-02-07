@@ -1,8 +1,8 @@
 use anyhow::{Context, Result, bail};
 use async_nats::Client as NatsClient;
 use deadpool_postgres::Pool;
-use histion_common::streams::{SlideProgressEvent, topics};
-use histion_storage::StorageClient;
+use eosin_common::streams::{SlideProgressEvent, topics};
+use eosin_storage::StorageClient;
 use image::{ImageBuffer, Rgba, RgbaImage};
 use openslide_rs::{OpenSlide, Size};
 use rayon::prelude::*;

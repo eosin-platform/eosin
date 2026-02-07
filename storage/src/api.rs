@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use async_nats::jetstream::{self, message::PublishMessage};
-use histion_common::streams::{CacheMissEvent, topics::CACHE_MISS};
+use eosin_common::streams::{CacheMissEvent, topics::CACHE_MISS};
 use tokio::fs;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;

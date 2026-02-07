@@ -1,8 +1,8 @@
 use clap::{Parser, Subcommand};
-use histion_common::args::PostgresArgs;
+use eosin_common::args::PostgresArgs;
 
 #[derive(Parser, Debug)]
-#[command(name = "histion-meta")]
+#[command(name = "eosin-meta")]
 #[command(about = "Metadata service for SWI images")]
 pub struct Cli {
     #[command(subcommand)]

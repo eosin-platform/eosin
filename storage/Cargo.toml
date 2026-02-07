@@ -1,10 +1,10 @@
 [package]
-name = "histion-storage"
+name = "eosin-storage"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-histion-common = { path = "../common" }
+eosin-common = { path = "../common" }
 async-nats = { workspace = true }
 serde_json = { workspace = true }
 # For loading from cold storage

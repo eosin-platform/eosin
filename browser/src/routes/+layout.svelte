@@ -87,7 +87,7 @@
 </script>
 
 <svelte:head>
-	<title>Histion — Next-Generation WSI Viewer</title>
+	<title>Eosin — Next-Generation WSI Viewer</title>
 	<link rel="icon" type="image/png" href="/favicon.png" />
 </svelte:head>
 <div class="app-layout" class:mobile={isMobile}>

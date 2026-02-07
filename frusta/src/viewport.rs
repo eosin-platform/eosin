@@ -1,7 +1,7 @@
 use async_nats::Client as NatsClient;
 use bytes::Bytes;
+use eosin_common::streams::topics;
 use futures_util::StreamExt;
-use histion_common::streams::topics;
 use parking_lot::RwLock;
 use rustc_hash::FxHashMap;
 use std::sync::Arc;

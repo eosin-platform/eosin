@@ -988,8 +988,8 @@
   {:else}
     <div class="welcome-screen">
       <div class="welcome-content">
-        <img src="/logo_full.png" alt="Histion Logo" class="welcome-logo" />
-        <h2>Welcome to Histion</h2>
+        <img src="/logo_full.png" alt="Eosin Logo" class="welcome-logo" />
+        <h2>Welcome to Eosin</h2>
         <p class="welcome-subtitle">Multi-gigapixel histopathology at your fingertips.</p>
         <div class="getting-started">
           <h3>Getting Started</h3>

@@ -27,7 +27,7 @@ spec:
 {{ toYaml .Values.storage.resources | indent 10 }}
     {{- end }}
         command:
-          - histion-storage
+          - eosin-storage
           - server
           - --api-port
           - "80"
@@ -71,13 +71,13 @@ spec:
           value: {{ .Values.storage.logLevel }}
         - name: STORAGE_ENDPOINT
           value: http://{{ .Release.Name }}-storage:80
-{{ include "histion.metrics-env" . | indent 8 }}
-{{ include "histion.nats-env" . | indent 8 }}
+{{ include "eosin.metrics-env" . | indent 8 }}
+{{ include "eosin.nats-env" . | indent 8 }}
       - name: health
         imagePullPolicy: {{ .Values.storage.imagePullPolicy }}
         image: {{ $image }}
         command:
-          - histion-storage
+          - eosin-storage
           - health
           - --http-port
           - "8080"

@@ -179,7 +179,7 @@ export const DEFAULT_SETTINGS: Settings = {
 // Persistence
 // ============================================================================
 
-const STORAGE_KEY = 'histion-settings';
+const STORAGE_KEY = 'eosin-settings';
 const PERSIST_DEBOUNCE_MS = 500;
 
 let persistTimeout: ReturnType<typeof setTimeout> | null = null;

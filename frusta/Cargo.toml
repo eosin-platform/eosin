@@ -1,11 +1,11 @@
 [package]
-name = "histion-frusta"
+name = "eosin-frusta"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-histion-common = { path = "../common" }
-histion-storage = { path = "../storage" }
+eosin-common = { path = "../common" }
+eosin-storage = { path = "../storage" }
 clap = { workspace = true }
 bytes = { workspace = true }
 chrono = { workspace = true }

@@ -1,13 +1,11 @@
 use anyhow::{Context, Result};
 use async_nats::jetstream::{self, consumer::PullConsumer};
 use deadpool_postgres::Pool;
+use eosin_common::postgres::create_pool;
+use eosin_common::shutdown::shutdown_signal;
+use eosin_common::streams::{ProcessSlideEvent, SlideCreatedEvent, topics, topics::PROCESS_SLIDE};
+use eosin_storage::StorageClient;
 use futures::StreamExt;
-use histion_common::postgres::create_pool;
-use histion_common::shutdown::shutdown_signal;
-use histion_common::streams::{
-    ProcessSlideEvent, SlideCreatedEvent, topics, topics::PROCESS_SLIDE,
-};
-use histion_storage::StorageClient;
 use std::path::Path;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
@@ -112,7 +110,7 @@ pub async fn run_process(args: ProcessArgs) -> Result<()> {
         signal_cancel.cancel();
     });
 
-    histion_common::signal_ready();
+    eosin_common::signal_ready();
 
     // Clone clients for use in the loop
     let bucket = args.s3.bucket.clone();
@@ -293,7 +291,7 @@ async fn process_downloaded_slide(
 
     // Publish a "created" event so connected clients learn about the new slide
     // immediately, without needing to reload.
-    let created_event = histion_common::streams::SlideEvent::Created(SlideCreatedEvent {
+    let created_event = eosin_common::streams::SlideEvent::Created(SlideCreatedEvent {
         id: slide_id,
         width: metadata.width as i32,
         height: metadata.height as i32,

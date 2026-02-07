@@ -15,7 +15,7 @@ use process::run_process;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    histion_common::init();
+    eosin_common::init();
 
     tracing_subscriber::fmt::init();
 

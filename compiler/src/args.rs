@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use histion_common::args::{NatsArgs, PostgresArgs};
+use eosin_common::args::{NatsArgs, PostgresArgs};
 
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about, long_about = None)]
@@ -48,7 +48,7 @@ pub struct DispatchArgs {
     pub postgres: PostgresArgs,
 
     /// Name of the `JetStream` stream to publish to
-    #[arg(long, env = "STREAM_NAME", default_value = "histion")]
+    #[arg(long, env = "STREAM_NAME", default_value = "eosin")]
     pub stream_name: String,
 
     /// Maximum number of messages to dispatch before terminating (0 = unlimited)
@@ -68,7 +68,7 @@ pub struct ProcessArgs {
     pub postgres: PostgresArgs,
 
     /// Name of the `JetStream` stream to consume from
-    #[arg(long, env = "STREAM_NAME", default_value = "histion")]
+    #[arg(long, env = "STREAM_NAME", default_value = "eosin")]
     pub stream_name: String,
 
     /// Consumer name for durable consumption
@@ -76,7 +76,7 @@ pub struct ProcessArgs {
     pub consumer_name: String,
 
     /// Directory to download TIF files to
-    #[arg(long, env = "DOWNLOAD_DIR", default_value = "/tmp/histion/full")]
+    #[arg(long, env = "DOWNLOAD_DIR", default_value = "/tmp/eosin/full")]
     pub download_dir: String,
 
     /// Meta service endpoint URL

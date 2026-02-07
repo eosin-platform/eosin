@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use async_nats::jetstream::{self, message::PublishMessage};
-use histion_common::streams::{ProcessSlideEvent, topics::PROCESS_SLIDE};
+use eosin_common::streams::{ProcessSlideEvent, topics::PROCESS_SLIDE};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::args::DispatchArgs;
@@ -34,7 +34,7 @@ pub async fn run_dispatch(args: DispatchArgs) -> Result<()> {
     tracing::info!("connected to S3");
 
     // Create Postgres pool
-    let pg_pool = histion_common::postgres::create_pool(args.postgres.clone()).await;
+    let pg_pool = eosin_common::postgres::create_pool(args.postgres.clone()).await;
     tracing::info!("connected to Postgres");
 
     // Initialize the database schema

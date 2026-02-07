@@ -1,6 +1,6 @@
 apiVersion: v2
-description: "Histion - a performant Whole Slide Imaging viewer"
-name: histion
+description: "Eosin - a performant Whole Slide Imaging viewer"
+name: eosin
 version: 0.0.1
 maintainers:
   - name: Tom Havlik

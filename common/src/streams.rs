@@ -4,19 +4,19 @@ use uuid::Uuid;
 pub mod topics {
     use uuid::Uuid;
 
-    pub const CACHE_MISS: &str = "histion.cache.miss";
-    pub const PROCESS_SLIDE: &str = "histion.process.slide";
+    pub const CACHE_MISS: &str = "eosin.cache.miss";
+    pub const PROCESS_SLIDE: &str = "eosin.process.slide";
 
     pub fn tile_data(id: Uuid) -> String {
-        format!("histion.tile.{}", id)
+        format!("eosin.tile.{}", id)
     }
 
     pub fn slide_progress(id: Uuid) -> String {
-        format!("histion.slide.progress.{}", id)
+        format!("eosin.slide.progress.{}", id)
     }
 
     /// Wildcard topic to subscribe to progress events for ALL slides.
-    pub const SLIDE_PROGRESS_ALL: &str = "histion.slide.progress.*";
+    pub const SLIDE_PROGRESS_ALL: &str = "eosin.slide.progress.*";
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

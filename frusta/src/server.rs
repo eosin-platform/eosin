@@ -12,14 +12,14 @@ use axum::{
     Router,
 };
 use bytes::Bytes;
-use futures_util::{stream::SplitSink, SinkExt, StreamExt};
-use histion_common::{
+use eosin_common::{
     rate_limit::{RateLimiter, RateLimiterConfig},
     redis::init_redis,
     shutdown::shutdown_signal,
     streams::{topics, SlideEvent},
 };
-use histion_storage::client::StorageClient;
+use eosin_storage::client::StorageClient;
+use futures_util::{stream::SplitSink, SinkExt, StreamExt};
 use std::time::Instant;
 use std::{net::SocketAddr, time::Duration};
 use tokio_util::sync::CancellationToken;
@@ -103,7 +103,7 @@ pub async fn run_server(args: ServerArgs) -> Result<()> {
     let addr: SocketAddr = format!("0.0.0.0:{}", args.port).parse()?;
     tracing::info!(%addr, "starting frusta WebSocket server");
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    histion_common::signal_ready();
+    eosin_common::signal_ready();
     let shutdown_cancel = cancel.clone();
     axum::serve(listener, app)
         .with_graceful_shutdown(async move {
@@ -432,8 +432,8 @@ async fn progress_subscription_task(
                 };
 
                 // Extract the slide UUID from the NATS subject.
-                // Subject format: "histion.slide.progress.<uuid>"
-                let slide_id = match msg.subject.strip_prefix("histion.slide.progress.") {
+                // Subject format: "eosin.slide.progress.<uuid>"
+                let slide_id = match msg.subject.strip_prefix("eosin.slide.progress.") {
                     Some(id_str) => match Uuid::parse_str(id_str) {
                         Ok(id) => id,
                         Err(e) => {

@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use histion_common::args::NatsArgs;
+use eosin_common::args::NatsArgs;
 use std::net::SocketAddr;
 
 #[derive(Parser, Debug, Clone)]
@@ -20,7 +20,7 @@ pub struct ServerArgs {
     #[arg(long, env = "API_PORT", default_value_t = 3500)]
     pub api_port: u16,
 
-    #[arg(long, env = "DATA_ROOT", default_value = "/var/histion")]
+    #[arg(long, env = "DATA_ROOT", default_value = "/var/eosin")]
     pub data_root: String,
 
     #[arg(long, env = "CLUSTER_PORT")]

@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use histion_common::args::{NatsArgs, RedisArgs};
+use eosin_common::args::{NatsArgs, RedisArgs};
 
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about, long_about = None)]

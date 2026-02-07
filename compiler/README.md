@@ -15,14 +15,14 @@ Features:
 - Skips already-dispatched files
 
 ```bash
-histion-compiler dispatch \
+eosin-compiler dispatch \
   --bucket camelyon17 \
   --path-prefix slides/ \
   --nats-url nats://localhost:4222 \
   --nats-user user \
   --nats-password pass \
   --postgres-host localhost \
-  --postgres-database histion
+  --postgres-database eosin
 ```
 
 ### process
@@ -36,13 +36,13 @@ Features:
 - Skips already-downloaded files
 
 ```bash
-histion-compiler process \
+eosin-compiler process \
   --bucket camelyon17 \
   --path-prefix slides/ \
   --nats-url nats://localhost:4222 \
   --nats-user user \
   --nats-password pass \
-  --download-dir /tmp/histion/full
+  --download-dir /tmp/eosin/full
 ```
 
 ## Environment Variables
@@ -57,7 +57,7 @@ histion-compiler process \
 - `NATS_URL` - NATS server URL
 - `NATS_USER` - NATS username
 - `NATS_PASSWORD` - NATS password
-- `STREAM_NAME` - JetStream stream name (default: histion)
+- `STREAM_NAME` - JetStream stream name (default: eosin)
 - `CONSUMER_NAME` - Consumer name for process worker (default: compiler)
 
 ### PostgreSQL Configuration (dispatch only)
@@ -70,4 +70,4 @@ histion-compiler process \
 - `POSTGRES_SSL_MODE` - SSL mode (default: prefer)
 
 ### Process Worker Configuration
-- `DOWNLOAD_DIR` - Directory for downloaded files (default: /tmp/histion/full)
+- `DOWNLOAD_DIR` - Directory for downloaded files (default: /tmp/eosin/full)

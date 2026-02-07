@@ -1,4 +1,4 @@
-{{- define "histion.metrics-env" -}}
+{{- define "eosin.metrics-env" -}}
 - name: NODE_ID
   valueFrom:
     fieldRef:

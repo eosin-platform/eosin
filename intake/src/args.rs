@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use histion_common::args::NatsArgs;
+use eosin_common::args::NatsArgs;
 
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about, long_about = None)]
@@ -20,7 +20,7 @@ pub struct ConsumerArgs {
     pub nats: NatsArgs,
 
     /// Name of the JetStream stream to consume from
-    #[arg(long, env = "STREAM_NAME", default_value = "histion")]
+    #[arg(long, env = "STREAM_NAME", default_value = "eosin")]
     pub stream_name: String,
 
     /// Consumer name for durable consumption

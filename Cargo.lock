@@ -1575,6 +1575,191 @@ dependencies = [
 ]
 
 [[package]]
+name = "eosin-common"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-nats",
+ "async-trait",
+ "axum",
+ "axum-keycloak-auth",
+ "base64-url",
+ "bytes",
+ "chrono",
+ "clap",
+ "deadpool-postgres",
+ "deadpool-redis",
+ "futures-util",
+ "http 1.4.0",
+ "http-body-util",
+ "keycloak",
+ "metrics",
+ "metrics-exporter-prometheus",
+ "owo-colors",
+ "percent-encoding",
+ "postgres",
+ "postgres-types",
+ "rand 0.9.2",
+ "redis",
+ "reqwest",
+ "rustls 0.23.36",
+ "rustls-native-certs 0.8.3",
+ "rustls-pemfile",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-postgres",
+ "tokio-postgres-rustls",
+ "tokio-stream",
+ "tokio-util",
+ "tower",
+ "tower-http",
+ "uuid",
+]
+
+[[package]]
+name = "eosin-compiler"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-channel",
+ "async-nats",
+ "aws-config",
+ "aws-credential-types",
+ "aws-sdk-s3",
+ "aws-smithy-http 0.62.6",
+ "aws-smithy-runtime-api",
+ "aws-smithy-types",
+ "aws-types",
+ "bytes",
+ "clap",
+ "deadpool-postgres",
+ "eosin-common",
+ "eosin-storage",
+ "futures",
+ "image",
+ "openslide-rs",
+ "postgres",
+ "postgres-types",
+ "rayon",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-postgres",
+ "tokio-postgres-rustls",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+ "webp",
+]
+
+[[package]]
+name = "eosin-frusta"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-channel",
+ "async-nats",
+ "axum",
+ "bytes",
+ "chrono",
+ "clap",
+ "deadpool-redis",
+ "eosin-common",
+ "eosin-storage",
+ "futures-util",
+ "parking_lot",
+ "rustc-hash",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "eosin-intake"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-nats",
+ "aws-config",
+ "aws-credential-types",
+ "aws-sdk-s3",
+ "aws-smithy-http 0.62.6",
+ "aws-smithy-runtime-api",
+ "aws-smithy-types",
+ "aws-types",
+ "clap",
+ "eosin-common",
+ "futures",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "eosin-meta"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "clap",
+ "deadpool-postgres",
+ "eosin-common",
+ "postgres",
+ "postgres-types",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-postgres",
+ "tokio-postgres-rustls",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "eosin-storage"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-nats",
+ "aws-config",
+ "aws-credential-types",
+ "aws-sdk-s3",
+ "aws-smithy-http 0.62.6",
+ "aws-smithy-runtime-api",
+ "aws-smithy-types",
+ "aws-types",
+ "axum",
+ "clap",
+ "eosin-common",
+ "futures",
+ "prost",
+ "protobuf-src",
+ "serde_json",
+ "tokio",
+ "tokio-stream",
+ "tokio-util",
+ "tonic",
+ "tonic-prost",
+ "tonic-prost-build",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "equator"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2038,191 +2223,6 @@ name = "hex"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
-
-[[package]]
-name = "histion-common"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-nats",
- "async-trait",
- "axum",
- "axum-keycloak-auth",
- "base64-url",
- "bytes",
- "chrono",
- "clap",
- "deadpool-postgres",
- "deadpool-redis",
- "futures-util",
- "http 1.4.0",
- "http-body-util",
- "keycloak",
- "metrics",
- "metrics-exporter-prometheus",
- "owo-colors",
- "percent-encoding",
- "postgres",
- "postgres-types",
- "rand 0.9.2",
- "redis",
- "reqwest",
- "rustls 0.23.36",
- "rustls-native-certs 0.8.3",
- "rustls-pemfile",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tokio-postgres",
- "tokio-postgres-rustls",
- "tokio-stream",
- "tokio-util",
- "tower",
- "tower-http",
- "uuid",
-]
-
-[[package]]
-name = "histion-compiler"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-channel",
- "async-nats",
- "aws-config",
- "aws-credential-types",
- "aws-sdk-s3",
- "aws-smithy-http 0.62.6",
- "aws-smithy-runtime-api",
- "aws-smithy-types",
- "aws-types",
- "bytes",
- "clap",
- "deadpool-postgres",
- "futures",
- "histion-common",
- "histion-storage",
- "image",
- "openslide-rs",
- "postgres",
- "postgres-types",
- "rayon",
- "reqwest",
- "serde",
- "serde_json",
- "tokio",
- "tokio-postgres",
- "tokio-postgres-rustls",
- "tokio-util",
- "tracing",
- "tracing-subscriber",
- "uuid",
- "webp",
-]
-
-[[package]]
-name = "histion-frusta"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-channel",
- "async-nats",
- "axum",
- "bytes",
- "chrono",
- "clap",
- "deadpool-redis",
- "futures-util",
- "histion-common",
- "histion-storage",
- "parking_lot",
- "rustc-hash",
- "serde_json",
- "tokio",
- "tokio-util",
- "tower-http",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
-name = "histion-intake"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-nats",
- "aws-config",
- "aws-credential-types",
- "aws-sdk-s3",
- "aws-smithy-http 0.62.6",
- "aws-smithy-runtime-api",
- "aws-smithy-types",
- "aws-types",
- "clap",
- "futures",
- "histion-common",
- "serde_json",
- "tokio",
- "tokio-util",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "histion-meta"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "axum",
- "clap",
- "deadpool-postgres",
- "histion-common",
- "postgres",
- "postgres-types",
- "reqwest",
- "serde",
- "serde_json",
- "tokio",
- "tokio-postgres",
- "tokio-postgres-rustls",
- "tower-http",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
-name = "histion-storage"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-nats",
- "aws-config",
- "aws-credential-types",
- "aws-sdk-s3",
- "aws-smithy-http 0.62.6",
- "aws-smithy-runtime-api",
- "aws-smithy-types",
- "aws-types",
- "axum",
- "clap",
- "futures",
- "histion-common",
- "prost",
- "protobuf-src",
- "serde_json",
- "tokio",
- "tokio-stream",
- "tokio-util",
- "tonic",
- "tonic-prost",
- "tonic-prost-build",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
 
 [[package]]
 name = "hmac"

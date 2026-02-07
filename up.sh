@@ -21,11 +21,11 @@ do_restart() {
     for arg in "$@"; do
         case "$arg" in
         compiler)
-            kubectl rollout restart statefulset --context $KUBECONTEXT -n histion "histion-compiler"
+            kubectl rollout restart statefulset --context $KUBECONTEXT -n eosin "eosin-compiler"
             exit 0
             ;;
         storage)
-            kubectl rollout restart statefulset --context $KUBECONTEXT -n histion "histion-storage"
+            kubectl rollout restart statefulset --context $KUBECONTEXT -n eosin "eosin-storage"
             exit 0
             ;;
         *)
@@ -35,16 +35,16 @@ do_restart() {
     done
     # restart the compiler if no specific service is mentioned
     if [ ${#restart_args[@]} -eq 0 ]; then
-        kubectl rollout restart statefulset --context $KUBECONTEXT -n histion "histion-compiler"
-        kubectl rollout restart statefulset --context $KUBECONTEXT -n histion "histion-storage"
+        kubectl rollout restart statefulset --context $KUBECONTEXT -n eosin "eosin-compiler"
+        kubectl rollout restart statefulset --context $KUBECONTEXT -n eosin "eosin-storage"
     fi
-    kubectl rollout restart deployment --context $KUBECONTEXT -n histion "${restart_args[@]/#/histion-}"
+    kubectl rollout restart deployment --context $KUBECONTEXT -n eosin "${restart_args[@]/#/eosin-}"
 }
 
 main() {
     do_build $@
     do_restart $@
-    k9s -n histion --splashless --context $KUBECONTEXT
+    k9s -n eosin --splashless --context $KUBECONTEXT
 }
 
 main $@

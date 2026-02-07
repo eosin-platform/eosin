@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 
 use anyhow::Result;
 use async_nats::jetstream;
-use histion_common::shutdown::shutdown_signal;
+use eosin_common::shutdown::shutdown_signal;
 use tokio_util::sync::CancellationToken;
 use tonic::transport::Server;
 
@@ -41,7 +41,7 @@ pub async fn run_server(args: ServerArgs) -> Result<()> {
         signal_cancel.cancel();
     });
 
-    histion_common::signal_ready();
+    eosin_common::signal_ready();
 
     // Optionally start the cluster server
     if let Some(cluster_port) = args.cluster_port {

@@ -4,7 +4,7 @@ cd "$(dirname "$0")/.."
 helm upgrade \
     --kube-context do-nyc3-beeb \
     --install \
-    histion \
+    eosin \
     chart/ \
-    -n histion \
-    -f scripts/histion_values.yaml
+    -n eosin \
+    -f scripts/eosin_values.yaml

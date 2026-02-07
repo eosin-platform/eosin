@@ -1,7 +1,7 @@
 //! WebSocket protocol message types and builders.
 
 use bytes::Bytes;
-use histion_common::streams::SlideCreatedEvent;
+use eosin_common::streams::SlideCreatedEvent;
 use uuid::Uuid;
 
 use crate::viewport::TileMeta;

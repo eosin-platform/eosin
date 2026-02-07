@@ -1,10 +1,10 @@
 [package]
-name = "histion-meta"
+name = "eosin-meta"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-histion-common = { path = "../common" }
+eosin-common = { path = "../common" }
 tokio = { workspace = true }
 tokio-postgres-rustls = "0.13"
 tokio-postgres = { version = "0.7.14", features = [

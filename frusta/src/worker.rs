@@ -1,5 +1,5 @@
 use anyhow::{bail, Result};
-use histion_storage::client::StorageClient;
+use eosin_storage::client::StorageClient;
 use tokio_util::sync::CancellationToken;
 
 use crate::priority_queue::PriorityWorkQueue;

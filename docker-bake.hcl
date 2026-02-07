@@ -15,14 +15,14 @@ group "default" {
 target "base" {
   context    = "./"
   dockerfile = "Dockerfile.base"
-  tags       = ["${REGISTRY}thavlik/histion-base:latest"]
+  tags       = ["${REGISTRY}thavlik/eosin-base:latest"]
   push       = false
 }
 
 target "browser" {
   context    = "./"
   dockerfile = "browser/Dockerfile"
-  tags       = ["${REGISTRY}thavlik/histion-browser:latest"]
+  tags       = ["${REGISTRY}thavlik/eosin-browser:latest"]
   push       = true
 }
 
@@ -31,10 +31,10 @@ target "storage" {
   context    = "./"
   dockerfile = "storage/Dockerfile"
   args       = { BASE_IMAGE = "base_context" }
-  tags       = ["${REGISTRY}thavlik/histion-storage:latest"]
+  tags       = ["${REGISTRY}thavlik/eosin-storage:latest"]
   push       = true
-  cache-from = ["type=local,src=.buildx-cache/histion-storage"]
-  cache-to   = ["type=local,dest=.buildx-cache/histion-storage,mode=min"]
+  cache-from = ["type=local,src=.buildx-cache/eosin-storage"]
+  cache-to   = ["type=local,dest=.buildx-cache/eosin-storage,mode=min"]
 }
 
 target "frusta" {
@@ -42,10 +42,10 @@ target "frusta" {
   context    = "./"
   dockerfile = "frusta/Dockerfile"
   args       = { BASE_IMAGE = "base_context" }
-  tags       = ["${REGISTRY}thavlik/histion-frusta:latest"]
+  tags       = ["${REGISTRY}thavlik/eosin-frusta:latest"]
   push       = true
-  cache-from = ["type=local,src=.buildx-cache/histion-frusta"]
-  cache-to   = ["type=local,dest=.buildx-cache/histion-frusta,mode=min"]
+  cache-from = ["type=local,src=.buildx-cache/eosin-frusta"]
+  cache-to   = ["type=local,dest=.buildx-cache/eosin-frusta,mode=min"]
 }
 
 target "meta" {
@@ -53,10 +53,10 @@ target "meta" {
   context    = "./"
   dockerfile = "meta/Dockerfile"
   args       = { BASE_IMAGE = "base_context" }
-  tags       = ["${REGISTRY}thavlik/histion-meta:latest"]
+  tags       = ["${REGISTRY}thavlik/eosin-meta:latest"]
   push       = true
-  cache-from = ["type=local,src=.buildx-cache/histion-meta"]
-  cache-to   = ["type=local,dest=.buildx-cache/histion-meta,mode=min"]
+  cache-from = ["type=local,src=.buildx-cache/eosin-meta"]
+  cache-to   = ["type=local,dest=.buildx-cache/eosin-meta,mode=min"]
 }
 
 target "compiler" {
@@ -64,8 +64,8 @@ target "compiler" {
   context    = "./"
   dockerfile = "compiler/Dockerfile"
   args       = { BASE_IMAGE = "base_context" }
-  tags       = ["${REGISTRY}thavlik/histion-compiler:latest"]
+  tags       = ["${REGISTRY}thavlik/eosin-compiler:latest"]
   push       = true
-  cache-from = ["type=local,src=.buildx-cache/histion-compiler"]
-  cache-to   = ["type=local,dest=.buildx-cache/histion-compiler,mode=min"]
+  cache-from = ["type=local,src=.buildx-cache/eosin-compiler"]
+  cache-to   = ["type=local,dest=.buildx-cache/eosin-compiler,mode=min"]
 }

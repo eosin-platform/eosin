@@ -26,7 +26,7 @@ spec:
 {{ toYaml .Values.meta.resources | indent 10 }}
     {{- end }}
         command:
-          - histion-meta
+          - eosin-meta
           - server
           - --port
           - "80"
@@ -54,8 +54,8 @@ spec:
           value: info,aws_smithy_runtime=debug,aws_smithy_http_tower=debug,hyper=info
         - name: LOG_LEVEL
           value: {{ .Values.meta.logLevel }}
-{{ include "histion.metrics-env" . | indent 8 }}
-{{ include "histion.postgres-env" . | indent 8 }}
+{{ include "eosin.metrics-env" . | indent 8 }}
+{{ include "eosin.postgres-env" . | indent 8 }}
 ---
 {{- if .Values.prometheus.enabled }}
 apiVersion: monitoring.coreos.com/v1

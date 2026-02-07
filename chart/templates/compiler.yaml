@@ -24,12 +24,12 @@ spec:
 {{ toYaml .Values.imagePullSecrets | indent 10 }}
     {{- end }}
       tolerations:
-        - key: histion
+        - key: eosin
           operator: Equal
           value: "true"
           effect: NoSchedule
       nodeSelector:
-        histion: "true"
+        eosin: "true"
       containers:
       - name: compiler
         imagePullPolicy: {{ .Values.compiler.imagePullPolicy }}
@@ -39,7 +39,7 @@ spec:
 {{ toYaml .Values.compiler.resources | indent 10 }}
     {{- end }}
         command:
-          - histion-compiler
+          - eosin-compiler
           - process
         readinessProbe:
           exec:
@@ -83,9 +83,9 @@ spec:
         - name: AWS_SECRET_ACCESS_KEY
 {{ tpl (toYaml .Values.s3.secretAccessKey) . | indent 10 }}
         {{- end }}
-{{ include "histion.metrics-env" . | indent 8 }}
-{{ include "histion.nats-env" . | indent 8 }}
-{{ include "histion.postgres-env" . | indent 8 }}
+{{ include "eosin.metrics-env" . | indent 8 }}
+{{ include "eosin.nats-env" . | indent 8 }}
+{{ include "eosin.postgres-env" . | indent 8 }}
         volumeMounts:
         - name: download-volume
           mountPath: {{ .Values.compiler.downloadDir }}

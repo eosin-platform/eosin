@@ -1,7 +1,7 @@
 {{/*
 Redis environment variables template
 */}}
-{{- define "histion.nats-env" -}}
+{{- define "eosin.nats-env" -}}
 - name: NATS_URL
   value: {{ .Values.nats.url | quote }}
 - name: NATS_USER

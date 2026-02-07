@@ -736,16 +736,16 @@
 				{#if activeTab === 'about'}
 					<div class="panel" id="panel-about" role="tabpanel">
 						<div class="setting-group">
-							<h3>About Histion</h3>
+							<h3>About Eosin</h3>
 							<p class="setting-hint">
-								Histion is a lightning-fast whole-slide imaging and analysis platform built for computational
+								Eosin is a lightning-fast whole-slide imaging and analysis platform built for computational
 								pathology and microbiology. Multi-gigapixel slides become viewable within seconds of
 								upload as an event-driven compiler processes them into read-optimized multiscale
 								pyramids. A viewport-based tile service streams only the tiles relevant to the user
 								over WebSocket, providing a fluid, microscope-like experience
 								even on commodity hardware. A sharded NVMe-backed storage layer with read-only
 								replicas maximizes throughput and availability, while horizontally scaling services
-								orchestrate ingestion, tiling, caching, and delivery. Histion is engineered for
+								orchestrate ingestion, tiling, caching, and delivery. Eosin is engineered for
 								future expansion into machine vision, search, and large-scale analysis across the
 								visual manifold of histopathology.
 							</p>

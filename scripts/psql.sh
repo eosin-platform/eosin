@@ -3,7 +3,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 : "${CONTEXT:=do-nyc3-beeb}"
 secret() {
-    kubectl get secret --context $CONTEXT -n histion postgres-cred -o json \
+    kubectl get secret --context $CONTEXT -n eosin postgres-cred -o json \
     | jq .data.$1 \
     | xargs echo \
     | base64 -d

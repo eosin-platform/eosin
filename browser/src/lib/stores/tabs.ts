@@ -41,7 +41,7 @@ export interface SplitState {
 }
 
 // ---- localStorage persistence ----
-const STORAGE_KEY = 'histion-tab-state';
+const STORAGE_KEY = 'eosin-tab-state';
 const PERSIST_DEBOUNCE_MS = 300;
 
 /**
