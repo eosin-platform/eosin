@@ -792,19 +792,32 @@ class VAE(nn.Module):
                 - logvar: Latent log variance (if return_latent)
                 - z: Sampled latent (if return_latent)
         """
+        # Clamp input to valid range to prevent NaN propagation
+        x = torch.clamp(x, min=-1.0, max=1.0)
+        
         # Encode
         mu, logvar = self.encode(x)
 
         # Reparameterize
         z = self.reparameterize(mu, logvar, training=self.training)
+        
+        # Clamp z to prevent extreme values
+        z = torch.clamp(z, min=-10.0, max=10.0)
 
         # Decode
         x_recon = self.decode(z)
+
+        # Clamp reconstruction to valid range to prevent NaN propagation
+        x_recon = torch.clamp(x_recon, min=-1.0, max=1.0)
 
         # Compute losses
         recon_loss = reconstruction_loss(
             x, x_recon, loss_type=self.recon_loss_type)
         kl_loss = kl_divergence(mu, logvar)
+
+        # Clamp individual losses to prevent extreme values
+        recon_loss = torch.clamp(recon_loss, min=0.0, max=100.0)
+        kl_loss = torch.clamp(kl_loss, min=0.0, max=1000.0)
 
         # Total loss with KL weighting
         loss = recon_loss + kl_weight * kl_loss
@@ -1089,20 +1102,23 @@ def train_epoch(
         # Forward pass with optional mixed precision
         optimizer.zero_grad()
 
+        # Check input for NaN/Inf (can happen with bad tile data)
+        if torch.isnan(x).any() or torch.isinf(x).any():
+            print(f"Skipping batch {batch_idx} due to NaN/Inf in input data")
+            continue
+
         if scaler is not None:
             # Forward pass with AMP
             with autocast(device_type="cuda", dtype=torch.float16):
                 outputs = model(x, kl_weight=kl_weight, return_latent=True)
                 loss = outputs["loss"]
 
-            # If the loss itself is NaN, bail on this batch early
+            # If the loss itself is NaN, skip entirely without backward to avoid corrupting weights
             if check_for_nan(loss, "loss"):
                 print(f"Skipping batch {batch_idx} due to NaN loss (forward)")
                 optimizer.zero_grad(set_to_none=True)
-                # Let GradScaler see a NaN-affected step via step()
-                scaler.scale(loss).backward()
-                scaler.step(optimizer)      # will be a no-op due to NaNs
-                scaler.update()             # this will reduce the scale
+                # Just reduce the scale without corrupting weights
+                scaler.update(scaler.get_scale() * 0.5)
                 continue
 
             scaler.scale(loss).backward()
