@@ -123,6 +123,16 @@
           <div class="help-row"><strong>AFB</strong><span>Acid-Fast Bacilli</span></div>
           <div class="help-row"><strong>GMS</strong><span>Grocott Silver stain</span></div>
         </div>
+
+        <div class="help-card citation-card">
+          <h3>Data provided by <a href="https://camelyon17.grand-challenge.org/" target="_blank" rel="noopener noreferrer" class="citation-link">CAMELYON17</a></h3>
+          <p class="citation-text">
+            Geert Litjens, Peter Bandi, Babak Ehteshami Bejnordi, Oscar Geessink, Maschenka Balkenhol, Peter Bult, Altuna Halilovic, Meyke Hermsen, Rob van de Loo, Rob Vogels, Quirine F Manson, Nikolas Stathonikos, Alexi Baidoshvili, Paul van Diest, Carla Wauters, Marcory van Dijk, Jeroen van der Laak. 1399 H&amp;E-stained sentinel lymph node sections of breast cancer patients: the CAMELYON dataset. <em>GigaScience</em>, giy065, 2018.
+          </p>
+          <a href="https://doi.org/10.1093/gigascience/giy065" target="_blank" rel="noopener noreferrer" class="citation-link">
+            DOI: 10.1093/gigascience/giy065
+          </a>
+        </div>
       </div>
     </div>
   </div>
@@ -354,6 +364,37 @@
   .help-row span {
     color: rgba(255, 255, 255, 0.6);
     line-height: 1.4;
+  }
+
+  /* Citation card styling */
+  .citation-card {
+    grid-column: 1 / -1;
+    background: rgba(59, 130, 246, 0.08);
+    border-color: rgba(59, 130, 246, 0.25);
+  }
+
+  .citation-text {
+    margin: 0 0 12px 0;
+    font-size: 12px;
+    line-height: 1.6;
+    color: rgba(255, 255, 255, 0.8);
+  }
+
+  .citation-text em {
+    font-style: italic;
+  }
+
+  .citation-link {
+    display: inline-block;
+    font-size: 12px;
+    color: #60a5fa;
+    text-decoration: none;
+    transition: color 0.15s;
+  }
+
+  .citation-link:hover {
+    color: #93c5fd;
+    text-decoration: underline;
   }
 
   /* Hide header title on very small screens if menu button is present */
