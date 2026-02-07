@@ -738,7 +738,7 @@
 						<div class="setting-group">
 							<h3>About Histion</h3>
 							<p class="setting-hint">
-								Histion lightning-fast whole-slide imaging and analysis platform built for computational
+								Histion is a lightning-fast whole-slide imaging and analysis platform built for computational
 								pathology and microbiology. Multi-gigapixel slides become viewable within seconds of
 								upload as an event-driven compiler processes them into read-optimized multiscale
 								pyramids. A viewport-based tile service streams only the tiles relevant to the user
