@@ -3,12 +3,18 @@
   import { browser } from '$app/environment';
   import {
     settings,
-    hudMoreMenuOpen,
     type SensitivityLevel,
     type MeasurementUnit,
     type StainEnhancementMode,
     type StainNormalization,
   } from '$lib/stores/settings';
+
+  interface Props {
+    /** Callback to close the menu */
+    onClose: () => void;
+  }
+
+  let { onClose }: Props = $props();
 
   // Local state bound to settings
   let gamma = $state($settings.image.gamma);
@@ -40,14 +46,14 @@
       // Check if click was on the "More" button (which handles its own toggle)
       const target = e.target as HTMLElement;
       if (!target.closest('[title="More Settings"]')) {
-        hudMoreMenuOpen.set(false);
+        onClose();
       }
     }
   }
 
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === 'Escape') {
-      hudMoreMenuOpen.set(false);
+      onClose();
     }
   }
 
@@ -190,7 +196,7 @@
   }
 
   function closeMenu() {
-    hudMoreMenuOpen.set(false);
+    onClose();
   }
 </script>
 

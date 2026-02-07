@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { settings, hudMoreMenuOpen, type StainEnhancementMode } from '$lib/stores/settings';
+  import { settings, type StainEnhancementMode } from '$lib/stores/settings';
   import ViewerHudMoreMenu from './ViewerHudMoreMenu.svelte';
 
   interface Props {
@@ -40,6 +40,9 @@
   let contrastTooltipVisible = $state(false);
   let brightnessAdjusting = $state(false);
   let contrastAdjusting = $state(false);
+
+  // Local state for the more menu (per-instance, not global)
+  let moreMenuOpen = $state(false);
 
   function handleBrightnessChange(e: Event) {
     const target = e.target as HTMLInputElement;
@@ -88,7 +91,11 @@
   }
 
   function toggleMoreMenu() {
-    hudMoreMenuOpen.update((v) => !v);
+    moreMenuOpen = !moreMenuOpen;
+  }
+
+  function closeMoreMenu() {
+    moreMenuOpen = false;
   }
 
   // Format zoom for display
@@ -322,7 +329,7 @@
   <button
     onclick={toggleMoreMenu}
     class="icon-btn"
-    class:active={$hudMoreMenuOpen}
+    class:active={moreMenuOpen}
     title="More Settings"
   >
     <!-- Sliders/adjustments icon -->
@@ -333,8 +340,8 @@
   </div>
 
   <!-- More menu popover - rendered inside hud-container for proper positioning -->
-  {#if $hudMoreMenuOpen}
-    <ViewerHudMoreMenu />
+  {#if moreMenuOpen}
+    <ViewerHudMoreMenu onClose={closeMoreMenu} />
   {/if}
 </div>
 
