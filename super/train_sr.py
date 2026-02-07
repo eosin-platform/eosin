@@ -362,6 +362,31 @@ def uuid_hex_to_bytes(uuid_hex: str) -> bytes:
     return bytes.fromhex(hex_clean)
 
 
+def has_content(img: Image.Image, min_std: float = 5.0, min_mean: float = 10.0) -> bool:
+    """
+    Check if an image tile has meaningful content.
+    
+    TIF files are sparse, so many tiles may be completely black or near-black.
+    This function filters out empty tiles by checking pixel statistics.
+    
+    Args:
+        img: PIL Image to check
+        min_std: Minimum standard deviation threshold (indicates variation)
+        min_mean: Minimum mean pixel value threshold (filters pure black)
+    
+    Returns:
+        True if the tile has meaningful content, False otherwise
+    """
+    arr = np.array(img, dtype=np.float32)
+    # Check if image has enough variation (not uniform)
+    if arr.std() < min_std:
+        return False
+    # Check if image is not predominantly black
+    if arr.mean() < min_mean:
+        return False
+    return True
+
+
 def check_grpc_health(grpc_address: str, timeout: float = 10.0) -> bool:
     """Test gRPC connection with a health check."""
     print(f"Testing gRPC connection to {grpc_address}...")
@@ -535,6 +560,10 @@ class OpenSlideTileDataset(Dataset):
             if img.size != (self.target_tile_size, self.target_tile_size):
                 continue
 
+            # Check if tile has meaningful content (not empty/black)
+            if not has_content(img):
+                continue
+
             # Apply spatial augmentations first (same for LR and HR)
             hr_img = self._apply_augmentations(img)
             
@@ -692,6 +721,10 @@ class GrpcTileDataset(Dataset):
 
             # Check if tile is exactly 512x512
             if img.size != (self.target_tile_size, self.target_tile_size):
+                continue
+
+            # Check if tile has meaningful content (not empty/black)
+            if not has_content(img):
                 continue
 
             # Apply spatial augmentations first (same for LR and HR)
@@ -1719,7 +1752,7 @@ def main():
     parser.add_argument(
         '--batch-size',
         type=int,
-        default=8,
+        default=4,
         help='Training batch size (reduce if OOM)',
     )
     parser.add_argument(
@@ -1777,13 +1810,13 @@ def main():
     parser.add_argument(
         '--g-channels',
         type=int,
-        default=48,
+        default=128,
         help='Base channels for generator (reduce for lower VRAM)',
     )
     parser.add_argument(
         '--g-blocks',
         type=int,
-        default=8,
+        default=10,
         help='Number of RRDB/residual blocks in generator (reduce for lower VRAM)',
     )
     parser.add_argument(
@@ -1834,13 +1867,13 @@ def main():
     parser.add_argument(
         '--num-workers',
         type=int,
-        default=4,
+        default=6,
         help='Number of DataLoader workers',
     )
     parser.add_argument(
         '--max-vram-gb',
         type=float,
-        default=25.0,
+        default=27.5,
         help='Soft VRAM budget in GB (will log warnings if exceeded)',
     )
 
