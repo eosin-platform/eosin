@@ -1752,7 +1752,7 @@ def main():
     parser.add_argument(
         '--batch-size',
         type=int,
-        default=4,
+        default=2,
         help='Training batch size (reduce if OOM)',
     )
     parser.add_argument(
@@ -1816,7 +1816,7 @@ def main():
     parser.add_argument(
         '--g-blocks',
         type=int,
-        default=10,
+        default=21,
         help='Number of RRDB/residual blocks in generator (reduce for lower VRAM)',
     )
     parser.add_argument(
@@ -1834,7 +1834,7 @@ def main():
     parser.add_argument(
         '--growth-channels',
         type=int,
-        default=24,
+        default=32,
         help='Growth channels for RRDB dense blocks (reduce for lower VRAM)',
     )
     parser.add_argument(
