@@ -1737,7 +1737,7 @@ def main():
     parser.add_argument(
         '--pretrain-steps',
         type=int,
-        default=5_000,
+        default=500,
         help='Steps to train generator without adversarial loss',
     )
 
