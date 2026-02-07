@@ -33,9 +33,277 @@ try:
 except ImportError:
     OPENSLIDE_AVAILABLE = False
 
+try:
+    from torchvision.models import vgg19, VGG19_Weights
+    VGG_AVAILABLE = True
+except ImportError:
+    VGG_AVAILABLE = False
+
 # Assume these are generated and importable
 import storage_pb2
 import storage_pb2_grpc
+
+
+# =============================================================================
+# Degradation Model (Synthetic LR Generation)
+# =============================================================================
+
+class DegradationModel:
+    """
+    Realistic degradation pipeline for creating synthetic low-resolution images.
+    Simulates optical blur, sensor noise, and compression artifacts.
+    """
+    
+    def __init__(
+        self,
+        scale_factor: float = 0.5,
+        blur_kernel_size: int = 5,
+        blur_sigma_range: Tuple[float, float] = (0.5, 1.5),
+        noise_sigma_range: Tuple[float, float] = (0.0, 0.03),
+        jpeg_quality_range: Tuple[int, int] = (70, 95),
+        apply_blur_prob: float = 0.7,
+        apply_noise_prob: float = 0.5,
+        apply_jpeg_prob: float = 0.3,
+    ):
+        self.scale_factor = scale_factor
+        self.blur_kernel_size = blur_kernel_size
+        self.blur_sigma_range = blur_sigma_range
+        self.noise_sigma_range = noise_sigma_range
+        self.jpeg_quality_range = jpeg_quality_range
+        self.apply_blur_prob = apply_blur_prob
+        self.apply_noise_prob = apply_noise_prob
+        self.apply_jpeg_prob = apply_jpeg_prob
+    
+    def _gaussian_blur(self, img: Image.Image) -> Image.Image:
+        """Apply Gaussian blur to simulate optical aberration."""
+        from PIL import ImageFilter
+        sigma = random.uniform(*self.blur_sigma_range)
+        return img.filter(ImageFilter.GaussianBlur(radius=sigma))
+    
+    def _add_noise(self, tensor: torch.Tensor) -> torch.Tensor:
+        """Add Gaussian noise to simulate sensor noise."""
+        sigma = random.uniform(*self.noise_sigma_range)
+        noise = torch.randn_like(tensor) * sigma
+        return torch.clamp(tensor + noise, 0, 1)
+    
+    def _jpeg_compress(self, img: Image.Image) -> Image.Image:
+        """Apply JPEG compression artifacts."""
+        quality = random.randint(*self.jpeg_quality_range)
+        buffer = io.BytesIO()
+        img.save(buffer, format='JPEG', quality=quality)
+        buffer.seek(0)
+        return Image.open(buffer).convert('RGB')
+    
+    def degrade_pil(self, hr_img: Image.Image) -> Image.Image:
+        """Apply degradation pipeline to PIL image."""
+        img = hr_img.copy()
+        
+        # Apply blur before downsampling (simulates optical blur)
+        if random.random() < self.apply_blur_prob:
+            img = self._gaussian_blur(img)
+        
+        # Downsample
+        new_size = (int(img.width * self.scale_factor), int(img.height * self.scale_factor))
+        try:
+            resample = Image.Resampling.BICUBIC
+        except AttributeError:
+            resample = Image.BICUBIC  # type: ignore
+        img = img.resize(new_size, resample)
+        
+        # Apply JPEG compression (common in medical imaging pipelines)
+        if random.random() < self.apply_jpeg_prob:
+            img = self._jpeg_compress(img)
+        
+        return img
+    
+    def degrade_tensor(self, hr_tensor: torch.Tensor) -> torch.Tensor:
+        """Apply degradation to tensor, returns LR tensor."""
+        # hr_tensor: (C, H, W) in [0, 1]
+        lr = F.interpolate(
+            hr_tensor.unsqueeze(0), 
+            scale_factor=self.scale_factor, 
+            mode='bicubic', 
+            align_corners=False
+        ).squeeze(0)
+        lr = torch.clamp(lr, 0, 1)
+        
+        # Add noise
+        if random.random() < self.apply_noise_prob:
+            lr = self._add_noise(lr)
+        
+        return lr
+
+
+# =============================================================================
+# Perceptual and Sharpness Losses
+# =============================================================================
+
+class VGGPerceptualLoss(nn.Module):
+    """VGG-based perceptual loss for texture and structure preservation."""
+    
+    def __init__(self, layer_weights: Optional[dict] = None):
+        super().__init__()
+        if not VGG_AVAILABLE:
+            raise ImportError("torchvision with VGG19 required for perceptual loss")
+        
+        vgg = vgg19(weights=VGG19_Weights.IMAGENET1K_V1).features.eval()
+        
+        # Extract features at multiple scales
+        # relu1_2, relu2_2, relu3_4, relu4_4, relu5_4
+        self.slice1 = nn.Sequential(*list(vgg[:4]))
+        self.slice2 = nn.Sequential(*list(vgg[4:9]))
+        self.slice3 = nn.Sequential(*list(vgg[9:18]))
+        self.slice4 = nn.Sequential(*list(vgg[18:27]))
+        self.slice5 = nn.Sequential(*list(vgg[27:36]))
+        
+        # Freeze all parameters
+        for param in self.parameters():
+            param.requires_grad = False
+        
+        # Default weights emphasizing mid-level features (edges, textures)
+        self.weights = layer_weights or {
+            'relu1_2': 0.1,
+            'relu2_2': 0.2,
+            'relu3_4': 0.4,
+            'relu4_4': 0.2,
+            'relu5_4': 0.1,
+        }
+        
+        # ImageNet normalization
+        self.register_buffer('mean', torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1))
+        self.register_buffer('std', torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1))
+    
+    def _normalize(self, x: torch.Tensor) -> torch.Tensor:
+        return (x - self.mean) / self.std
+    
+    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        pred = self._normalize(pred)
+        target = self._normalize(target)
+        
+        loss = 0.0
+        
+        # Extract features
+        p1, t1 = self.slice1(pred), self.slice1(target)
+        loss += self.weights['relu1_2'] * F.l1_loss(p1, t1)
+        
+        p2, t2 = self.slice2(p1), self.slice2(t1)
+        loss += self.weights['relu2_2'] * F.l1_loss(p2, t2)
+        
+        p3, t3 = self.slice3(p2), self.slice3(t2)
+        loss += self.weights['relu3_4'] * F.l1_loss(p3, t3)
+        
+        p4, t4 = self.slice4(p3), self.slice4(t3)
+        loss += self.weights['relu4_4'] * F.l1_loss(p4, t4)
+        
+        p5, t5 = self.slice5(p4), self.slice5(t4)
+        loss += self.weights['relu5_4'] * F.l1_loss(p5, t5)
+        
+        return loss
+
+
+class EdgeLoss(nn.Module):
+    """Edge-aware loss using Sobel gradients for morphological clarity."""
+    
+    def __init__(self):
+        super().__init__()
+        # Sobel kernels
+        sobel_x = torch.tensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], dtype=torch.float32)
+        sobel_y = torch.tensor([[-1, -2, -1], [0, 0, 0], [1, 2, 1]], dtype=torch.float32)
+        
+        # Expand for 3 channels
+        self.register_buffer('sobel_x', sobel_x.view(1, 1, 3, 3).repeat(3, 1, 1, 1))
+        self.register_buffer('sobel_y', sobel_y.view(1, 1, 3, 3).repeat(3, 1, 1, 1))
+    
+    def _gradient_magnitude(self, x: torch.Tensor) -> torch.Tensor:
+        # Convert to grayscale for edge detection
+        gray = 0.299 * x[:, 0:1] + 0.587 * x[:, 1:2] + 0.114 * x[:, 2:3]
+        
+        gx = F.conv2d(gray, self.sobel_x[:1], padding=1)
+        gy = F.conv2d(gray, self.sobel_y[:1], padding=1)
+        
+        return torch.sqrt(gx ** 2 + gy ** 2 + 1e-8)
+    
+    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        pred_edges = self._gradient_magnitude(pred)
+        target_edges = self._gradient_magnitude(target)
+        
+        # L1 loss on edge magnitudes
+        return F.l1_loss(pred_edges, target_edges)
+
+
+class FrequencyLoss(nn.Module):
+    """FFT-based frequency loss to encourage high-frequency detail generation."""
+    
+    def __init__(self, focus_high_freq: bool = True, high_freq_weight: float = 2.0):
+        super().__init__()
+        self.focus_high_freq = focus_high_freq
+        self.high_freq_weight = high_freq_weight
+    
+    def _get_frequency_weights(self, h: int, w: int, device: torch.device) -> torch.Tensor:
+        """Create frequency-dependent weights (higher weight for high frequencies)."""
+        cy, cx = h // 2, w // 2
+        y = torch.arange(h, device=device).float() - cy
+        x = torch.arange(w, device=device).float() - cx
+        yy, xx = torch.meshgrid(y, x, indexing='ij')
+        
+        # Distance from center (DC component)
+        dist = torch.sqrt(xx ** 2 + yy ** 2)
+        max_dist = torch.sqrt(torch.tensor(cy ** 2 + cx ** 2, dtype=torch.float32))
+        
+        # Weight increases with frequency
+        weights = 1.0 + (self.high_freq_weight - 1.0) * (dist / max_dist)
+        return weights
+    
+    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        # Convert to grayscale
+        pred_gray = 0.299 * pred[:, 0] + 0.587 * pred[:, 1] + 0.114 * pred[:, 2]
+        target_gray = 0.299 * target[:, 0] + 0.587 * target[:, 1] + 0.114 * target[:, 2]
+        
+        # FFT
+        pred_fft = torch.fft.fft2(pred_gray)
+        target_fft = torch.fft.fft2(target_gray)
+        
+        # Shift DC to center
+        pred_fft = torch.fft.fftshift(pred_fft)
+        target_fft = torch.fft.fftshift(target_fft)
+        
+        # Magnitude spectrum
+        pred_mag = torch.abs(pred_fft)
+        target_mag = torch.abs(target_fft)
+        
+        # Apply frequency weights if focusing on high frequencies
+        if self.focus_high_freq:
+            weights = self._get_frequency_weights(
+                pred_mag.shape[-2], pred_mag.shape[-1], pred.device
+            )
+            diff = (pred_mag - target_mag) * weights
+        else:
+            diff = pred_mag - target_mag
+        
+        # Log-scale for numerical stability
+        return torch.mean(torch.abs(diff) / (target_mag + 1e-8))
+
+
+class LaplacianLoss(nn.Module):
+    """Laplacian-based sharpness loss for crisp edges."""
+    
+    def __init__(self):
+        super().__init__()
+        # Laplacian kernel
+        laplacian = torch.tensor(
+            [[0, 1, 0], [1, -4, 1], [0, 1, 0]], 
+            dtype=torch.float32
+        )
+        self.register_buffer('laplacian', laplacian.view(1, 1, 3, 3))
+    
+    def _compute_laplacian(self, x: torch.Tensor) -> torch.Tensor:
+        gray = 0.299 * x[:, 0:1] + 0.587 * x[:, 1:2] + 0.114 * x[:, 2:3]
+        return F.conv2d(gray, self.laplacian, padding=1)
+    
+    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        pred_lap = self._compute_laplacian(pred)
+        target_lap = self._compute_laplacian(target)
+        return F.l1_loss(pred_lap, target_lap)
 
 
 # =============================================================================
@@ -123,12 +391,14 @@ def check_grpc_health(grpc_address: str, timeout: float = 10.0) -> bool:
 class OpenSlideTileDataset(Dataset):
     """
     PyTorch Dataset that extracts tiles from local TIF files using OpenSlide.
+    Returns (LR, HR) pairs for super-resolution training using synthetic degradation.
     """
 
     def __init__(
         self,
         slides: List[SlideMetadata],
         data_root: str,
+        degradation_model: DegradationModel,
         train_level: int = 0,
         target_tile_size: int = 512,
         tiles_per_slide: int = 100,
@@ -140,6 +410,7 @@ class OpenSlideTileDataset(Dataset):
 
         self.slides = slides
         self.data_root = data_root
+        self.degradation_model = degradation_model
         self.train_level = train_level
         self.target_tile_size = target_tile_size
         self.tiles_per_slide = tiles_per_slide
@@ -216,15 +487,23 @@ class OpenSlideTileDataset(Dataset):
             print(f"Error extracting tile [{slide.slide_id}, {tile_x}, {tile_y}]: {e}")
             return None
 
-    def _apply_augmentations(self, img: Image.Image) -> torch.Tensor:
-        """Apply augmentations and convert to tensor."""
+    def _apply_augmentations(self, img: Image.Image) -> Image.Image:
+        """Apply spatial augmentations to PIL image."""
+        # Handle Pillow version differences
+        try:
+            flip_h = Image.Transpose.FLIP_LEFT_RIGHT
+            flip_v = Image.Transpose.FLIP_TOP_BOTTOM
+        except AttributeError:
+            flip_h = Image.FLIP_LEFT_RIGHT  # type: ignore
+            flip_v = Image.FLIP_TOP_BOTTOM  # type: ignore
+        
         # Random horizontal flip
         if random.random() > 0.5:
-            img = img.transpose(Image.FLIP_LEFT_RIGHT)
+            img = img.transpose(flip_h)
 
         # Random vertical flip
         if random.random() > 0.5:
-            img = img.transpose(Image.FLIP_TOP_BOTTOM)
+            img = img.transpose(flip_v)
 
         # Random 90° rotations
         k = random.randint(0, 3)
@@ -235,12 +514,10 @@ class OpenSlideTileDataset(Dataset):
         if self.jitter is not None:
             img = self.jitter(img)
 
-        # Convert to tensor [0, 1]
-        tensor = self.to_tensor(img)
-        return tensor
+        return img
 
-    def __getitem__(self, idx: int) -> torch.Tensor:
-        """Get a single tile sample."""
+    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Get a (LR, HR) pair for super-resolution training."""
         # Map index to slide (round-robin)
         slide_idx = idx % len(self.slides)
         slide = self.slides[slide_idx]
@@ -258,9 +535,25 @@ class OpenSlideTileDataset(Dataset):
             if img.size != (self.target_tile_size, self.target_tile_size):
                 continue
 
-            # Apply augmentations and return
-            tensor = self._apply_augmentations(img)
-            return tensor
+            # Apply spatial augmentations first (same for LR and HR)
+            hr_img = self._apply_augmentations(img)
+            
+            # Create degraded LR version using PIL-based degradation
+            lr_img = self.degradation_model.degrade_pil(hr_img)
+            
+            # Convert to tensors
+            hr_tensor = self.to_tensor(hr_img)
+            lr_tensor = self.to_tensor(lr_img)
+            
+            # Apply tensor-based noise degradation
+            lr_tensor = self.degradation_model.degrade_tensor(
+                hr_tensor if random.random() < 0.5 else lr_tensor
+            )[:, :int(lr_tensor.shape[1]), :int(lr_tensor.shape[2])]  # Keep size
+            
+            # Actually just use clean degradation for better training
+            lr_tensor = self.to_tensor(lr_img)
+            
+            return lr_tensor, hr_tensor
 
         # If we couldn't get a valid tile, try a different slide
         new_slide_idx = random.randint(0, len(self.slides) - 1)
@@ -275,12 +568,14 @@ class OpenSlideTileDataset(Dataset):
 class GrpcTileDataset(Dataset):
     """
     PyTorch Dataset that fetches tiles via gRPC from StorageApi.
+    Returns (LR, HR) pairs for super-resolution training using synthetic degradation.
     """
 
     def __init__(
         self,
         slides: List[SlideMetadata],
         grpc_address: str,
+        degradation_model: DegradationModel,
         train_level: int = 0,
         target_tile_size: int = 512,
         tiles_per_slide: int = 100,
@@ -290,6 +585,7 @@ class GrpcTileDataset(Dataset):
         max_retries: int = 3,
     ):
         self.slides = slides
+        self.degradation_model = degradation_model
         self.train_level = train_level
         self.target_tile_size = target_tile_size
         self.tiles_per_slide = tiles_per_slide
@@ -350,15 +646,23 @@ class GrpcTileDataset(Dataset):
 
         return None
 
-    def _apply_augmentations(self, img: Image.Image) -> torch.Tensor:
-        """Apply augmentations and convert to tensor."""
+    def _apply_augmentations(self, img: Image.Image) -> Image.Image:
+        """Apply spatial augmentations to PIL image."""
+        # Handle Pillow version differences
+        try:
+            flip_h = Image.Transpose.FLIP_LEFT_RIGHT
+            flip_v = Image.Transpose.FLIP_TOP_BOTTOM
+        except AttributeError:
+            flip_h = Image.FLIP_LEFT_RIGHT  # type: ignore
+            flip_v = Image.FLIP_TOP_BOTTOM  # type: ignore
+        
         # Random horizontal flip
         if random.random() > 0.5:
-            img = img.transpose(Image.FLIP_LEFT_RIGHT)
+            img = img.transpose(flip_h)
 
         # Random vertical flip
         if random.random() > 0.5:
-            img = img.transpose(Image.FLIP_TOP_BOTTOM)
+            img = img.transpose(flip_v)
 
         # Random 90° rotations
         k = random.randint(0, 3)
@@ -369,12 +673,10 @@ class GrpcTileDataset(Dataset):
         if self.jitter is not None:
             img = self.jitter(img)
 
-        # Convert to tensor [0, 1]
-        tensor = self.to_tensor(img)
-        return tensor
+        return img
 
-    def __getitem__(self, idx: int) -> torch.Tensor:
-        """Get a single tile sample."""
+    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Get a (LR, HR) pair for super-resolution training."""
         # Map index to slide (round-robin)
         slide_idx = idx % len(self.slides)
         slide = self.slides[slide_idx]
@@ -392,9 +694,17 @@ class GrpcTileDataset(Dataset):
             if img.size != (self.target_tile_size, self.target_tile_size):
                 continue
 
-            # Apply augmentations and return
-            tensor = self._apply_augmentations(img)
-            return tensor
+            # Apply spatial augmentations first (same for LR and HR)
+            hr_img = self._apply_augmentations(img)
+            
+            # Create degraded LR version
+            lr_img = self.degradation_model.degrade_pil(hr_img)
+            
+            # Convert to tensors
+            hr_tensor = self.to_tensor(hr_img)
+            lr_tensor = self.to_tensor(lr_img)
+            
+            return lr_tensor, hr_tensor
 
         # If we couldn't get a valid tile, try a different slide
         new_slide_idx = random.randint(0, len(self.slides) - 1)
@@ -405,110 +715,224 @@ class GrpcTileDataset(Dataset):
 # Model Components
 # =============================================================================
 
-class ResidualBlock(nn.Module):
-    """Residual block with two convolutions."""
+class ChannelAttention(nn.Module):
+    """Squeeze-and-excitation channel attention."""
+    
+    def __init__(self, channels: int, reduction: int = 16):
+        super().__init__()
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.max_pool = nn.AdaptiveMaxPool2d(1)
+        self.fc = nn.Sequential(
+            nn.Linear(channels, channels // reduction, bias=False),
+            nn.ReLU(inplace=True),
+            nn.Linear(channels // reduction, channels, bias=False),
+        )
+        self.sigmoid = nn.Sigmoid()
+    
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        b, c, _, _ = x.shape
+        avg_out = self.fc(self.avg_pool(x).view(b, c))
+        max_out = self.fc(self.max_pool(x).view(b, c))
+        attn = self.sigmoid(avg_out + max_out).view(b, c, 1, 1)
+        return x * attn
 
-    def __init__(self, channels: int):
+
+class SpatialAttention(nn.Module):
+    """Spatial attention for focusing on morphological structures."""
+    
+    def __init__(self, kernel_size: int = 7):
+        super().__init__()
+        padding = kernel_size // 2
+        self.conv = nn.Conv2d(2, 1, kernel_size, padding=padding, bias=False)
+        self.sigmoid = nn.Sigmoid()
+    
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        avg_out = torch.mean(x, dim=1, keepdim=True)
+        max_out, _ = torch.max(x, dim=1, keepdim=True)
+        attn = self.sigmoid(self.conv(torch.cat([avg_out, max_out], dim=1)))
+        return x * attn
+
+
+class CBAM(nn.Module):
+    """Convolutional Block Attention Module."""
+    
+    def __init__(self, channels: int, reduction: int = 16, kernel_size: int = 7):
+        super().__init__()
+        self.channel_attn = ChannelAttention(channels, reduction)
+        self.spatial_attn = SpatialAttention(kernel_size)
+    
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.channel_attn(x)
+        x = self.spatial_attn(x)
+        return x
+
+
+class ResidualBlock(nn.Module):
+    """Residual block with two convolutions and optional attention."""
+
+    def __init__(self, channels: int, use_attention: bool = False):
         super().__init__()
         self.conv1 = nn.Conv2d(channels, channels, 3, padding=1)
         self.bn1 = nn.BatchNorm2d(channels)
         self.conv2 = nn.Conv2d(channels, channels, 3, padding=1)
         self.bn2 = nn.BatchNorm2d(channels)
+        self.attention = CBAM(channels) if use_attention else None
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         residual = x
         out = F.relu(self.bn1(self.conv1(x)), inplace=True)
         out = self.bn2(self.conv2(out))
+        if self.attention is not None:
+            out = self.attention(out)
         return out + residual
+
+
+class ResidualDenseBlock(nn.Module):
+    """Residual Dense Block for richer feature extraction."""
+    
+    def __init__(self, channels: int, growth_channels: int = 32, num_layers: int = 5):
+        super().__init__()
+        self.layers = nn.ModuleList()
+        for i in range(num_layers):
+            in_ch = channels + i * growth_channels
+            self.layers.append(nn.Sequential(
+                nn.Conv2d(in_ch, growth_channels, 3, padding=1),
+                nn.LeakyReLU(0.2, inplace=True),
+            ))
+        self.fusion = nn.Conv2d(channels + num_layers * growth_channels, channels, 1)
+        self.scale = 0.2
+    
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        features = [x]
+        for layer in self.layers:
+            out = layer(torch.cat(features, dim=1))
+            features.append(out)
+        fused = self.fusion(torch.cat(features, dim=1))
+        return x + self.scale * fused
+
+
+class RRDB(nn.Module):
+    """Residual-in-Residual Dense Block (from ESRGAN)."""
+    
+    def __init__(self, channels: int, growth_channels: int = 32):
+        super().__init__()
+        self.rdb1 = ResidualDenseBlock(channels, growth_channels)
+        self.rdb2 = ResidualDenseBlock(channels, growth_channels)
+        self.rdb3 = ResidualDenseBlock(channels, growth_channels)
+        self.scale = 0.2
+    
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        out = self.rdb1(x)
+        out = self.rdb2(out)
+        out = self.rdb3(out)
+        return x + self.scale * out
 
 
 class Generator(nn.Module):
     """
-    Super-resolution generator.
+    Enhanced super-resolution generator with RRDB blocks and attention.
     
-    Takes a 512x512 input and produces a 1024x1024 output with hallucinated
-    high-frequency details while preserving the original when downsampled.
+    Takes a 256x256 input and produces a 512x512 output with hallucinated
+    high-frequency details for crisp morphological clarity.
     """
 
     def __init__(
         self,
         in_channels: int = 3,
         base_channels: int = 64,
-        num_residual_blocks: int = 12,
-        residual_scale: float = 0.5,
+        num_residual_blocks: int = 16,
+        use_rrdb: bool = True,
+        growth_channels: int = 32,
     ):
         super().__init__()
-        self.residual_scale = residual_scale
+        self.use_rrdb = use_rrdb
 
         # Initial feature extraction
         self.conv_in = nn.Conv2d(in_channels, base_channels, 3, padding=1)
 
-        # Residual blocks
-        self.residual_blocks = nn.Sequential(
-            *[ResidualBlock(base_channels) for _ in range(num_residual_blocks)]
-        )
+        # Main body - RRDB or standard residual blocks
+        if use_rrdb:
+            self.body = nn.Sequential(
+                *[RRDB(base_channels, growth_channels) for _ in range(num_residual_blocks)]
+            )
+        else:
+            # Use attention on every 4th block
+            self.body = nn.Sequential(
+                *[ResidualBlock(base_channels, use_attention=(i % 4 == 3)) 
+                  for i in range(num_residual_blocks)]
+            )
 
-        # Post-residual conv
+        # Post-body conv
         self.conv_mid = nn.Conv2d(base_channels, base_channels, 3, padding=1)
-        self.bn_mid = nn.BatchNorm2d(base_channels)
 
         # Upsampling via PixelShuffle (2x)
         self.upsample = nn.Sequential(
             nn.Conv2d(base_channels, base_channels * 4, 3, padding=1),
+            nn.LeakyReLU(0.2, inplace=True),
             nn.PixelShuffle(2),
-            nn.ReLU(inplace=True),
         )
 
-        # Final output conv for residual
+        # High-frequency detail enhancement
+        self.detail_enhance = nn.Sequential(
+            nn.Conv2d(base_channels, base_channels, 3, padding=1),
+            nn.LeakyReLU(0.2, inplace=True),
+            CBAM(base_channels),
+            nn.Conv2d(base_channels, base_channels, 3, padding=1),
+            nn.LeakyReLU(0.2, inplace=True),
+        )
+
+        # Final output
         self.conv_out = nn.Sequential(
             nn.Conv2d(base_channels, base_channels, 3, padding=1),
-            nn.ReLU(inplace=True),
+            nn.LeakyReLU(0.2, inplace=True),
             nn.Conv2d(base_channels, in_channels, 3, padding=1),
-            nn.Tanh(),  # Output in [-1, 1], will be scaled
         )
 
-    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Forward pass.
         
         Args:
-            x: Input tensor of shape (B, 3, 512, 512) in [0, 1]
+            x: Input tensor of shape (B, 3, H, W) in [0, 1]
             
         Returns:
-            y: Super-resolved output (B, 3, 1024, 1024)
-            r: Residual component (B, 3, 1024, 1024)
+            y: Super-resolved output (B, 3, 2H, 2W)
         """
-        # Bicubic upsample input to target resolution
+        # Bicubic upsample input to target resolution (baseline)
         x_up = F.interpolate(x, scale_factor=2, mode='bicubic', align_corners=False)
         x_up = torch.clamp(x_up, 0, 1)
 
         # Extract features
-        feat = F.relu(self.conv_in(x), inplace=True)
+        feat = self.conv_in(x)
+        trunk = feat
 
-        # Residual learning
-        res_feat = self.residual_blocks(feat)
-        res_feat = self.bn_mid(self.conv_mid(res_feat))
-        feat = feat + res_feat
+        # Main body
+        feat = self.body(feat)
+        feat = self.conv_mid(feat)
+        feat = feat + trunk  # Global residual
 
         # Upsample features
         feat = self.upsample(feat)
 
-        # Generate residual
-        r = self.conv_out(feat)  # Output in [-1, 1]
-        r = r * 0.5  # Scale to [-0.5, 0.5]
+        # Detail enhancement
+        feat = self.detail_enhance(feat)
 
-        # Final SR output: upsampled input + scaled residual
-        y = x_up + self.residual_scale * r
+        # Generate output (direct prediction, not residual)
+        out = self.conv_out(feat)
+
+        # Residual learning from bicubic baseline
+        y = x_up + out
         y = torch.clamp(y, 0, 1)
 
-        return y, r
+        return y
 
 
 class Discriminator(nn.Module):
     """
-    Patch-based discriminator for 1024x1024 images.
+    Patch-based discriminator for 512x512 images.
     
-    Outputs a grid of real/fake scores.
+    Outputs a grid of real/fake scores to distinguish
+    real high-res patches from generated ones.
     """
 
     def __init__(self, in_channels: int = 3, base_channels: int = 64):
@@ -517,17 +941,16 @@ class Discriminator(nn.Module):
         def conv_block(in_ch, out_ch, stride=2, bn=True):
             layers = [nn.Conv2d(in_ch, out_ch, 4, stride, 1, bias=not bn)]
             if bn:
-                layers.append(nn.BatchNorm2d(out_ch))
+                layers.append(nn.InstanceNorm2d(out_ch))  # InstanceNorm for stability
             layers.append(nn.LeakyReLU(0.2, inplace=True))
             return nn.Sequential(*layers)
 
         self.model = nn.Sequential(
-            # Input: (B, 3, 1024, 1024)
-            conv_block(in_channels, base_channels, stride=2, bn=False),  # -> 512
-            conv_block(base_channels, base_channels * 2, stride=2),       # -> 256
-            conv_block(base_channels * 2, base_channels * 4, stride=2),   # -> 128
-            conv_block(base_channels * 4, base_channels * 8, stride=2),   # -> 64
-            conv_block(base_channels * 8, base_channels * 8, stride=2),   # -> 32
+            # Input: (B, 3, 512, 512)
+            conv_block(in_channels, base_channels, stride=2, bn=False),  # -> 256
+            conv_block(base_channels, base_channels * 2, stride=2),       # -> 128
+            conv_block(base_channels * 2, base_channels * 4, stride=2),   # -> 64
+            conv_block(base_channels * 4, base_channels * 8, stride=2),   # -> 32
             conv_block(base_channels * 8, base_channels * 8, stride=1),   # -> 32
             nn.Conv2d(base_channels * 8, 1, 4, 1, 1),                     # -> 31x31 patch
         )
@@ -535,7 +958,7 @@ class Discriminator(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Args:
-            x: Input tensor of shape (B, 3, 1024, 1024)
+            x: Input tensor of shape (B, 3, 512, 512)
             
         Returns:
             Patch-wise real/fake scores
@@ -664,6 +1087,210 @@ def log_vram_usage(max_vram_gb: float) -> None:
         print(f"WARNING: VRAM usage ({allocated:.2f} GB) exceeds budget ({max_vram_gb} GB)")
 
 
+def save_sample_grid_v2(
+    lr: torch.Tensor,
+    hr: torch.Tensor,
+    sr: torch.Tensor,
+    step: int,
+    out_dir: str,
+    num_samples: int = 4,
+) -> None:
+    """Save a grid showing LR, Bicubic, SR, and HR ground truth with labels."""
+    from PIL import ImageDraw, ImageFont
+
+    lr = lr[:num_samples].cpu()
+    hr = hr[:num_samples].cpu()
+    sr = sr[:num_samples].cpu()
+
+    # Bicubic upsample LR for comparison
+    bicubic = F.interpolate(lr, scale_factor=2, mode='bicubic', align_corners=False)
+    bicubic = torch.clamp(bicubic, 0, 1)
+
+    # Nearest upsample LR for visualization
+    lr_vis = F.interpolate(lr, scale_factor=2, mode='nearest')
+
+    # Stack horizontally: LR | Bicubic | SR | HR
+    grid = torch.cat([lr_vis, bicubic, sr, hr], dim=3)  # Concat along width
+
+    # Convert to PIL for annotation
+    grid_np = (grid * 255).clamp(0, 255).byte()
+    # Stack samples vertically
+    rows = []
+    for i in range(num_samples):
+        row_tensor = grid_np[i]  # (C, H, W)
+        row_np = row_tensor.permute(1, 2, 0).numpy()  # (H, W, C)
+        rows.append(row_np)
+    
+    # Combine all rows vertically
+    combined = np.vstack(rows)
+    img = Image.fromarray(combined, mode='RGB')
+    
+    # Draw labels
+    draw = ImageDraw.Draw(img)
+    
+    # Try to load a font, fall back to default if unavailable
+    try:
+        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 20)
+    except (IOError, OSError):
+        try:
+            font = ImageFont.truetype("/usr/share/fonts/TTF/DejaVuSans-Bold.ttf", 20)
+        except (IOError, OSError):
+            font = ImageFont.load_default()
+    
+    # Image width for each panel
+    panel_width = hr.shape[3]
+    row_height = hr.shape[2]
+    labels = ["LR (Input)", "Bicubic", "Super-Res", "HR (Target)"]
+    
+    # Draw labels on each row
+    for row_idx in range(num_samples):
+        y_offset = row_idx * row_height
+        for col_idx, label in enumerate(labels):
+            x_pos = col_idx * panel_width + 10
+            y_pos = y_offset + 10
+            # Draw text with outline for visibility
+            outline_color = (0, 0, 0)
+            text_color = (255, 255, 255)
+            for dx, dy in [(-1, -1), (-1, 1), (1, -1), (1, 1), (-2, 0), (2, 0), (0, -2), (0, 2)]:
+                draw.text((x_pos + dx, y_pos + dy), label, font=font, fill=outline_color)
+            draw.text((x_pos, y_pos), label, font=font, fill=text_color)
+
+    # Save
+    save_path = os.path.join(out_dir, f'sample_step_{step:06d}.png')
+    img.save(save_path)
+    print(f"Saved sample to {save_path}")
+
+
+# =============================================================================
+# Inference Sharpening Utilities
+# =============================================================================
+
+def unsharp_mask(
+    img: torch.Tensor, 
+    kernel_size: int = 5, 
+    sigma: float = 1.0, 
+    amount: float = 1.0,
+    threshold: float = 0.0,
+) -> torch.Tensor:
+    """
+    Apply unsharp masking for inference-time sharpening.
+    
+    Args:
+        img: Input tensor (B, C, H, W) in [0, 1]
+        kernel_size: Gaussian blur kernel size
+        sigma: Gaussian blur sigma
+        amount: Sharpening strength (1.0 = normal, >1.0 = stronger)
+        threshold: Minimum brightness change to apply sharpening
+        
+    Returns:
+        Sharpened image tensor
+    """
+    # Create Gaussian kernel
+    x = torch.arange(kernel_size, device=img.device, dtype=img.dtype) - (kernel_size - 1) / 2
+    kernel_1d = torch.exp(-x ** 2 / (2 * sigma ** 2))
+    kernel_1d = kernel_1d / kernel_1d.sum()
+    kernel_2d = kernel_1d.unsqueeze(0) * kernel_1d.unsqueeze(1)
+    kernel_2d = kernel_2d.expand(img.shape[1], 1, kernel_size, kernel_size)
+    
+    # Blur image
+    padding = kernel_size // 2
+    blurred = F.conv2d(img, kernel_2d, padding=padding, groups=img.shape[1])
+    
+    # Unsharp mask: original + amount * (original - blurred)
+    mask = img - blurred
+    
+    if threshold > 0:
+        # Only apply to regions with sufficient contrast
+        mask = torch.where(torch.abs(mask) > threshold, mask, torch.zeros_like(mask))
+    
+    sharpened = img + amount * mask
+    return torch.clamp(sharpened, 0, 1)
+
+
+def self_ensemble(
+    generator: nn.Module,
+    lr: torch.Tensor,
+    device: torch.device,
+) -> torch.Tensor:
+    """
+    Self-ensemble (test-time augmentation) for improved quality.
+    
+    Generates 8 predictions with rotations/flips and averages them.
+    
+    Args:
+        generator: Super-resolution model
+        lr: Low-resolution input (B, C, H, W)
+        device: torch device
+        
+    Returns:
+        Averaged super-resolved output
+    """
+    generator.eval()
+    outputs = []
+    
+    with torch.no_grad():
+        for flip_h in [False, True]:
+            for flip_v in [False, True]:
+                for rot in [0, 1]:  # 0° and 90°
+                    # Apply transforms
+                    x = lr
+                    if flip_h:
+                        x = torch.flip(x, dims=[3])
+                    if flip_v:
+                        x = torch.flip(x, dims=[2])
+                    if rot:
+                        x = torch.rot90(x, k=1, dims=[2, 3])
+                    
+                    # Generate SR
+                    sr = generator(x.to(device))
+                    
+                    # Reverse transforms
+                    if rot:
+                        sr = torch.rot90(sr, k=-1, dims=[2, 3])
+                    if flip_v:
+                        sr = torch.flip(sr, dims=[2])
+                    if flip_h:
+                        sr = torch.flip(sr, dims=[3])
+                    
+                    outputs.append(sr.cpu())
+    
+    # Average all predictions
+    return torch.stack(outputs, dim=0).mean(dim=0)
+
+
+def enhance_inference(
+    generator: nn.Module,
+    lr: torch.Tensor,
+    device: torch.device,
+    use_ensemble: bool = True,
+    sharpen_amount: float = 0.3,
+) -> torch.Tensor:
+    """
+    Enhanced inference with optional self-ensemble and sharpening.
+    
+    Args:
+        generator: Super-resolution model
+        lr: Low-resolution input
+        device: torch device
+        use_ensemble: Whether to use self-ensemble (8x slower but better)
+        sharpen_amount: Amount of unsharp mask sharpening (0 = none)
+        
+    Returns:
+        Enhanced super-resolved output
+    """
+    if use_ensemble:
+        sr = self_ensemble(generator, lr, device)
+    else:
+        generator.eval()
+        with torch.no_grad():
+            sr = generator(lr.to(device)).cpu()
+    
+    if sharpen_amount > 0:
+        sr = unsharp_mask(sr, amount=sharpen_amount)
+    
+    return sr
+
+
 # =============================================================================
 # Training
 # =============================================================================
@@ -697,6 +1324,18 @@ def train(args: argparse.Namespace) -> None:
     if len(slides) == 0:
         raise ValueError("No valid slides found in CSV (need at least one 512x512 tile)")
 
+    # Create degradation model for synthetic LR-HR pairs
+    degradation_model = DegradationModel(
+        scale_factor=0.5,  # 512 -> 256 for training
+        blur_sigma_range=(0.5, 1.5),
+        noise_sigma_range=(0.0, 0.02),
+        jpeg_quality_range=(75, 95),
+        apply_blur_prob=0.7,
+        apply_noise_prob=0.5,
+        apply_jpeg_prob=0.3,
+    )
+    print("Created degradation model for synthetic LR-HR pairs")
+
     # Create dataset based on data source
     if args.data_root is not None:
         # Use OpenSlide with local TIF files
@@ -709,6 +1348,7 @@ def train(args: argparse.Namespace) -> None:
         dataset = OpenSlideTileDataset(
             slides=slides,
             data_root=args.data_root,
+            degradation_model=degradation_model,
             train_level=args.train_level,
             tiles_per_slide=max(1, args.num_steps // len(slides)),
             color_jitter=args.color_jitter,
@@ -729,6 +1369,7 @@ def train(args: argparse.Namespace) -> None:
         dataset = GrpcTileDataset(
             slides=slides,
             grpc_address=args.grpc_address,
+            degradation_model=degradation_model,
             train_level=args.train_level,
             tiles_per_slide=max(1, args.num_steps // len(slides)),
             color_jitter=args.color_jitter,
@@ -754,7 +1395,8 @@ def train(args: argparse.Namespace) -> None:
     generator = Generator(
         base_channels=args.g_channels,
         num_residual_blocks=args.g_blocks,
-        residual_scale=args.residual_scale,
+        use_rrdb=args.use_rrdb,
+        growth_channels=args.growth_channels,
     ).to(device)
 
     discriminator = Discriminator(
@@ -766,6 +1408,20 @@ def train(args: argparse.Namespace) -> None:
     d_params = sum(p.numel() for p in discriminator.parameters())
     print(f"Generator parameters: {g_params:,}")
     print(f"Discriminator parameters: {d_params:,}")
+
+    # Create loss functions
+    perceptual_loss_fn = None
+    if VGG_AVAILABLE and args.lambda_perceptual > 0:
+        perceptual_loss_fn = VGGPerceptualLoss().to(device).eval()
+        print("Initialized VGG perceptual loss")
+    elif args.lambda_perceptual > 0:
+        print("WARNING: VGG not available, perceptual loss disabled")
+        args.lambda_perceptual = 0
+    
+    edge_loss_fn = EdgeLoss().to(device)
+    freq_loss_fn = FrequencyLoss(focus_high_freq=True, high_freq_weight=2.0).to(device)
+    laplacian_loss_fn = LaplacianLoss().to(device)
+    print("Initialized edge, frequency, and Laplacian sharpness losses")
 
     # Optimizers
     optimizer_g = torch.optim.AdamW(
@@ -789,31 +1445,37 @@ def train(args: argparse.Namespace) -> None:
     data_iter = iter(dataloader)
 
     # Loss weights
-    lambda_recon = args.lambda_recon
+    lambda_pixel = args.lambda_pixel
+    lambda_perceptual = args.lambda_perceptual
+    lambda_edge = args.lambda_edge
+    lambda_freq = args.lambda_freq
     lambda_adv = args.lambda_adv
-    lambda_reg = args.lambda_reg
 
     print(f"\nStarting training for {args.num_steps} steps")
     print(f"Pretrain steps (no adversarial): {args.pretrain_steps}")
-    print(f"Loss weights: recon={lambda_recon}, adv={lambda_adv}, reg={lambda_reg}")
+    print(f"Loss weights: pixel={lambda_pixel}, perceptual={lambda_perceptual}, "
+          f"edge={lambda_edge}, freq={lambda_freq}, adv={lambda_adv}")
     print("-" * 60)
 
     # Fixed batch for sampling
-    sample_batch = None
+    sample_lr_batch = None
+    sample_hr_batch = None
 
     while global_step < args.num_steps:
-        # Get next batch
+        # Get next batch (now returns LR, HR pairs)
         try:
-            x = next(data_iter)
+            lr, hr = next(data_iter)
         except StopIteration:
             data_iter = iter(dataloader)
-            x = next(data_iter)
+            lr, hr = next(data_iter)
 
-        x = x.to(device, non_blocking=True)
+        lr = lr.to(device, non_blocking=True)
+        hr = hr.to(device, non_blocking=True)
 
         # Save first batch for sampling
-        if sample_batch is None:
-            sample_batch = x.clone()
+        if sample_lr_batch is None:
+            sample_lr_batch = lr.clone()
+            sample_hr_batch = hr.clone()
 
         # Pretraining phase (no adversarial loss)
         if global_step < args.pretrain_steps:
@@ -822,13 +1484,25 @@ def train(args: argparse.Namespace) -> None:
             optimizer_g.zero_grad()
 
             with autocast():
-                # Forward pass
-                y, r = generator(x)
+                # Forward pass: LR (256x256) -> SR (512x512)
+                sr = generator(lr)
 
-                # Losses
-                loss_recon = reconstruction_loss(y, x)
-                loss_reg = regularization_loss(r)
-                loss_g = lambda_recon * loss_recon + lambda_reg * loss_reg
+                # Losses against HR ground truth
+                loss_pixel = F.l1_loss(sr, hr)
+                
+                loss_perceptual = torch.tensor(0.0, device=device)
+                if perceptual_loss_fn is not None:
+                    loss_perceptual = perceptual_loss_fn(sr, hr)
+                
+                loss_edge = edge_loss_fn(sr, hr)
+                loss_freq = freq_loss_fn(sr, hr)
+
+                loss_g = (
+                    lambda_pixel * loss_pixel +
+                    lambda_perceptual * loss_perceptual +
+                    lambda_edge * loss_edge +
+                    lambda_freq * loss_freq
+                )
 
             # Backward pass
             scaler.scale(loss_g).backward()
@@ -839,11 +1513,15 @@ def train(args: argparse.Namespace) -> None:
             if global_step % args.log_interval == 0:
                 print(
                     f"[Pretrain] Step {global_step}/{args.num_steps} | "
-                    f"L_recon: {loss_recon.item():.4f} | "
-                    f"L_reg: {loss_reg.item():.4f}"
+                    f"L_pixel: {loss_pixel.item():.4f} | "
+                    f"L_perc: {loss_perceptual.item():.4f} | "
+                    f"L_edge: {loss_edge.item():.4f} | "
+                    f"L_freq: {loss_freq.item():.4f}"
                 )
-                writer.add_scalar('Loss/reconstruction', loss_recon.item(), global_step)
-                writer.add_scalar('Loss/regularization', loss_reg.item(), global_step)
+                writer.add_scalar('Loss/pixel', loss_pixel.item(), global_step)
+                writer.add_scalar('Loss/perceptual', loss_perceptual.item(), global_step)
+                writer.add_scalar('Loss/edge', loss_edge.item(), global_step)
+                writer.add_scalar('Loss/frequency', loss_freq.item(), global_step)
                 writer.add_scalar('Loss/generator_total', loss_g.item(), global_step)
 
         # Adversarial phase
@@ -859,15 +1537,12 @@ def train(args: argparse.Namespace) -> None:
             with autocast():
                 # Generate SR (detached for D update)
                 with torch.no_grad():
-                    y, _ = generator(x)
+                    sr = generator(lr)
 
-                # Real: bicubic-upsampled original
-                x_up = upsample(x)
-                x_up = torch.clamp(x_up, 0, 1)
-
-                # Discriminator outputs
-                d_real = discriminator(x_up)
-                d_fake = discriminator(y.detach())
+                # Real = actual HR ground truth (not bicubic!)
+                # Fake = SR output
+                d_real = discriminator(hr)
+                d_fake = discriminator(sr.detach())
 
                 loss_d = discriminator_loss(d_real, d_fake)
 
@@ -881,20 +1556,28 @@ def train(args: argparse.Namespace) -> None:
 
             with autocast():
                 # Forward pass
-                y, r = generator(x)
+                sr = generator(lr)
 
                 # Discriminator on fake
-                d_fake = discriminator(y)
+                d_fake = discriminator(sr)
 
                 # Losses
-                loss_recon = reconstruction_loss(y, x)
-                loss_reg = regularization_loss(r)
-                loss_adv = generator_adversarial_loss(d_fake)
+                loss_pixel = F.l1_loss(sr, hr)
+                
+                loss_perceptual = torch.tensor(0.0, device=device)
+                if perceptual_loss_fn is not None:
+                    loss_perceptual = perceptual_loss_fn(sr, hr)
+                
+                loss_edge = edge_loss_fn(sr, hr)
+                loss_freq = freq_loss_fn(sr, hr)
+                loss_adv_g = generator_adversarial_loss(d_fake)
 
                 loss_g = (
-                    lambda_recon * loss_recon +
-                    lambda_adv * loss_adv +
-                    lambda_reg * loss_reg
+                    lambda_pixel * loss_pixel +
+                    lambda_perceptual * loss_perceptual +
+                    lambda_edge * loss_edge +
+                    lambda_freq * loss_freq +
+                    lambda_adv * loss_adv_g
                 )
 
             scaler.scale(loss_g).backward()
@@ -905,14 +1588,17 @@ def train(args: argparse.Namespace) -> None:
             if global_step % args.log_interval == 0:
                 print(
                     f"Step {global_step}/{args.num_steps} | "
-                    f"L_recon: {loss_recon.item():.4f} | "
-                    f"L_adv: {loss_adv.item():.4f} | "
-                    f"L_reg: {loss_reg.item():.4f} | "
+                    f"L_pixel: {loss_pixel.item():.4f} | "
+                    f"L_perc: {loss_perceptual.item():.4f} | "
+                    f"L_edge: {loss_edge.item():.4f} | "
+                    f"L_adv: {loss_adv_g.item():.4f} | "
                     f"L_D: {loss_d.item():.4f}"
                 )
-                writer.add_scalar('Loss/reconstruction', loss_recon.item(), global_step)
-                writer.add_scalar('Loss/adversarial', loss_adv.item(), global_step)
-                writer.add_scalar('Loss/regularization', loss_reg.item(), global_step)
+                writer.add_scalar('Loss/pixel', loss_pixel.item(), global_step)
+                writer.add_scalar('Loss/perceptual', loss_perceptual.item(), global_step)
+                writer.add_scalar('Loss/edge', loss_edge.item(), global_step)
+                writer.add_scalar('Loss/frequency', loss_freq.item(), global_step)
+                writer.add_scalar('Loss/adversarial', loss_adv_g.item(), global_step)
                 writer.add_scalar('Loss/generator_total', loss_g.item(), global_step)
                 writer.add_scalar('Loss/discriminator', loss_d.item(), global_step)
 
@@ -924,25 +1610,28 @@ def train(args: argparse.Namespace) -> None:
         if global_step > 0 and global_step % args.log_images_interval == 0:
             generator.eval()
             with torch.no_grad():
-                y_sample, r_sample = generator(sample_batch)
-                # Input images (upsampled for comparison)
-                x_up = F.interpolate(sample_batch, scale_factor=2, mode='bicubic', align_corners=False)
-                x_up = torch.clamp(x_up, 0, 1)
+                sr_sample = generator(sample_lr_batch)
+                # Input LR (upsampled for comparison)
+                lr_up = F.interpolate(sample_lr_batch, scale_factor=2, mode='bicubic', align_corners=False)
+                lr_up = torch.clamp(lr_up, 0, 1)
                 # Create comparison grids
-                input_grid = make_grid(x_up[:4].cpu(), nrow=2, normalize=False)
-                output_grid = make_grid(y_sample[:4].cpu(), nrow=2, normalize=False)
-                residual_grid = make_grid((r_sample[:4].cpu() + 0.5).clamp(0, 1), nrow=2, normalize=False)
+                input_grid = make_grid(lr_up[:4].cpu(), nrow=2, normalize=False)
+                output_grid = make_grid(sr_sample[:4].cpu(), nrow=2, normalize=False)
+                target_grid = make_grid(sample_hr_batch[:4].cpu(), nrow=2, normalize=False)
                 writer.add_image('Images/input_bicubic', input_grid, global_step)
                 writer.add_image('Images/output_sr', output_grid, global_step)
-                writer.add_image('Images/residual', residual_grid, global_step)
+                writer.add_image('Images/target_hr', target_grid, global_step)
             generator.train()
 
         # Save samples
         if global_step > 0 and global_step % args.sample_interval == 0:
             generator.eval()
             with torch.no_grad():
-                y_sample, _ = generator(sample_batch)
-            save_sample_grid(sample_batch, y_sample, global_step, args.out_dir)
+                sr_sample = generator(sample_lr_batch)
+            save_sample_grid_v2(
+                sample_lr_batch, sample_hr_batch, sr_sample, 
+                global_step, args.out_dir
+            )
             generator.train()
 
         # Save checkpoint
@@ -1054,22 +1743,34 @@ def main():
 
     # Loss weights
     parser.add_argument(
-        '--lambda-recon',
+        '--lambda-pixel',
         type=float,
         default=1.0,
-        help='Weight for reconstruction loss',
+        help='Weight for pixel-wise L1 loss against HR ground truth',
+    )
+    parser.add_argument(
+        '--lambda-perceptual',
+        type=float,
+        default=0.1,
+        help='Weight for VGG perceptual loss (texture preservation)',
+    )
+    parser.add_argument(
+        '--lambda-edge',
+        type=float,
+        default=0.1,
+        help='Weight for edge/gradient sharpness loss',
+    )
+    parser.add_argument(
+        '--lambda-freq',
+        type=float,
+        default=0.05,
+        help='Weight for FFT frequency loss (high-freq detail)',
     )
     parser.add_argument(
         '--lambda-adv',
         type=float,
         default=0.01,
         help='Weight for adversarial loss',
-    )
-    parser.add_argument(
-        '--lambda-reg',
-        type=float,
-        default=0.001,
-        help='Weight for residual regularization loss',
     )
 
     # Model architecture
@@ -1082,20 +1783,32 @@ def main():
     parser.add_argument(
         '--g-blocks',
         type=int,
-        default=12,
-        help='Number of residual blocks in generator',
+        default=16,
+        help='Number of RRDB/residual blocks in generator',
+    )
+    parser.add_argument(
+        '--use-rrdb',
+        action='store_true',
+        default=True,
+        help='Use RRDB blocks (ESRGAN-style) for better quality',
+    )
+    parser.add_argument(
+        '--no-rrdb',
+        dest='use_rrdb',
+        action='store_false',
+        help='Use standard residual blocks instead of RRDB',
+    )
+    parser.add_argument(
+        '--growth-channels',
+        type=int,
+        default=32,
+        help='Growth channels for RRDB dense blocks',
     )
     parser.add_argument(
         '--d-channels',
         type=int,
         default=64,
         help='Base channels for discriminator',
-    )
-    parser.add_argument(
-        '--residual-scale',
-        type=float,
-        default=0.5,
-        help='Scale factor for residual addition (alpha)',
     )
 
     # Data augmentation
