@@ -125,7 +125,7 @@
         </div>
 
         <div class="help-card citation-card">
-          <h3>Data provided by <a href="https://camelyon17.grand-challenge.org/" target="_blank" rel="noopener noreferrer" class="citation-link">CAMELYON17</a></h3>
+          <h3>Data generously provided by <a href="https://camelyon17.grand-challenge.org/" target="_blank" rel="noopener noreferrer" class="citation-link">CAMELYON17</a></h3>
           <p class="citation-text">
             Geert Litjens, Peter Bandi, Babak Ehteshami Bejnordi, Oscar Geessink, Maschenka Balkenhol, Peter Bult, Altuna Halilovic, Meyke Hermsen, Rob van de Loo, Rob Vogels, Quirine F Manson, Nikolas Stathonikos, Alexi Baidoshvili, Paul van Diest, Carla Wauters, Marcory van Dijk, Jeroen van der Laak. 1399 H&amp;E-stained sentinel lymph node sections of breast cancer patients: the CAMELYON dataset. <em>GigaScience</em>, giy065, 2018.
           </p>
