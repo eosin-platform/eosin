@@ -114,10 +114,26 @@ impl StorageApi for ApiService {
             })?;
         }
 
-        fs::write(&path, &req.data).await.map_err(|e| {
-            tracing::error!(?e, ?path, "failed to write tile");
-            Status::internal("failed to write tile")
-        })?;
+        // Write to a temporary file first, then atomically rename.
+        // Use a helper to ensure temp file cleanup in all cases.
+        let temp_path = path.with_extension(format!("tmp.{}", Uuid::new_v4()));
+        let result = async {
+            fs::write(&temp_path, &req.data).await.map_err(|e| {
+                tracing::error!(?e, ?temp_path, "failed to write temp tile");
+                Status::internal("failed to write tile")
+            })?;
+
+            fs::rename(&temp_path, &path).await.map_err(|e| {
+                tracing::error!(?e, ?temp_path, ?path, "failed to rename tile");
+                Status::internal("failed to write tile")
+            })
+        }
+        .await;
+
+        // Clean up temp file if it still exists (write failed after creation, or rename failed)
+        let _ = std::fs::remove_file(&temp_path);
+
+        result?;
 
         Ok(Response::new(PutTileResponse { success: true }))
     }

@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use async_nats::jetstream::{self, consumer::PullConsumer};
+use async_nats::jetstream::{self, AckKind, consumer::PullConsumer, message::Message};
 use deadpool_postgres::Pool;
 use eosin_common::postgres::create_pool;
 use eosin_common::shutdown::shutdown_signal;
@@ -7,6 +7,8 @@ use eosin_common::streams::{ProcessSlideEvent, SlideCreatedEvent, topics, topics
 use eosin_storage::StorageClient;
 use futures::StreamExt;
 use std::path::Path;
+use std::sync::Arc;
+use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
@@ -131,6 +133,16 @@ pub async fn run_process(args: ProcessArgs) -> Result<()> {
     }
     tracing::info!(path = %download_dir, "cleared download directory");
 
+    // Heartbeat interval for in-progress acknowledgments
+    let heartbeat_interval = if args.heartbeat_interval > 0 {
+        Some(Duration::from_secs(args.heartbeat_interval))
+    } else {
+        None
+    };
+    if heartbeat_interval.is_some() {
+        tracing::info!(interval_secs = args.heartbeat_interval, "heartbeat enabled");
+    }
+
     loop {
         tokio::select! {
             () = cancel.cancelled() => {
@@ -143,7 +155,33 @@ pub async fn run_process(args: ProcessArgs) -> Result<()> {
                         // Clone storage_client for this message processing
                         let mut storage = storage_client.clone();
 
-                        if let Err(e) = handle_process_slide(
+                        // Wrap message in Arc for sharing with heartbeat task
+                        let message: Arc<Message> = Arc::new(message);
+
+                        // Spawn heartbeat task if enabled
+                        let heartbeat_cancel = CancellationToken::new();
+                        let heartbeat_handle = if let Some(interval) = heartbeat_interval {
+                            let msg = Arc::clone(&message);
+                            let cancel = heartbeat_cancel.clone();
+                            Some(tokio::spawn(async move {
+                                loop {
+                                    tokio::select! {
+                                        () = cancel.cancelled() => break,
+                                        () = tokio::time::sleep(interval) => {
+                                            if let Err(e) = msg.ack_with(AckKind::Progress).await {
+                                                tracing::warn!(?e, "failed to send in-progress ack");
+                                            } else {
+                                                tracing::debug!("sent in-progress ack");
+                                            }
+                                        }
+                                    }
+                                }
+                            }))
+                        } else {
+                            None
+                        };
+
+                        let result = handle_process_slide(
                             &message.payload,
                             &s3_client,
                             &bucket,
@@ -153,7 +191,15 @@ pub async fn run_process(args: ProcessArgs) -> Result<()> {
                             &nats_for_tiles,
                             &pg_pool,
                             cancel.clone(),
-                        ).await {
+                        ).await;
+
+                        // Stop heartbeat task
+                        heartbeat_cancel.cancel();
+                        if let Some(handle) = heartbeat_handle {
+                            let _ = handle.await;
+                        }
+
+                        if let Err(e) = result {
                             tracing::error!(?e, "failed to process slide");
                             // Don't ack on error - message will be redelivered
                             continue;

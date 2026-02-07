@@ -13,7 +13,7 @@ spec:
       - eosin-compiler
       - dispatch
       - --max-dispatch
-      - "30"
+      - "60"
     env:
     - name: RUST_LOG
       value: info

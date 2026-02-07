@@ -94,4 +94,8 @@ pub struct ProcessArgs {
     /// Number of threads for parallel tile processing (0 = use all available CPUs)
     #[arg(long, env = "TILE_THREADS", default_value = "0")]
     pub tile_threads: usize,
+
+    /// Interval in seconds between NATS in-progress heartbeats (0 = disabled)
+    #[arg(long, env = "HEARTBEAT_INTERVAL", default_value = "12")]
+    pub heartbeat_interval: u64,
 }

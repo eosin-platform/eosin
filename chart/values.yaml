@@ -93,7 +93,7 @@ compiler:
   enabled: true
   image: docker.io/thavlik/eosin-compiler:latest
   imagePullPolicy: Always
-  replicas: 1
+  replicas: 2
   logLevel: debug
   streamName: eosin
   consumerName: compiler
@@ -101,8 +101,8 @@ compiler:
   storageSize: 12Gi
   resources:
     limits:
-      memory: "6Gi"
+      memory: "12Gi"
     requests:
-      memory: "6Gi"
+      memory: "12Gi"
   # storageClassName: ""
   s3: {}  # Falls back to global s3 settings

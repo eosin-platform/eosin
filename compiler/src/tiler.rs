@@ -549,6 +549,8 @@ async fn process_level(
                             last_progress_publish = Instant::now();
 
                             tracing::info!(
+                                slide_id = slide_id.to_string(),
+                                filename = slide_path.file_name().and_then(|n| n.to_str()).unwrap_or("unknown"),
                                 progress_steps = progress_steps,
                                 progress_total = progress_total,
                                 pct = format!("{:.1}%", (progress_steps as f64 / progress_total as f64) * 100.0),
@@ -640,6 +642,8 @@ async fn process_level(
                             last_progress_publish = Instant::now();
 
                             tracing::info!(
+                                slide_id = slide_id.to_string(),
+                                filename = slide_path.file_name().and_then(|n| n.to_str()).unwrap_or("unknown"),
                                 progress_steps = progress_steps,
                                 progress_total = progress_total,
                                 pct = format!("{:.1}%", (progress_steps as f64 / progress_total as f64) * 100.0),
