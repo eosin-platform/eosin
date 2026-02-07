@@ -347,14 +347,14 @@
   class="sidebar"
   class:collapsed
 >
-  <div class="sidebar-header">
-    <button class="logo-btn" onclick={collapsed ? handleToggle : undefined} aria-label={collapsed ? 'Expand sidebar' : undefined} role={collapsed ? 'button' : 'presentation'} tabindex={collapsed ? 0 : -1}>
+  <div class="sidebar-header" class:collapsed onclick={collapsed ? handleToggle : undefined} role={collapsed ? 'button' : undefined} tabindex={collapsed ? 0 : -1} aria-label={collapsed ? 'Expand sidebar' : undefined}>
+    <div class="logo-container">
       <img src="/logo_half.png" alt="App logo" class="app-logo" />
-    </button>
+    </div>
     {#if !collapsed}
       <h2>Slides</h2>
       <span class="slide-count">({totalCount})</span>
-      <button class="toggle-btn" onclick={handleToggle} aria-label="Collapse sidebar">
+      <button class="toggle-btn" onclick={(e) => { e.stopPropagation(); handleToggle(); }} aria-label="Collapse sidebar">
         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <!-- Panel left close icon (collapse sidebar) -->
           <rect x="3" y="3" width="18" height="18" rx="2"></rect>
@@ -493,30 +493,13 @@
     min-width: 56px;
   }
 
-  .logo-btn {
+  .logo-container {
     display: flex;
     align-items: center;
     justify-content: center;
     width: 32px;
     height: 32px;
-    padding: 0;
-    background: transparent;
-    border: none;
-    cursor: default;
-    border-radius: 6px;
     flex-shrink: 0;
-    transition: background-color 0.15s;
-  }
-
-  .sidebar.collapsed .logo-btn {
-    cursor: pointer;
-    width: 32px;
-    height: 32px;
-    border-radius: 6px;
-  }
-
-  .sidebar.collapsed .logo-btn:hover {
-    background: #333;
   }
 
   .toggle-btn {
@@ -553,6 +536,14 @@
     gap: 0.5rem;
     min-height: 48px;
     box-sizing: border-box;
+  }
+
+  .sidebar-header.collapsed {
+    cursor: pointer;
+  }
+
+  .sidebar-header.collapsed:hover {
+    background: #1a1a1a;
   }
 
   .app-logo {
