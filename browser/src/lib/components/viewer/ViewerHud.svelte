@@ -539,4 +539,17 @@
       min-width: 60px;
     }
   }
+
+  /* Touch device adaptations - larger touch targets */
+  @media (pointer: coarse) {
+    .icon-btn {
+      width: 2.75rem;
+      height: 2.75rem;
+    }
+
+    .icon-btn svg {
+      width: 1.25rem;
+      height: 1.25rem;
+    }
+  }
 </style>

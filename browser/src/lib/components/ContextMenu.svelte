@@ -141,4 +141,12 @@
   .context-menu-item:last-child {
     border-radius: 0 0 5px 5px;
   }
+
+  /* Touch device adaptations - larger touch targets */
+  @media (pointer: coarse) {
+    .context-menu-item {
+      padding: 0.75rem 1rem;
+      font-size: 0.9375rem;
+    }
+  }
 </style>

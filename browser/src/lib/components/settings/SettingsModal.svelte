@@ -1201,4 +1201,36 @@
       font-size: 0.6875rem;
     }
   }
+
+  /* Touch device adaptations - larger touch targets */
+  @media (pointer: coarse) {
+    .close-btn {
+      width: 2.75rem;
+      height: 2.75rem;
+    }
+
+    .close-btn .icon {
+      width: 1.5rem;
+      height: 1.5rem;
+    }
+
+    .toggle-track {
+      width: 52px;
+      height: 28px;
+      border-radius: 14px;
+    }
+
+    .toggle-thumb {
+      width: 24px;
+      height: 24px;
+    }
+
+    .toggle-btn.active .toggle-thumb {
+      transform: translateX(24px);
+    }
+
+    .tab-btn {
+      padding: 0.75rem 1rem;
+    }
+  }
 </style>

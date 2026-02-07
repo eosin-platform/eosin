@@ -436,4 +436,13 @@
   .tab.drop-before {
     box-shadow: inset 2px 0 0 0 #0066cc;
   }
+
+  /* Touch device adaptations - larger touch targets */
+  @media (pointer: coarse) {
+    .tab-close {
+      width: 28px;
+      height: 28px;
+      font-size: 1.25rem;
+    }
+  }
 </style>

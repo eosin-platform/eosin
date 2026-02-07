@@ -133,6 +133,14 @@
             DOI: 10.1093/gigascience/giy065
           </a>
         </div>
+
+        <div class="help-card creator-card">
+          <h3>Creator</h3>
+          <p class="citation-text">
+            Made by Thomas Havlik in 2026. Link to portfolio:
+            <a href="https://thavlik.dev" target="_blank" rel="noopener noreferrer" class="citation-link">https://thavlik.dev</a>
+          </p>
+        </div>
       </div>
     </div>
   </div>
@@ -373,6 +381,10 @@
     border-color: rgba(59, 130, 246, 0.25);
   }
 
+  .creator-card {
+    grid-column: 1 / -1;
+  }
+
   .citation-text {
     margin: 0 0 12px 0;
     font-size: 12px;
@@ -426,6 +438,23 @@
 
     .help-card {
       padding: 14px 16px;
+    }
+  }
+
+  /* Touch device adaptations - larger touch targets */
+  @media (pointer: coarse) {
+    .menu-btn,
+    .settings-btn,
+    .help-btn {
+      width: 44px;
+      height: 44px;
+    }
+
+    .menu-btn .icon,
+    .settings-btn .icon,
+    .help-btn .icon {
+      width: 1.5rem;
+      height: 1.5rem;
     }
   }
 </style>
