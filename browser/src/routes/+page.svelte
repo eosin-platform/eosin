@@ -14,7 +14,7 @@
   import { newSlides } from '$lib/stores/newSlides';
   import { tabStore, type Tab } from '$lib/stores/tabs';
   import { performanceMetrics, type PerformanceMetrics } from '$lib/stores/metrics';
-  import { settings } from '$lib/stores/settings';
+  import { settings, FACTORY_IMAGE_DEFAULTS } from '$lib/stores/settings';
   import { getUrlSyncManager } from '$lib/stores/urlSync';
   import type { SlideInfo, ParsedSession } from './+page.server';
 
@@ -172,7 +172,17 @@
       // The session state contains the full pane/tab layout
       tabStore.restoreFromSession(data.session.state);
       
-      // Apply image settings from session
+      // Reset image settings to factory defaults first, then apply URL values.
+      // This ensures permalinks replicate the exact view, not influenced by user's local settings.
+      settings.setSetting('image', 'brightness', FACTORY_IMAGE_DEFAULTS.brightness);
+      settings.setSetting('image', 'contrast', FACTORY_IMAGE_DEFAULTS.contrast);
+      settings.setSetting('image', 'gamma', FACTORY_IMAGE_DEFAULTS.gamma);
+      settings.setSetting('image', 'sharpeningIntensity', FACTORY_IMAGE_DEFAULTS.sharpeningIntensity);
+      settings.setSetting('image', 'sharpeningEnabled', false);
+      settings.setSetting('image', 'stainEnhancement', FACTORY_IMAGE_DEFAULTS.stainEnhancement);
+      settings.setSetting('image', 'stainNormalization', FACTORY_IMAGE_DEFAULTS.stainNormalization);
+      
+      // Apply image settings from session (overriding defaults where specified)
       const imgSettings = data.session.imageSettings;
       if (imgSettings.stainEnhancement) {
         settings.setSetting('image', 'stainEnhancement', imgSettings.stainEnhancement);
@@ -204,7 +214,18 @@
         data.slide.height,
         data.slide.viewport,
       );
-      // Apply image processing settings from URL if present
+      
+      // Reset image settings to factory defaults first, then apply URL values.
+      // This ensures permalinks replicate the exact view, not influenced by user's local settings.
+      settings.setSetting('image', 'brightness', FACTORY_IMAGE_DEFAULTS.brightness);
+      settings.setSetting('image', 'contrast', FACTORY_IMAGE_DEFAULTS.contrast);
+      settings.setSetting('image', 'gamma', FACTORY_IMAGE_DEFAULTS.gamma);
+      settings.setSetting('image', 'sharpeningIntensity', FACTORY_IMAGE_DEFAULTS.sharpeningIntensity);
+      settings.setSetting('image', 'sharpeningEnabled', false);
+      settings.setSetting('image', 'stainEnhancement', FACTORY_IMAGE_DEFAULTS.stainEnhancement);
+      settings.setSetting('image', 'stainNormalization', FACTORY_IMAGE_DEFAULTS.stainNormalization);
+      
+      // Apply image processing settings from URL (overriding defaults where specified)
       if (data.slide.stainEnhancement) {
         settings.setSetting('image', 'stainEnhancement', data.slide.stainEnhancement);
       }
