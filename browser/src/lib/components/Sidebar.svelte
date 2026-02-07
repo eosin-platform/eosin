@@ -555,11 +555,6 @@
     box-sizing: border-box;
   }
 
-  .sidebar.collapsed .sidebar-header {
-    padding: 0.75rem;
-    justify-content: center;
-  }
-
   .app-logo {
     width: 24px;
     height: 24px;
