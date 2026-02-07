@@ -562,16 +562,26 @@ function estimateMacenkoStainMatrix(odSamples: number[][]): number[][] {
   ]);
 
   // Order stains: Hematoxylin first, then Eosin
-  // In OD space, Hematoxylin has higher red absorption (appears blue in RGB)
-  // while Eosin has higher blue absorption (appears pink in RGB)
-  // Compare the ratio of OD_R to OD_B to distinguish them
-  const ratio1 = Math.abs(stain1[0]) / (Math.abs(stain1[2]) + 1e-6);
-  const ratio2 = Math.abs(stain2[0]) / (Math.abs(stain2[2]) + 1e-6);
+  // Use similarity to reference vectors for more robust ordering
+  const refH = [REFERENCE_STAIN_MATRIX_MACENKO[0][0], REFERENCE_STAIN_MATRIX_MACENKO[1][0], REFERENCE_STAIN_MATRIX_MACENKO[2][0]];
+  const refE = [REFERENCE_STAIN_MATRIX_MACENKO[0][1], REFERENCE_STAIN_MATRIX_MACENKO[1][1], REFERENCE_STAIN_MATRIX_MACENKO[2][1]];
   
-  let hStain = stain1;
-  let eStain = stain2;
-  // Hematoxylin has higher R/B ratio in OD (absorbs more red relative to blue)
-  if (ratio1 < ratio2) {
+  // Compute dot products (cosine similarity for unit vectors)
+  const sim1H = Math.abs(stain1[0] * refH[0] + stain1[1] * refH[1] + stain1[2] * refH[2]);
+  const sim1E = Math.abs(stain1[0] * refE[0] + stain1[1] * refE[1] + stain1[2] * refE[2]);
+  const sim2H = Math.abs(stain2[0] * refH[0] + stain2[1] * refH[1] + stain2[2] * refH[2]);
+  const sim2E = Math.abs(stain2[0] * refE[0] + stain2[1] * refE[1] + stain2[2] * refE[2]);
+  
+  let hStain: number[];
+  let eStain: number[];
+  
+  // Assign based on which stain matches which reference better
+  if (sim1H + sim2E > sim1E + sim2H) {
+    // stain1 is H, stain2 is E
+    hStain = stain1;
+    eStain = stain2;
+  } else {
+    // stain2 is H, stain1 is E
     hStain = stain2;
     eStain = stain1;
   }
@@ -751,6 +761,27 @@ function nmf2(
     }
   }
 
+  // Order columns so H is first, E is second (based on similarity to reference)
+  const refH = [REFERENCE_STAIN_MATRIX_VAHADANE[0][0], REFERENCE_STAIN_MATRIX_VAHADANE[1][0], REFERENCE_STAIN_MATRIX_VAHADANE[2][0]];
+  const col0 = [W[0][0], W[1][0], W[2][0]];
+  const col1 = [W[0][1], W[1][1], W[2][1]];
+  
+  const sim0H = Math.abs(col0[0] * refH[0] + col0[1] * refH[1] + col0[2] * refH[2]);
+  const sim1H = Math.abs(col1[0] * refH[0] + col1[1] * refH[1] + col1[2] * refH[2]);
+  
+  // If column 1 is more similar to H, swap columns
+  if (sim1H > sim0H) {
+    for (let i = 0; i < 3; i++) {
+      const tmp = W[i][0];
+      W[i][0] = W[i][1];
+      W[i][1] = tmp;
+    }
+    // Also swap H rows
+    const tmpRow = H[0];
+    H[0] = H[1];
+    H[1] = tmpRow;
+  }
+
   // Convert H to array of concentration pairs
   const concentrations: number[][] = [];
   for (let k = 0; k < n; k++) {
@@ -762,6 +793,129 @@ function nmf2(
   }
 
   return { stainMatrix: W, concentrations };
+}
+
+// ============================================================================
+// Stain Matrix Validation
+// ============================================================================
+
+/**
+ * Compute cosine similarity between two vectors.
+ */
+function cosineSimilarity(a: number[], b: number[]): number {
+  let dot = 0;
+  let normA = 0;
+  let normB = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i];
+    normA += a[i] * a[i];
+    normB += b[i] * b[i];
+  }
+  normA = Math.sqrt(normA);
+  normB = Math.sqrt(normB);
+  if (normA < 1e-10 || normB < 1e-10) return 0;
+  return dot / (normA * normB);
+}
+
+/**
+ * Extract a column from the stain matrix as a vector.
+ */
+function getStainColumn(matrix: number[][], col: number): number[] {
+  return [matrix[0][col], matrix[1][col], matrix[2][col]];
+}
+
+/**
+ * Minimum cosine similarity between estimated and reference stain vectors.
+ * Below this, the estimation is considered unreliable.
+ */
+const MIN_STAIN_SIMILARITY = 0.7;
+
+/**
+ * Minimum angle (in radians) between H and E stain vectors.
+ * If too similar, they're not properly separated.
+ */
+const MIN_STAIN_SEPARATION_ANGLE = 0.3; // ~17 degrees
+
+interface StainMatrixValidation {
+  matrix: number[][];
+  swapped: boolean;
+  usedFallback: boolean;
+}
+
+/**
+ * Validate and potentially fix an estimated stain matrix.
+ * 
+ * Checks:
+ * 1. H and E vectors are sufficiently different from each other
+ * 2. Estimated vectors are similar enough to reference vectors
+ * 3. H and E aren't swapped (based on similarity to reference)
+ * 
+ * @param estimated - The estimated stain matrix
+ * @param reference - The reference stain matrix
+ * @returns Validated/corrected matrix and flags indicating what was done
+ */
+function validateAndFixStainMatrix(
+  estimated: number[][],
+  reference: number[][]
+): StainMatrixValidation {
+  const estH = getStainColumn(estimated, 0);
+  const estE = getStainColumn(estimated, 1);
+  const refH = getStainColumn(reference, 0);
+  const refE = getStainColumn(reference, 1);
+
+  // Check if H and E are sufficiently separated
+  const heSimilarity = Math.abs(cosineSimilarity(estH, estE));
+  const separationAngle = Math.acos(Math.min(1, heSimilarity));
+  
+  if (separationAngle < MIN_STAIN_SEPARATION_ANGLE) {
+    console.debug(`Stain vectors too similar (angle: ${(separationAngle * 180 / Math.PI).toFixed(1)}°), using reference`);
+    return {
+      matrix: reference.map(row => [...row]),
+      swapped: false,
+      usedFallback: true,
+    };
+  }
+
+  // Check similarity to reference vectors
+  const estHtoRefH = cosineSimilarity(estH, refH);
+  const estEtoRefE = cosineSimilarity(estE, refE);
+  const estHtoRefE = cosineSimilarity(estH, refE);
+  const estEtoRefH = cosineSimilarity(estE, refH);
+
+  // Check if stains are swapped: estH is more similar to refE and vice versa
+  const normalMatch = Math.min(estHtoRefH, estEtoRefE);
+  const swappedMatch = Math.min(estHtoRefE, estEtoRefH);
+
+  if (swappedMatch > normalMatch) {
+    // Stains are swapped - swap columns
+    console.debug(`H/E stains appear swapped (normal: ${normalMatch.toFixed(2)}, swapped: ${swappedMatch.toFixed(2)})`);
+    return {
+      matrix: [
+        [estimated[0][1], estimated[0][0]],
+        [estimated[1][1], estimated[1][0]],
+        [estimated[2][1], estimated[2][0]],
+      ],
+      swapped: true,
+      usedFallback: false,
+    };
+  }
+
+  // Check if estimation is too different from reference (anomalous)
+  if (normalMatch < MIN_STAIN_SIMILARITY) {
+    console.debug(`Stain vectors too different from reference (similarity: ${normalMatch.toFixed(2)}), using reference`);
+    return {
+      matrix: reference.map(row => [...row]),
+      swapped: false,
+      usedFallback: true,
+    };
+  }
+
+  // Estimation looks good
+  return {
+    matrix: estimated,
+    swapped: false,
+    usedFallback: false,
+  };
 }
 
 // ============================================================================
@@ -786,6 +940,7 @@ function computeNormalizationParams(
 
   let stainMatrix: number[][];
   let concentrations: number[][];
+  const refMatrix = mode === 'macenko' ? REFERENCE_STAIN_MATRIX_MACENKO : REFERENCE_STAIN_MATRIX_VAHADANE;
 
   if (mode === 'macenko') {
     // Macenko: SVD-based estimation
@@ -796,6 +951,21 @@ function computeNormalizationParams(
     const nmfResult = nmf2(samples, 2, 50);
     stainMatrix = nmfResult.stainMatrix;
     concentrations = nmfResult.concentrations;
+  }
+
+  // Validate the estimated stain matrix against reference
+  // This catches cases where H/E are swapped or estimation went wrong
+  const validationResult = validateAndFixStainMatrix(stainMatrix, refMatrix);
+  if (validationResult.usedFallback) {
+    console.warn(`Stain matrix estimation produced anomalous results, using reference matrix`);
+    stainMatrix = validationResult.matrix;
+    // Recompute concentrations with the corrected matrix
+    concentrations = computeConcentrations(samples, stainMatrix);
+  } else if (validationResult.swapped) {
+    console.info(`Stain matrix H/E were swapped, corrected`);
+    stainMatrix = validationResult.matrix;
+    // Recompute concentrations with the corrected matrix
+    concentrations = computeConcentrations(samples, stainMatrix);
   }
 
   // Compute 99th percentile of concentrations (max stain intensity)
