@@ -121,7 +121,10 @@ pub async fn run_list_slides(args: ListSlidesArgs) -> Result<()> {
         println!("  (no slides)");
     } else {
         for slide in &response.items {
-            println!("  {} - {}x{}", slide.id, slide.width, slide.height,);
+            println!(
+                "{},{},{},{}",
+                slide.id, slide.filename, slide.width, slide.height,
+            );
         }
     }
 
