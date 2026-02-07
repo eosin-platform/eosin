@@ -104,7 +104,15 @@
           <div class="help-row"><kbd>H</kbd><span>Toggle this help</span></div>
           <div class="help-row"><kbd>N</kbd><span>Cycle stain normalization</span></div>
           <div class="help-row"><kbd>E</kbd><span>Cycle stain enhancement</span></div>
-          <div class="help-row"><kbd>Esc</kbd><span>Close help</span></div>
+          <div class="help-row"><kbd>D</kbd><span>Toggle measurement mode</span></div>
+          <div class="help-row"><kbd>Esc</kbd><span>Close help / Cancel</span></div>
+        </div>
+
+        <div class="help-card">
+          <h3>Measurement Tool</h3>
+          <div class="help-row"><kbd>Middle Drag</kbd><span>Measure while dragging</span></div>
+          <div class="help-row"><kbd>D</kbd><span>Toggle measurement mode</span></div>
+          <div class="help-row"><span class="help-note">Click or pan to dismiss measurement</span></div>
         </div>
 
         <div class="help-card">
@@ -370,6 +378,12 @@
   .help-row span {
     color: rgba(255, 255, 255, 0.6);
     line-height: 1.4;
+  }
+
+  .help-note {
+    font-size: 0.75rem;
+    font-style: italic;
+    color: rgba(255, 255, 255, 0.5);
   }
 
   /* Citation card styling */

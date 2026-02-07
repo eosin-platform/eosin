@@ -24,6 +24,7 @@
   import ActivityIndicator from '$lib/components/ActivityIndicator.svelte';
   import ViewerHud from '$lib/components/viewer/ViewerHud.svelte';
   import ScaleBar from '$lib/components/viewer/ScaleBar.svelte';
+  import MeasurementOverlay from '$lib/components/viewer/MeasurementOverlay.svelte';
   import { tabStore, type Tab } from '$lib/stores/tabs';
   import { acquireCache, releaseCache } from '$lib/stores/slideCache';
   import { updatePerformanceMetrics } from '$lib/stores/metrics';
@@ -87,6 +88,25 @@
   let isDragging = false;
   let lastMouseX = 0;
   let lastMouseY = 0;
+
+  // Measurement tool state
+  interface MeasurementState {
+    active: boolean;
+    mode: 'drag' | 'toggle' | null;
+    startScreen: { x: number; y: number } | null;
+    endScreen: { x: number; y: number } | null;
+    startImage: { x: number; y: number } | null;
+    endImage: { x: number; y: number } | null;
+  }
+  
+  let measurement = $state<MeasurementState>({
+    active: false,
+    mode: null,
+    startScreen: null,
+    endScreen: null,
+    startImage: null,
+    endImage: null,
+  });
 
   // Progress
   let progressSteps = $state(0);
@@ -192,9 +212,41 @@
       e.preventDefault();
       helpMenuOpen.update(v => !v);
     }
-    // Escape closes help
-    if (e.key === 'Escape' && $helpMenuOpen) {
-      helpMenuOpen.set(false);
+    // 'd' key toggles measurement mode
+    if (e.key === 'd' || e.key === 'D') {
+      if (!imageDesc || !container) return;
+      
+      if (measurement.active && measurement.mode === 'toggle') {
+        // Cancel measurement if already in toggle mode
+        cancelMeasurement();
+      } else {
+        // Start toggle measurement at current mouse position
+        // We'll use the center of the container as default if no mouse position available
+        const rect = container.getBoundingClientRect();
+        
+        // Get current mouse position from last known position or use center
+        const screenX = lastMouseX || (rect.left + rect.width / 2);
+        const screenY = lastMouseY || (rect.top + rect.height / 2);
+        const imagePos = screenToImage(screenX, screenY);
+        
+        measurement = {
+          active: true,
+          mode: 'toggle',
+          startScreen: { x: screenX, y: screenY },
+          endScreen: { x: screenX, y: screenY },
+          startImage: imagePos,
+          endImage: imagePos,
+        };
+      }
+    }
+    // Escape closes help and cancels measurement
+    if (e.key === 'Escape') {
+      if ($helpMenuOpen) {
+        helpMenuOpen.set(false);
+      }
+      if (measurement.active) {
+        cancelMeasurement();
+      }
     }
   }
 
@@ -579,18 +631,77 @@
     scheduleViewportUpdate();
   }
 
+  // Convert screen coordinates to image coordinates (level 0 pixels)
+  function screenToImage(screenX: number, screenY: number): { x: number; y: number } {
+    const rect = container.getBoundingClientRect();
+    const relX = screenX - rect.left;
+    const relY = screenY - rect.top;
+    const imageX = viewport.x + relX / viewport.zoom;
+    const imageY = viewport.y + relY / viewport.zoom;
+    return { x: imageX, y: imageY };
+  }
+
+  // Cancel any active measurement
+  function cancelMeasurement() {
+    measurement = {
+      active: false,
+      mode: null,
+      startScreen: null,
+      endScreen: null,
+      startImage: null,
+      endImage: null,
+    };
+  }
+
   // Mouse event handlers
   function handleMouseDown(e: MouseEvent) {
-    if (e.button !== 0) return;
-    isDragging = true;
-    lastMouseX = e.clientX;
-    lastMouseY = e.clientY;
-    tabStore.setFocusedPane(paneId);
-    helpMenuOpen.set(false);
-    e.preventDefault();
+    // Middle mouse button (button 1) - start drag measurement
+    if (e.button === 1) {
+      e.preventDefault();
+      const imagePos = screenToImage(e.clientX, e.clientY);
+      measurement = {
+        active: true,
+        mode: 'drag',
+        startScreen: { x: e.clientX, y: e.clientY },
+        endScreen: { x: e.clientX, y: e.clientY },
+        startImage: imagePos,
+        endImage: imagePos,
+      };
+      return;
+    }
+
+    // Left mouse button - regular pan, but also cancel toggle measurement
+    if (e.button === 0) {
+      // Cancel toggle measurement mode on click
+      if (measurement.active && measurement.mode === 'toggle') {
+        cancelMeasurement();
+      }
+      isDragging = true;
+      lastMouseX = e.clientX;
+      lastMouseY = e.clientY;
+      tabStore.setFocusedPane(paneId);
+      helpMenuOpen.set(false);
+      e.preventDefault();
+    }
   }
 
   function handleMouseMove(e: MouseEvent) {
+    // Handle measurement mode (both drag and toggle)
+    if (measurement.active && measurement.startImage) {
+      const imagePos = screenToImage(e.clientX, e.clientY);
+      measurement = {
+        ...measurement,
+        endScreen: { x: e.clientX, y: e.clientY },
+        endImage: imagePos,
+      };
+      
+      // In drag mode, don't pan
+      if (measurement.mode === 'drag') {
+        return;
+      }
+    }
+
+    // Regular pan handling
     if (!isDragging || !imageDesc) return;
 
     const deltaX = e.clientX - lastMouseX;
@@ -598,13 +709,35 @@
     lastMouseX = e.clientX;
     lastMouseY = e.clientY;
 
+    // If panning during toggle measurement, cancel the measurement
+    if (measurement.active && measurement.mode === 'toggle') {
+      cancelMeasurement();
+    }
+
     // Apply pan sensitivity from settings
     viewport = pan(viewport, deltaX * panSensitivityFactor, deltaY * panSensitivityFactor, imageDesc.width, imageDesc.height);
     scheduleViewportUpdate();
   }
 
-  function handleMouseUp() {
+  function handleMouseUp(e?: MouseEvent) {
+    // Middle mouse button released - end drag measurement
+    if (e && e.button === 1 && measurement.active && measurement.mode === 'drag') {
+      cancelMeasurement();
+      return;
+    }
+
     isDragging = false;
+  }
+
+  // Window event handlers (with event parameter)
+  function handleWindowMouseUp(e: MouseEvent) {
+    handleMouseUp(e);
+  }
+
+  function handleWindowMouseMove(e: MouseEvent) {
+    // Track mouse position globally for 'd' key to use current mouse position
+    lastMouseX = e.clientX;
+    lastMouseY = e.clientY;
   }
 
   function handleWheel(e: WheelEvent) {
@@ -749,8 +882,9 @@
     // Register tile handler
     registerHandler();
 
-    window.addEventListener('mouseup', handleMouseUp);
+    window.addEventListener('mouseup', handleWindowMouseUp);
     window.addEventListener('keydown', handleKeyDown, true);
+    window.addEventListener('mousemove', handleWindowMouseMove);
   });
 
   onDestroy(() => {
@@ -768,8 +902,9 @@
       clearTimeout(hudNotificationTimeout);
     }
     if (browser) {
-      window.removeEventListener('mouseup', handleMouseUp);
+      window.removeEventListener('mouseup', handleWindowMouseUp);
       window.removeEventListener('keydown', handleKeyDown, true);
+      window.removeEventListener('mousemove', handleWindowMouseMove);
     }
   });
 </script>
@@ -778,6 +913,8 @@
 <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 <div
   class="viewer-container"
+  class:measuring={measurement.active}
+  class:measuring-toggle={measurement.active && measurement.mode === 'toggle'}
   bind:this={container}
   onmousedown={handleMouseDown}
   onmousemove={handleMouseMove}
@@ -797,6 +934,9 @@
     
     <!-- Scale bar (bottom-left) - controlled by settings -->
     <ScaleBar {viewport} />
+    
+    <!-- Measurement overlay -->
+    <MeasurementOverlay {viewport} {measurement} />
     
     <!-- Viewer HUD overlay (top-left) -->
     <ViewerHud
@@ -894,6 +1034,19 @@
 
   .viewer-container:active {
     cursor: grabbing;
+  }
+
+  /* Measurement mode cursor */
+  .viewer-container.measuring {
+    cursor: crosshair;
+  }
+
+  .viewer-container.measuring:active {
+    cursor: crosshair;
+  }
+
+  .viewer-container.measuring-toggle {
+    cursor: crosshair;
   }
 
   /* Image layer wrapper for applying CSS filters (brightness/contrast/gamma) */

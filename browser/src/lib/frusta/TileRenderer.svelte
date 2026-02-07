@@ -530,15 +530,16 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
   }
 
   // Debug mode state
-  let dKeyHeld = $state(false);
   let mouseX = $state(0);
   let mouseY = $state(0);
   // Forced mip level for debugging (null = normal behavior, 0-9 = force that level)
   let forcedMipLevel: number | null = $state(null);
+  // Debug view mode key state
+  let yKeyHeld = $state(false);
 
   function handleKeyDown(e: KeyboardEvent) {
-    if (e.key === 'd' || e.key === 'D') {
-      dKeyHeld = true;
+    if (e.key === 'y' || e.key === 'Y') {
+      yKeyHeld = true;
     }
     // Number keys 0-9 force that mip level for debugging
     if (e.key >= '0' && e.key <= '9') {
@@ -547,8 +548,8 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
   }
 
   function handleKeyUp(e: KeyboardEvent) {
-    if (e.key === 'd' || e.key === 'D') {
-      dKeyHeld = false;
+    if (e.key === 'y' || e.key === 'Y') {
+      yKeyHeld = false;
     }
     // Release forced mip level when number key is released
     if (e.key >= '0' && e.key <= '9' && forcedMipLevel === parseInt(e.key, 10)) {
@@ -658,7 +659,7 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
     void stainEnhancement;
     void sharpeningEnabled;
     void sharpeningIntensity;
-    void dKeyHeld;
+    void yKeyHeld;
     void mouseX;
     void mouseY;
     void forcedMipLevel;
@@ -755,8 +756,8 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
       else if (result === 'placeholder') placeholderTiles++;
     }
 
-    // Debug overlay when 'd' is held or mip level is forced
-    if (dKeyHeld || forcedMipLevel !== null) {
+    // Debug overlay when 'y' is held or mip level is forced
+    if (yKeyHeld || forcedMipLevel !== null) {
       renderDebugOverlay(idealTiles, idealLevel);
     }
 
