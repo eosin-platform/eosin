@@ -47,7 +47,7 @@
         </svg>
       </button>
     {/if}
-    <span class="dim">(real-time analysis goes here)</span>
+    <span class="dim">(real-time analysis will be here soon)</span>
   </div>
 
   <div class="header-right">

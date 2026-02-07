@@ -864,20 +864,20 @@
     </div>
   {/if}
 
-  <footer class="controls">
-    <div class="stats">
-      <span>Zoom: {(viewport.zoom * 100).toFixed(1)}%</span>
-      {#if imageDesc}
+  {#if imageDesc}
+    <footer class="controls">
+      <div class="stats">
+        <span>Zoom: {(viewport.zoom * 100).toFixed(1)}%</span>
         <span>Image: {imageDesc.width}×{imageDesc.height} ({imageDesc.levels} levels)</span>
-      {/if}
-      {#if progressTotal > 0 && progressSteps < progressTotal}
-        <span class="progress-indicator"><ActivityIndicator trigger={progressUpdateTrigger} />Processing: {((progressSteps / progressTotal) * 100).toPrecision(3)}%</span>
-      {/if}
-      {#if loadError}
-        <span class="error">{loadError}</span>
-      {/if}
-    </div>
-  </footer>
+        {#if progressTotal > 0 && progressSteps < progressTotal}
+          <span class="progress-indicator"><ActivityIndicator trigger={progressUpdateTrigger} />Processing: {((progressSteps / progressTotal) * 100).toPrecision(3)}%</span>
+        {/if}
+        {#if loadError}
+          <span class="error">{loadError}</span>
+        {/if}
+      </div>
+    </footer>
+  {/if}
 </div>
 
 <style>
