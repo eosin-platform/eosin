@@ -36,6 +36,16 @@ export type ThemeMode = 'light' | 'dark' | 'high_contrast';
 export type ColorProfile = 'srgb' | 'scanner_native' | 'he_clinical';
 export type StainNormalization = 'none' | 'macenko' | 'vahadane';
 
+// Configurable defaults for the Reset to Defaults button
+export interface ImageDefaults {
+  brightness: number;
+  contrast: number;
+  gamma: number;
+  sharpeningIntensity: number;
+  stainEnhancement: StainEnhancementMode;
+  stainNormalization: StainNormalization;
+}
+
 export interface ImageSettings {
   brightness: number;       // -100 to 100, default 0
   contrast: number;         // -100 to 100, default 0
@@ -92,6 +102,7 @@ export interface Settings {
   performance: PerformanceSettings;
   privacy: PrivacySettings;
   ui: UISettings;
+  defaults: ImageDefaults;  // Configurable defaults for Reset to Defaults
 }
 
 // ============================================================================
@@ -108,6 +119,16 @@ export const DEFAULT_COLOR_PALETTE = [
   '#8b5cf6', // violet
   '#ec4899', // pink
 ];
+
+// Factory defaults for image settings (used when resetting user defaults)
+export const FACTORY_IMAGE_DEFAULTS: ImageDefaults = {
+  brightness: 0,
+  contrast: 0,
+  gamma: 1.0,
+  sharpeningIntensity: 0,
+  stainEnhancement: 'none',
+  stainNormalization: 'none',
+};
 
 export const DEFAULT_SETTINGS: Settings = {
   image: {
@@ -151,6 +172,7 @@ export const DEFAULT_SETTINGS: Settings = {
     theme: 'dark',
     language: 'en',
   },
+  defaults: { ...FACTORY_IMAGE_DEFAULTS },
 };
 
 // ============================================================================
@@ -215,6 +237,7 @@ function loadSettings(): Settings {
       performance: { ...DEFAULT_SETTINGS.performance, ...parsed.performance },
       privacy: { ...DEFAULT_SETTINGS.privacy, ...parsed.privacy },
       ui: { ...DEFAULT_SETTINGS.ui, ...parsed.ui },
+      defaults: { ...DEFAULT_SETTINGS.defaults, ...parsed.defaults },
     };
   } catch {
     console.warn('Failed to load settings from localStorage');
@@ -359,6 +382,7 @@ export const measurementSettings = derived(settings, ($s) => $s.measurements);
 export const performanceSettings = derived(settings, ($s) => $s.performance);
 export const privacySettings = derived(settings, ($s) => $s.privacy);
 export const uiSettings = derived(settings, ($s) => $s.ui);
+export const imageDefaults = derived(settings, ($s) => $s.defaults);
 
 // ============================================================================
 // UI state for modals/popups (not persisted)

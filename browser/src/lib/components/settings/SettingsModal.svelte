@@ -6,13 +6,16 @@
     settingsModalOpen,
     DEFAULT_SETTINGS,
     DEFAULT_COLOR_PALETTE,
+    FACTORY_IMAGE_DEFAULTS,
     type ColorProfile,
     type StainNormalization,
+    type StainEnhancementMode,
+    type ImageDefaults,
     type PrefetchLevel,
     type StreamingQuality,
   } from '$lib/stores/settings';
 
-  type TabId = 'image' | 'performance' | 'annotations' | 'privacy';
+  type TabId = 'image' | 'performance' | 'annotations' | 'privacy' | 'defaults';
 
   let activeTab = $state<TabId>('image');
   let dialogElement: HTMLDivElement;
@@ -39,6 +42,14 @@
   let screenshotsDisabled = $state($settings.privacy.screenshotsDisabled);
   let autoLogoutMinutes = $state($settings.privacy.autoLogoutMinutes);
 
+  // Defaults settings (configurable image defaults)
+  let defaultBrightness = $state($settings.defaults.brightness);
+  let defaultContrast = $state($settings.defaults.contrast);
+  let defaultGamma = $state($settings.defaults.gamma);
+  let defaultSharpeningIntensity = $state($settings.defaults.sharpeningIntensity);
+  let defaultStainEnhancement = $state<StainEnhancementMode>($settings.defaults.stainEnhancement);
+  let defaultStainNormalization = $state<StainNormalization>($settings.defaults.stainNormalization);
+
   // Keep local state in sync with store
   $effect(() => {
     colorProfile = $settings.image.colorProfile;
@@ -55,6 +66,12 @@
     phiMaskingEnabled = $settings.privacy.phiMaskingEnabled;
     screenshotsDisabled = $settings.privacy.screenshotsDisabled;
     autoLogoutMinutes = $settings.privacy.autoLogoutMinutes;
+    defaultBrightness = $settings.defaults.brightness;
+    defaultContrast = $settings.defaults.contrast;
+    defaultGamma = $settings.defaults.gamma;
+    defaultSharpeningIntensity = $settings.defaults.sharpeningIntensity;
+    defaultStainEnhancement = $settings.defaults.stainEnhancement;
+    defaultStainNormalization = $settings.defaults.stainNormalization;
   });
 
   function handleKeydown(e: KeyboardEvent) {
@@ -85,6 +102,7 @@
       performance: 'performance',
       annotations: 'annotations',
       privacy: 'privacy',
+      defaults: 'defaults',
     };
     settings.resetSection(sectionMap[section]);
   }
@@ -183,11 +201,60 @@
     settings.setSetting('privacy', 'autoLogoutMinutes', autoLogoutMinutes);
   }
 
+  // --- Defaults tab handlers ---
+  function handleDefaultBrightnessChange(e: Event) {
+    defaultBrightness = parseInt((e.target as HTMLInputElement).value);
+    settings.setSetting('defaults', 'brightness', defaultBrightness);
+  }
+
+  function handleDefaultContrastChange(e: Event) {
+    defaultContrast = parseInt((e.target as HTMLInputElement).value);
+    settings.setSetting('defaults', 'contrast', defaultContrast);
+  }
+
+  function handleDefaultGammaChange(e: Event) {
+    defaultGamma = parseFloat((e.target as HTMLInputElement).value);
+    settings.setSetting('defaults', 'gamma', defaultGamma);
+  }
+
+  function handleDefaultSharpeningChange(e: Event) {
+    defaultSharpeningIntensity = parseInt((e.target as HTMLInputElement).value);
+    settings.setSetting('defaults', 'sharpeningIntensity', defaultSharpeningIntensity);
+  }
+
+  function handleDefaultEnhancementChange(value: StainEnhancementMode) {
+    defaultStainEnhancement = value;
+    settings.setSetting('defaults', 'stainEnhancement', value);
+  }
+
+  function handleDefaultNormalizationChange(value: StainNormalization) {
+    defaultStainNormalization = value;
+    settings.setSetting('defaults', 'stainNormalization', value);
+  }
+
+  function resetDefaultsToFactory() {
+    defaultBrightness = FACTORY_IMAGE_DEFAULTS.brightness;
+    defaultContrast = FACTORY_IMAGE_DEFAULTS.contrast;
+    defaultGamma = FACTORY_IMAGE_DEFAULTS.gamma;
+    defaultSharpeningIntensity = FACTORY_IMAGE_DEFAULTS.sharpeningIntensity;
+    defaultStainEnhancement = FACTORY_IMAGE_DEFAULTS.stainEnhancement;
+    defaultStainNormalization = FACTORY_IMAGE_DEFAULTS.stainNormalization;
+    settings.updateSection('defaults', { ...FACTORY_IMAGE_DEFAULTS });
+  }
+
   const tabs: { id: TabId; label: string; icon: string }[] = [
     { id: 'image', label: 'Image', icon: '🎨' },
     { id: 'performance', label: 'Performance', icon: '⚡' },
     { id: 'annotations', label: 'Annotations', icon: '✏️' },
     { id: 'privacy', label: 'Privacy', icon: '🔒' },
+    { id: 'defaults', label: 'Defaults', icon: '↺' },
+  ];
+
+  const stainEnhancementOptions: { value: StainEnhancementMode; label: string }[] = [
+    { value: 'none', label: 'None' },
+    { value: 'gram', label: 'Gram' },
+    { value: 'afb', label: 'AFB' },
+    { value: 'gms', label: 'GMS' },
   ];
 
   const colorProfileOptions: { value: ColorProfile; label: string }[] = [
@@ -535,6 +602,113 @@
 
             <button class="reset-btn" onclick={() => resetSection('privacy')}>
               Reset Privacy Settings
+            </button>
+          </div>
+        {/if}
+
+        <!-- Defaults (configurable image defaults) -->
+        {#if activeTab === 'defaults'}
+          <div class="panel" id="panel-defaults" role="tabpanel">
+            <p class="panel-intro">
+              Configure the default values used when clicking "Reset to Defaults" in the viewer.
+            </p>
+
+            <div class="setting-group">
+              <h3>Default Brightness</h3>
+              <div class="slider-row">
+                <input
+                  type="range"
+                  min="-100"
+                  max="100"
+                  step="1"
+                  value={defaultBrightness}
+                  oninput={handleDefaultBrightnessChange}
+                  class="slider"
+                />
+                <span class="slider-value">{defaultBrightness}</span>
+              </div>
+            </div>
+
+            <div class="setting-group">
+              <h3>Default Contrast</h3>
+              <div class="slider-row">
+                <input
+                  type="range"
+                  min="-100"
+                  max="100"
+                  step="1"
+                  value={defaultContrast}
+                  oninput={handleDefaultContrastChange}
+                  class="slider"
+                />
+                <span class="slider-value">{defaultContrast}</span>
+              </div>
+            </div>
+
+            <div class="setting-group">
+              <h3>Default Gamma</h3>
+              <div class="slider-row">
+                <input
+                  type="range"
+                  min="0.1"
+                  max="3.0"
+                  step="0.05"
+                  value={defaultGamma}
+                  oninput={handleDefaultGammaChange}
+                  class="slider"
+                />
+                <span class="slider-value">{defaultGamma.toFixed(2)}</span>
+              </div>
+            </div>
+
+            <div class="setting-group">
+              <h3>Default Sharpening</h3>
+              <div class="slider-row">
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value={defaultSharpeningIntensity}
+                  oninput={handleDefaultSharpeningChange}
+                  class="slider"
+                />
+                <span class="slider-value">{defaultSharpeningIntensity}</span>
+              </div>
+            </div>
+
+            <div class="setting-group">
+              <h3>Default Stain Enhancement</h3>
+              <div class="segmented-control" role="group">
+                {#each stainEnhancementOptions as opt}
+                  <button
+                    class="segment"
+                    class:active={defaultStainEnhancement === opt.value}
+                    onclick={() => handleDefaultEnhancementChange(opt.value)}
+                  >
+                    {opt.label}
+                  </button>
+                {/each}
+              </div>
+            </div>
+
+            <div class="setting-group">
+              <h3>Default Stain Normalization</h3>
+              <div class="segmented-control" role="group">
+                {#each stainNormOptions as opt}
+                  <button
+                    class="segment"
+                    class:active={defaultStainNormalization === opt.value}
+                    onclick={() => handleDefaultNormalizationChange(opt.value)}
+                  >
+                    {opt.label}
+                  </button>
+                {/each}
+              </div>
+            </div>
+
+            <button class="reset-btn" onclick={resetDefaultsToFactory}>
+              Reset to Factory Defaults
             </button>
           </div>
         {/if}
@@ -941,6 +1115,43 @@
 
   .danger-btn:hover {
     background: #dc2626;
+    color: white;
+  }
+
+  .panel-intro {
+    font-size: 0.875rem;
+    color: #9ca3af;
+    margin-bottom: 1.5rem;
+    line-height: 1.5;
+  }
+
+  .segmented-control {
+    display: flex;
+    gap: 0.25rem;
+    background: #1f2937;
+    padding: 0.25rem;
+    border-radius: 0.5rem;
+  }
+
+  .segment {
+    flex: 1;
+    padding: 0.5rem 0.75rem;
+    background: transparent;
+    border: none;
+    border-radius: 0.375rem;
+    color: #9ca3af;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .segment:hover {
+    color: #e5e7eb;
+  }
+
+  .segment.active {
+    background: #3b82f6;
     color: white;
   }
 

@@ -83,29 +83,32 @@
     settings.setSetting('image', 'gamma', gamma);
   }
 
-  function resetAll() {
-    // Reset normalization to None
-    stainNormalization = 'none';
-    settings.setSetting('image', 'stainNormalization', 'none');
+  function resetToDefaults() {
+    // Get configurable defaults from settings
+    const defaults = $settings.defaults;
     
-    // Reset stain enhancement to none
-    stainEnhancement = 'none';
-    settings.setSetting('image', 'stainEnhancement', 'none');
+    // Reset normalization
+    stainNormalization = defaults.stainNormalization;
+    settings.setSetting('image', 'stainNormalization', defaults.stainNormalization);
     
-    // Reset sharpening to zero
-    sharpeningIntensity = 0;
-    settings.setSetting('image', 'sharpeningIntensity', 0);
-    settings.setSetting('image', 'sharpeningEnabled', false);
+    // Reset stain enhancement
+    stainEnhancement = defaults.stainEnhancement;
+    settings.setSetting('image', 'stainEnhancement', defaults.stainEnhancement);
     
-    // Reset gamma to 1.0
-    gamma = 1.0;
-    settings.setSetting('image', 'gamma', 1.0);
+    // Reset sharpening
+    sharpeningIntensity = defaults.sharpeningIntensity;
+    settings.setSetting('image', 'sharpeningIntensity', defaults.sharpeningIntensity);
+    settings.setSetting('image', 'sharpeningEnabled', defaults.sharpeningIntensity > 0);
     
-    // Reset brightness to 0
-    settings.setSetting('image', 'brightness', 0);
+    // Reset gamma
+    gamma = defaults.gamma;
+    settings.setSetting('image', 'gamma', defaults.gamma);
     
-    // Reset contrast to 0
-    settings.setSetting('image', 'contrast', 0);
+    // Reset brightness
+    settings.setSetting('image', 'brightness', defaults.brightness);
+    
+    // Reset contrast
+    settings.setSetting('image', 'contrast', defaults.contrast);
   }
 
   function handleUnitsChange(e: Event) {
@@ -326,10 +329,10 @@
     </button>
   </div>
 
-  <!-- Reset All button -->
+  <!-- Reset to Defaults button -->
   <div class="menu-section reset-section">
-    <button class="reset-all-btn" onclick={resetAll}>
-      Reset All
+    <button class="reset-all-btn" onclick={resetToDefaults}>
+      Reset to Defaults
     </button>
   </div>
 </div>
