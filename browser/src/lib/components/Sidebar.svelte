@@ -348,25 +348,21 @@
   class:collapsed
 >
   <div class="sidebar-header">
+    <button class="logo-btn" onclick={collapsed ? handleToggle : undefined} aria-label={collapsed ? 'Expand sidebar' : undefined} role={collapsed ? 'button' : 'presentation'} tabindex={collapsed ? 0 : -1}>
+      <img src="/logo_half.png" alt="App logo" class="app-logo" />
+    </button>
     {#if !collapsed}
-      <div class="header-left">
-        <img src="/logo_half.png" alt="App logo" class="app-logo" />
-        <h2>Slides</h2>
-        <span class="slide-count">({totalCount})</span>
-      </div>
-    {/if}
-    <button class="toggle-btn" onclick={handleToggle} aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
-      {#if collapsed}
-        <img src="/logo_half.png" alt="App logo" class="app-logo-collapsed" />
-      {:else}
+      <h2>Slides</h2>
+      <span class="slide-count">({totalCount})</span>
+      <button class="toggle-btn" onclick={handleToggle} aria-label="Collapse sidebar">
         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <!-- Panel left close icon (collapse sidebar) -->
           <rect x="3" y="3" width="18" height="18" rx="2"></rect>
           <path d="M9 3v18"></path>
           <path d="M17 9l-3 3 3 3"></path>
         </svg>
-      {/if}
-    </button>
+      </button>
+    {/if}
   </div>
 
   <!-- Pull-to-refresh indicator -->
@@ -497,6 +493,32 @@
     min-width: 56px;
   }
 
+  .logo-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    cursor: default;
+    border-radius: 6px;
+    flex-shrink: 0;
+    transition: background-color 0.15s;
+  }
+
+  .sidebar.collapsed .logo-btn {
+    cursor: pointer;
+    width: 56px;
+    height: 32px;
+    border-radius: 0;
+  }
+
+  .sidebar.collapsed .logo-btn:hover {
+    background: #333;
+  }
+
   .toggle-btn {
     display: flex;
     align-items: center;
@@ -511,13 +533,7 @@
     border-radius: 6px;
     transition: background-color 0.15s, color 0.15s;
     flex-shrink: 0;
-  }
-
-  .sidebar.collapsed .toggle-btn {
-    width: 100%;
-    height: 100%;
-    padding: 0.75rem;
-    border-radius: 0;
+    margin-left: auto;
   }
 
   .toggle-btn:hover {
@@ -528,7 +544,6 @@
   .sidebar-header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
     padding: 0.75rem;
     border-bottom: 1px solid #333;
     position: sticky;
@@ -536,18 +551,13 @@
     background: #141414;
     z-index: 10;
     gap: 0.5rem;
+    min-height: 48px;
+    box-sizing: border-box;
   }
 
   .sidebar.collapsed .sidebar-header {
+    padding: 0.75rem;
     justify-content: center;
-    padding: 0;
-  }
-
-  .header-left {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    min-width: 0;
   }
 
   .app-logo {
@@ -555,12 +565,6 @@
     height: 24px;
     object-fit: contain;
     flex-shrink: 0;
-  }
-
-  .app-logo-collapsed {
-    width: 24px;
-    height: 24px;
-    object-fit: contain;
   }
 
   .sidebar-header h2 {
