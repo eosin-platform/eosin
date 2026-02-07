@@ -909,7 +909,12 @@
     align-items: center;
     justify-content: center;
     height: 100%;
-    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+    background: 
+      linear-gradient(135deg, rgba(15, 15, 25, 0.92) 0%, rgba(20, 25, 40, 0.88) 50%, rgba(15, 20, 35, 0.92) 100%),
+      url('/background.webp');
+    background-size: cover, cover;
+    background-position: center, center;
+    background-repeat: no-repeat, no-repeat;
     padding: 2rem;
     box-sizing: border-box;
   }
