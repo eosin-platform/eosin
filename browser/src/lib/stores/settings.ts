@@ -161,7 +161,7 @@ export const DEFAULT_SETTINGS: Settings = {
     tileCacheSizeMb: 512,
     prefetchLevel: 'medium',
     streamingQuality: 'auto',
-    hardwareAccelerationEnabled: true,
+    hardwareAccelerationEnabled: false,
   },
   privacy: {
     phiMaskingEnabled: false,
