@@ -1,0 +1,1 @@
+run_name,lr,lambda_pixel,lambda_perceptual,lambda_edge,lambda_freq,lambda_adv,g_channels,g_blocks,final_loss_generator

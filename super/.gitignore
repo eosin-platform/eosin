@@ -1,5 +1,7 @@
 .venv
 __pycache__
 checkpoints
+checkpoints_grid
 notes.txt
 runs
+runs_grid

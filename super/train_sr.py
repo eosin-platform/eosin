@@ -1397,8 +1397,13 @@ def enhance_inference(
 # Training
 # =============================================================================
 
-def train(args: argparse.Namespace) -> None:
-    """Main training function."""
+def train(args: argparse.Namespace, metric_callback=None) -> None:
+    """Main training function.
+    
+    Args:
+        args: Training configuration from argparse
+        metric_callback: Optional callback(metrics_dict, step) for external metric reporting (e.g., Ray Tune)
+    """
     # Set random seeds
     random.seed(42)
     np.random.seed(42)
@@ -1620,6 +1625,16 @@ def train(args: argparse.Namespace) -> None:
                 writer.add_scalar('Loss/edge', loss_edge.item(), global_step)
                 writer.add_scalar('Loss/frequency', loss_freq.item(), global_step)
                 writer.add_scalar('Loss/generator_total', loss_g.item(), global_step)
+                
+                # Report to external callback (e.g., Ray Tune)
+                if metric_callback is not None:
+                    metric_callback({
+                        'loss_cycle': loss_cycle.item(),
+                        'loss_perceptual': loss_perceptual.item(),
+                        'loss_edge': loss_edge.item(),
+                        'loss_frequency': loss_freq.item(),
+                        'loss_generator': loss_g.item(),
+                    }, global_step)
 
         # Adversarial phase
         else:
@@ -1707,6 +1722,18 @@ def train(args: argparse.Namespace) -> None:
                 writer.add_scalar('Loss/adversarial', loss_adv_g.item(), global_step)
                 writer.add_scalar('Loss/generator_total', loss_g.item(), global_step)
                 writer.add_scalar('Loss/discriminator', loss_d.item(), global_step)
+                
+                # Report to external callback (e.g., Ray Tune)
+                if metric_callback is not None:
+                    metric_callback({
+                        'loss_cycle': loss_cycle.item(),
+                        'loss_perceptual': loss_perceptual.item(),
+                        'loss_edge': loss_edge.item(),
+                        'loss_frequency': loss_freq.item(),
+                        'loss_adversarial': loss_adv_g.item(),
+                        'loss_generator': loss_g.item(),
+                        'loss_discriminator': loss_d.item(),
+                    }, global_step)
 
         # VRAM logging
         if global_step % 1000 == 0:
