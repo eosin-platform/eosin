@@ -746,7 +746,7 @@
 								even on commodity hardware. A sharded NVMe-backed storage layer with read-only
 								replicas maximizes throughput and availability, while horizontally scaling services
 								orchestrate ingestion, tiling, caching, and delivery. Histion is engineered for
-								future expansion into machine-vision search and large-scale analysis across the
+								future expansion into machine vision, search, and large-scale analysis across the
 								visual manifold of histopathology.
 							</p>
 							<p class="setting-hint">
