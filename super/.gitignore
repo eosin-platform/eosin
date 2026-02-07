@@ -5,3 +5,5 @@ checkpoints_grid
 notes.txt
 runs
 runs_grid
+runs_*
+checkpoints_*
