@@ -329,12 +329,12 @@
       <path d="M17 4.25a.75.75 0 01-.75.75h-5.5a.75.75 0 010-1.5h5.5a.75.75 0 01.75.75zM17 10a.75.75 0 01-.75.75h-10.5a.75.75 0 010-1.5h10.5a.75.75 0 01.75.75zM17 15.75a.75.75 0 01-.75.75h-5.5a.75.75 0 010-1.5h5.5a.75.75 0 01.75.75zM4.25 5.5a1.25 1.25 0 100-2.5 1.25 1.25 0 000 2.5zM4.25 11.25a1.25 1.25 0 100-2.5 1.25 1.25 0 000 2.5zM4.25 17a1.25 1.25 0 100-2.5 1.25 1.25 0 000 2.5z" />
     </svg>
   </button>
-
-  <!-- More menu popover -->
-  {#if $hudMoreMenuOpen}
-    <ViewerHudMoreMenu />
-  {/if}
 </div>
+
+<!-- More menu popover - rendered outside .viewer-hud to avoid backdrop-filter containing block issue -->
+{#if $hudMoreMenuOpen}
+  <ViewerHudMoreMenu />
+{/if}
 
 <style>
   .viewer-hud {

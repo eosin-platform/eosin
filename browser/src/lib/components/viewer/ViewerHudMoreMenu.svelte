@@ -188,7 +188,16 @@
   function stopPropagation(e: Event) {
     e.stopPropagation();
   }
+
+  function closeMenu() {
+    hudMoreMenuOpen.set(false);
+  }
 </script>
+
+<!-- Mobile overlay backdrop -->
+<!-- svelte-ignore a11y_click_events_have_key_events -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div class="mobile-overlay" onclick={closeMenu}></div>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div 
@@ -200,6 +209,17 @@
   ontouchstart={stopPropagation}
   onwheel={stopPropagation}
 >
+  <!-- Mobile header with close button -->
+  <div class="mobile-header">
+    <h2>Settings</h2>
+    <button class="mobile-close" onclick={closeMenu} aria-label="Close settings">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+        <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+      </svg>
+    </button>
+  </div>
+  
+  <div class="menu-content">
   <!-- Gamma slider -->
   <div class="menu-section">
     <span class="menu-label" id="gamma-label">Gamma</span>
@@ -335,14 +355,24 @@
       Reset to Defaults
     </button>
   </div>
+  </div>
 </div>
 
 <style>
+  /* Mobile overlay - only visible on small screens */
+  .mobile-overlay {
+    display: none;
+  }
+
+  /* Mobile header - only visible on small screens */
+  .mobile-header {
+    display: none;
+  }
+
   .more-menu {
-    position: absolute;
-    top: 100%;
-    left: 0;
-    margin-top: 0.5rem;
+    position: fixed;
+    top: calc(1rem + 48px + 0.5rem);
+    left: 1rem;
     min-width: 240px;
     max-height: calc(100vh - 120px);
     overflow-y: auto;
@@ -353,6 +383,10 @@
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
     padding: 0.5rem;
     z-index: 40;
+  }
+
+  .menu-content {
+    display: contents;
   }
 
   .menu-section {
@@ -549,15 +583,104 @@
   }
 
   /* Ensure menu doesn't overlap minimap (bottom-right corner) */
-  @media (max-width: 480px) {
+  @media (max-width: 600px) {
+    /* Show overlay backdrop on mobile */
+    .mobile-overlay {
+      display: block;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(4px);
+      z-index: 999;
+    }
+
+    /* Show mobile header */
+    .mobile-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 20px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      flex-shrink: 0;
+    }
+
+    .mobile-header h2 {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 600;
+      color: #fff;
+    }
+
+    .mobile-close {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 32px;
+      height: 32px;
+      background: rgba(255, 255, 255, 0.1);
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      color: rgba(255, 255, 255, 0.7);
+      transition: background 0.15s, color 0.15s;
+    }
+
+    .mobile-close:hover {
+      background: rgba(255, 255, 255, 0.2);
+      color: #fff;
+    }
+
+    .mobile-close svg {
+      width: 18px;
+      height: 18px;
+    }
+
+    /* Full-screen modal on mobile */
     .more-menu {
       position: fixed;
-      top: auto;
-      bottom: 1rem;
-      left: 0.5rem;
-      right: 0.5rem;
-      max-height: 60vh;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      width: 100%;
+      height: 100%;
+      height: 100dvh;
+      margin: 0;
+      min-width: unset;
+      max-height: unset;
+      border-radius: 0;
+      border: none;
+      z-index: 1000;
+      display: flex;
+      flex-direction: column;
+      padding: 0;
+      overflow: hidden;
+      background: rgba(20, 20, 20, 0.98);
+    }
+
+    /* Scrollable content area */
+    .menu-content {
+      display: flex;
+      flex-direction: column;
+      flex: 1 1 0%;
+      min-height: 0;
       overflow-y: auto;
+      overflow-x: hidden;
+      -webkit-overflow-scrolling: touch;
+      padding: 0.5rem 0;
+    }
+
+    /* Menu sections need padding inside scrollable area */
+    .menu-section {
+      padding: 0.75rem 1rem;
+      flex-shrink: 0;
+    }
+
+    .reset-section {
+      margin-top: 0.5rem;
+      padding: 1rem;
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+      flex-shrink: 0;
     }
   }
 </style>
