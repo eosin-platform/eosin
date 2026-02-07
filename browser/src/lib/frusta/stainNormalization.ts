@@ -80,7 +80,7 @@ const REFERENCE_STAIN_MATRIX_VAHADANE: number[][] = [
 const REFERENCE_MAX_C_VAHADANE: number[] = [1.9705, 1.0308];
 
 // ============================================================================
-// Normalization Parameter Cache
+// Normalization Parameter Cache & Multi-Tile Sampling
 // ============================================================================
 
 /**
@@ -88,6 +88,21 @@ const REFERENCE_MAX_C_VAHADANE: number[] = [1.9705, 1.0308];
  * Key format: `${slideId}_${mode}` to support different modes per slide.
  */
 const normalizationCache = new Map<string, NormalizationParams>();
+
+/**
+ * Accumulated OD samples from multiple tiles, keyed by slideId_mode.
+ * Used to build up enough samples before computing final parameters.
+ */
+const sampleAccumulator = new Map<string, number[][]>();
+
+/** Minimum number of OD samples needed for reliable parameter estimation */
+const MIN_SAMPLES_FOR_ESTIMATION = 1000;
+
+/** Maximum samples to accumulate (for memory efficiency) */
+const MAX_ACCUMULATED_SAMPLES = 50000;
+
+/** Number of tiles we've sampled from, for tracking */
+const tilesContributed = new Map<string, number>();
 
 /**
  * Clear cached normalization parameters for a specific slide or all slides.
@@ -100,8 +115,20 @@ export function clearNormalizationCache(slideId?: string): void {
         normalizationCache.delete(key);
       }
     }
+    for (const key of sampleAccumulator.keys()) {
+      if (key.startsWith(`${slideId}_`)) {
+        sampleAccumulator.delete(key);
+      }
+    }
+    for (const key of tilesContributed.keys()) {
+      if (key.startsWith(`${slideId}_`)) {
+        tilesContributed.delete(key);
+      }
+    }
   } else {
     normalizationCache.clear();
+    sampleAccumulator.clear();
+    tilesContributed.clear();
   }
 }
 
@@ -719,12 +746,13 @@ function nmf2(
 
 /**
  * Get or compute normalization parameters for a slide.
+ * Accumulates samples from multiple tiles for more robust estimation.
  * Results are cached per slide+mode combination.
  *
  * @param slideId - Unique identifier for the slide
  * @param pixels - Representative pixel buffer (RGBA) for parameter estimation
  * @param mode - Normalization mode
- * @returns Computed parameters or null if mode is 'none'
+ * @returns Computed parameters, or null if still accumulating samples
  */
 export function getOrComputeNormalizationParams(
   slideId: string,
@@ -737,43 +765,44 @@ export function getOrComputeNormalizationParams(
 
   const cacheKey = `${slideId}_${mode}`;
 
-  // Check cache first
-  const cached = normalizationCache.get(cacheKey);
-  if (cached) {
-    return cached;
+  // Return cached params if already computed
+  if (normalizationCache.has(cacheKey)) {
+    return normalizationCache.get(cacheKey) ?? null;
   }
 
-  // Extract OD samples from pixels
-  const odSamples = extractOdFromPixels(pixels, 0.1, 15000);
-
-  if (odSamples.length < 100) {
-    // Not enough tissue pixels, return reference-based params
-    const refMatrix = mode === 'macenko' 
-      ? REFERENCE_STAIN_MATRIX_MACENKO 
-      : REFERENCE_STAIN_MATRIX_VAHADANE;
-    const refMaxC = mode === 'macenko'
-      ? REFERENCE_MAX_C_MACENKO
-      : REFERENCE_MAX_C_VAHADANE;
-
-    const params: NormalizationParams = {
-      stainMatrix: refMatrix.map((row) => [...row]),
-      maxC: [...refMaxC],
-      mode,
-    };
-    normalizationCache.set(cacheKey, params);
-    return params;
+  // Extract OD samples from this tile
+  const newSamples = extractOdFromPixels(pixels, 0.1, 5000);
+  
+  // Get or create accumulated samples for this slide
+  let accumulated = sampleAccumulator.get(cacheKey) || [];
+  const numTiles = (tilesContributed.get(cacheKey) || 0) + 1;
+  tilesContributed.set(cacheKey, numTiles);
+  
+  // Add new samples (with limit to prevent memory issues)
+  if (accumulated.length < MAX_ACCUMULATED_SAMPLES) {
+    accumulated = accumulated.concat(newSamples.slice(0, MAX_ACCUMULATED_SAMPLES - accumulated.length));
+    sampleAccumulator.set(cacheKey, accumulated);
   }
-
+  
+  // Need enough samples from at least 3 tiles for robust estimation
+  const MIN_TILES = 3;
+  if (accumulated.length < MIN_SAMPLES_FOR_ESTIMATION || numTiles < MIN_TILES) {
+    // Not enough samples yet - return null to skip normalization for now
+    // The tile will be re-processed once params are available
+    return null;
+  }
+  
+  // We have enough samples - compute parameters
   let stainMatrix: number[][];
   let concentrations: number[][];
 
   if (mode === 'macenko') {
     // Macenko: SVD-based estimation
-    stainMatrix = estimateMacenkoStainMatrix(odSamples);
-    concentrations = computeConcentrations(odSamples, stainMatrix);
+    stainMatrix = estimateMacenkoStainMatrix(accumulated);
+    concentrations = computeConcentrations(accumulated, stainMatrix);
   } else {
     // Vahadane: NMF-based estimation
-    const nmfResult = nmf2(odSamples, 2, 50);
+    const nmfResult = nmf2(accumulated, 2, 50);
     stainMatrix = nmfResult.stainMatrix;
     concentrations = nmfResult.concentrations;
   }
@@ -781,13 +810,24 @@ export function getOrComputeNormalizationParams(
   // Compute 99th percentile of concentrations (max stain intensity)
   const maxC = columnPercentile(concentrations, 0.99);
 
+  // Validate maxC - use reference values if computed values are invalid
+  const refMaxC = mode === 'macenko' ? REFERENCE_MAX_C_MACENKO : REFERENCE_MAX_C_VAHADANE;
+  if (maxC.length < 2 || maxC[0] < 0.1 || maxC[1] < 0.1 || !Number.isFinite(maxC[0]) || !Number.isFinite(maxC[1])) {
+    maxC[0] = refMaxC[0];
+    maxC[1] = refMaxC[1];
+  }
+
   const params: NormalizationParams = {
     stainMatrix,
     maxC,
     mode,
   };
 
+  // Cache and clean up accumulated samples
   normalizationCache.set(cacheKey, params);
+  sampleAccumulator.delete(cacheKey);
+  tilesContributed.delete(cacheKey);
+  
   return params;
 }
 
@@ -825,9 +865,17 @@ export function applyStainNormalizationToTile(
   // Precompute pseudo-inverse of slide stain matrix
   const pinv = pseudoInverse3x2(params.stainMatrix);
   
-  // Precompute scaling factors (refMaxC / slideMaxC)
-  const scale0 = params.maxC[0] > 1e-6 ? refMaxC[0] / params.maxC[0] : 1;
-  const scale1 = params.maxC[1] > 1e-6 ? refMaxC[1] / params.maxC[1] : 1;
+  // Maximum allowed scaling factor to prevent washed-out or over-saturated results
+  const MAX_SCALE_FACTOR = 3.0;
+  const MIN_SCALE_FACTOR = 0.33;
+  
+  // Precompute scaling factors (refMaxC / slideMaxC) with clamping
+  let scale0 = params.maxC[0] > 1e-6 ? refMaxC[0] / params.maxC[0] : 1;
+  let scale1 = params.maxC[1] > 1e-6 ? refMaxC[1] / params.maxC[1] : 1;
+  
+  // Clamp scaling factors to prevent extreme results
+  scale0 = Math.max(MIN_SCALE_FACTOR, Math.min(MAX_SCALE_FACTOR, scale0));
+  scale1 = Math.max(MIN_SCALE_FACTOR, Math.min(MAX_SCALE_FACTOR, scale1));
 
   const numPixels = pixels.length / 4;
 

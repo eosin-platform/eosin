@@ -14,6 +14,7 @@
     type PrefetchLevel,
     type StreamingQuality,
   } from '$lib/stores/settings';
+  import { clearNormalizationCache } from '$lib/frusta';
 
   type TabId = 'image' | 'performance' | 'annotations' | 'privacy' | 'defaults';
 
@@ -138,6 +139,9 @@
   }
 
   function handleStainNormalizationChange(value: StainNormalization) {
+    // Clear cached parameters when changing modes to allow fresh computation
+    // This helps recover from potentially bad parameters
+    clearNormalizationCache();
     stainNormalization = value;
     settings.setSetting('image', 'stainNormalization', value);
   }

@@ -158,7 +158,8 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
   
   /**
    * Get normalization parameters, computing them if needed.
-   * Uses the first tile encountered for parameter estimation.
+   * Accumulates samples from multiple tiles for robust estimation.
+   * Returns null while still gathering samples.
    */
   function getNormalizationParams(
     tile: CachedTile,
@@ -167,12 +168,12 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
   ): NormalizationParams | null {
     if (normMode === 'none') return null;
     
-    // Return cached params if they match
+    // Return cached params if they match and are ready
     if (cachedNormParams && cachedNormSlideId === slideId && cachedNormMode === normMode) {
       return cachedNormParams;
     }
     
-    // Need to compute - extract pixels from tile bitmap
+    // Need to compute/accumulate - extract pixels from tile bitmap
     if (!tile.bitmap) return null;
     
     // Create a temporary canvas to extract pixel data
@@ -185,12 +186,61 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
     ctx.drawImage(tile.bitmap, 0, 0);
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     
-    // Compute normalization parameters
-    cachedNormParams = getOrComputeNormalizationParams(slideId, imageData.data, normMode);
-    cachedNormSlideId = slideId;
-    cachedNormMode = normMode;
+    // Try to compute normalization parameters (may return null if still accumulating)
+    const params = getOrComputeNormalizationParams(slideId, imageData.data, normMode);
     
-    return cachedNormParams;
+    if (params) {
+      // Parameters are ready - cache them
+      cachedNormParams = params;
+      cachedNormSlideId = slideId;
+      cachedNormMode = normMode;
+    }
+    
+    return params;
+  }
+  
+  /** Track which tiles have contributed samples for parameter estimation */
+  const sampledTileKeys = new Set<string>();
+  
+  /**
+   * Contribute samples from a tile for normalization parameter estimation.
+   * Call this for multiple tiles before getNormalizationParams returns valid params.
+   */
+  function contributeSamplesFromTile(
+    tile: CachedTile,
+    normMode: StainNormalizationMode,
+    slideId: string
+  ): void {
+    if (normMode === 'none' || !tile.bitmap) return;
+    
+    // Skip if we already have cached params
+    if (cachedNormParams && cachedNormSlideId === slideId && cachedNormMode === normMode) {
+      return;
+    }
+    
+    // Skip if this tile has already contributed
+    const tileKey = `${slideId}_${tileKeyFromMeta(tile.meta)}`;
+    if (sampledTileKeys.has(tileKey)) return;
+    sampledTileKeys.add(tileKey);
+    
+    // Extract pixels and contribute to sample accumulation
+    const canvas = document.createElement('canvas');
+    canvas.width = tile.bitmap.width;
+    canvas.height = tile.bitmap.height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    
+    ctx.drawImage(tile.bitmap, 0, 0);
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    
+    // This will accumulate samples and eventually compute params
+    const params = getOrComputeNormalizationParams(slideId, imageData.data, normMode);
+    
+    if (params) {
+      cachedNormParams = params;
+      cachedNormSlideId = slideId;
+      cachedNormMode = normMode;
+    }
   }
   
   /**
@@ -385,6 +435,7 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
     }
     processedBitmapCache.clear();
     pendingProcessing.clear();
+    sampledTileKeys.clear();
     
     // Also clear normalization params cache
     cachedNormParams = null;
@@ -676,6 +727,18 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
 
     // Build set of all tiles we want to track (ideal + finer)
     const allTrackableTiles = [...idealTiles, ...finerTiles];
+    
+    // Contribute samples from multiple tiles for normalization parameter estimation
+    // This runs before processing to ensure we have enough samples
+    if (stainNormalization !== 'none') {
+      const slideId = getSlideId();
+      for (const coord of idealTiles) {
+        const tile = cache.get(coord.x, coord.y, coord.level);
+        if (tile?.bitmap) {
+          contributeSamplesFromTile(tile, stainNormalization, slideId);
+        }
+      }
+    }
 
     // Cancel retry tracking for tiles no longer visible at ideal or finer level
     if (retryManager) {

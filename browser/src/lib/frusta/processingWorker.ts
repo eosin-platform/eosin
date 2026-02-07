@@ -236,6 +236,10 @@ function clamp01(v: number): number {
 // Stain Normalization
 // ============================================================================
 
+/** Maximum allowed scaling factor to prevent washed-out or over-saturated results */
+const MAX_SCALE_FACTOR = 3.0;
+const MIN_SCALE_FACTOR = 0.33;
+
 function applyNormalization(
   pixels: Uint8ClampedArray,
   mode: StainNormalizationMode,
@@ -245,9 +249,17 @@ function applyNormalization(
 
   const refMatrix = mode === 'macenko' ? REFERENCE_STAIN_MATRIX_MACENKO : REFERENCE_STAIN_MATRIX_VAHADANE;
   const refMaxC = mode === 'macenko' ? REFERENCE_MAX_C_MACENKO : REFERENCE_MAX_C_VAHADANE;
+  
+  // Compute pseudo-inverse of stain matrix
   const pinv = pseudoInverse3x2(params.stainMatrix);
-  const scale0 = params.maxC[0] > 1e-6 ? refMaxC[0] / params.maxC[0] : 1;
-  const scale1 = params.maxC[1] > 1e-6 ? refMaxC[1] / params.maxC[1] : 1;
+  
+  // Compute scaling factors with clamping to prevent extreme values
+  let scale0 = params.maxC[0] > 1e-6 ? refMaxC[0] / params.maxC[0] : 1;
+  let scale1 = params.maxC[1] > 1e-6 ? refMaxC[1] / params.maxC[1] : 1;
+  
+  // Clamp scaling factors to prevent washed-out (scale too small) or over-saturated (scale too large) results
+  scale0 = Math.max(MIN_SCALE_FACTOR, Math.min(MAX_SCALE_FACTOR, scale0));
+  scale1 = Math.max(MIN_SCALE_FACTOR, Math.min(MAX_SCALE_FACTOR, scale1));
 
   const numPixels = pixels.length / 4;
   for (let i = 0; i < numPixels; i++) {
@@ -261,10 +273,11 @@ function applyNormalization(
     }
 
     const od = rgbToOd(r, g, b);
-    const c0 = pinv[0][0] * od[0] + pinv[0][1] * od[1] + pinv[0][2] * od[2];
-    const c1 = pinv[1][0] * od[0] + pinv[1][1] * od[1] + pinv[1][2] * od[2];
-    const c0Norm = Math.max(0, c0) * scale0;
-    const c1Norm = Math.max(0, c1) * scale1;
+    const c0 = Math.max(0, pinv[0][0] * od[0] + pinv[0][1] * od[1] + pinv[0][2] * od[2]);
+    const c1 = Math.max(0, pinv[1][0] * od[0] + pinv[1][1] * od[1] + pinv[1][2] * od[2]);
+    
+    const c0Norm = c0 * scale0;
+    const c1Norm = c1 * scale1;
     const odRefR = refMatrix[0][0] * c0Norm + refMatrix[0][1] * c1Norm;
     const odRefG = refMatrix[1][0] * c0Norm + refMatrix[1][1] * c1Norm;
     const odRefB = refMatrix[2][0] * c0Norm + refMatrix[2][1] * c1Norm;
