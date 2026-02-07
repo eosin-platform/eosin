@@ -742,7 +742,7 @@
 								pathology and microbiology. Multi-gigapixel slides become viewable within seconds of
 								upload as an event-driven compiler processes them into read-optimized multiscale
 								pyramids. A viewport-based tile service streams only the tiles relevant to the user
-								over WebSocket channels, providing a fluid, microscope-like experience
+								over WebSocket, providing a fluid, microscope-like experience
 								even on commodity hardware. A sharded NVMe-backed storage layer with read-only
 								replicas maximizes throughput and availability, while horizontally scaling services
 								orchestrate ingestion, tiling, caching, and delivery. Histion is engineered for
