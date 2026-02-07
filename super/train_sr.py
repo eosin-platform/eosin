@@ -1048,8 +1048,7 @@ def main():
     parser.add_argument(
         '--pretrain-steps',
         type=int,
-        #default=20000,
-        default=100,
+        default=5_000,
         help='Steps to train generator without adversarial loss',
     )
 
@@ -1136,7 +1135,7 @@ def main():
     parser.add_argument(
         '--sample-interval',
         type=int,
-        default=200,
+        default=1000,
         help='Steps between saving sample SR images',
     )
     parser.add_argument(
