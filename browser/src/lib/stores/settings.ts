@@ -390,3 +390,4 @@ export const imageDefaults = derived(settings, ($s) => $s.defaults);
 
 export const settingsModalOpen = writable(false);
 export const hudMoreMenuOpen = writable(false);
+export const helpMenuOpen = writable(false);

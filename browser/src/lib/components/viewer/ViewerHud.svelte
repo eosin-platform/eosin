@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
   import { settings, hudMoreMenuOpen, type StainEnhancementMode } from '$lib/stores/settings';
   import ViewerHudMoreMenu from './ViewerHudMoreMenu.svelte';
 
@@ -12,24 +11,9 @@
     onFitView: () => void;
     /** Current magnification (e.g., "10x", "40x") - optional */
     magnification?: string;
-    /** Callback to toggle help menu */
-    onHelpToggle?: () => void;
-    /** Whether help is currently active */
-    helpActive?: boolean;
   }
 
-  let { zoom, onZoomChange, onFitView, magnification, onHelpToggle, helpActive = false }: Props = $props();
-
-  // Help button pulse animation state (plays on mount for 1500ms)
-  let helpButtonPulsing = $state(true);
-
-  onMount(() => {
-    // Stop the pulse animation after 1500ms
-    const timer = setTimeout(() => {
-      helpButtonPulsing = false;
-    }, 1500);
-    return () => clearTimeout(timer);
-  });
+  let { zoom, onZoomChange, onFitView, magnification }: Props = $props();
 
   // Bind to settings store
   let brightness = $state($settings.image.brightness);
@@ -192,25 +176,6 @@
   }
 </script>
 
-<!-- Standalone Help button -->
-{#if onHelpToggle}
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <button
-    onclick={onHelpToggle}
-    onmousedown={stopPropagation}
-    ontouchstart={stopPropagation}
-    class="help-btn"
-    class:active={helpActive}
-    class:pulsing={helpButtonPulsing && !helpActive}
-    title="Help (H)"
-  >
-    <!-- Question mark icon -->
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="help-icon">
-      <path d="M11.07 12.85c.77-1.39 2.25-2.21 3.11-3.44.91-1.29.4-3.7-2.18-3.7-1.69 0-2.52 1.28-2.87 2.34L6.54 6.96C7.25 4.83 9.18 3 11.99 3c2.35 0 3.96.95 4.87 2.17.9 1.21 1.14 2.72.72 4.13-.52 1.71-1.9 2.94-2.93 4.15-.73.86-.68 1.55-.68 2.55H11c0-1.15-.08-2.29.07-3.15zM14 20c0 1.1-.9 2-2 2s-2-.9-2-2 .9-2 2-2 2 .9 2 2z"/>
-    </svg>
-  </button>
-{/if}
-
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div 
   class="viewer-hud"
@@ -372,82 +337,6 @@
 </div>
 
 <style>
-  /* Standalone help button - circular, matches HUD toolbar height */
-  .help-btn {
-    position: absolute;
-    top: 1.25rem; /* Vertically centered with HUD toolbar */
-    right: 1rem;
-    left: auto;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 2.5rem;
-    height: 2.5rem;
-    padding: 0;
-    background: rgba(20, 20, 20, 0.75);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 50%;
-    color: #d1d5db;
-    cursor: pointer;
-    transition: all 0.15s;
-    backdrop-filter: blur(12px);
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
-    z-index: 100;
-  }
-
-  .help-btn:hover {
-    background: rgba(55, 65, 81, 0.9);
-    color: #ffffff;
-    border-color: rgba(255, 255, 255, 0.2);
-  }
-
-  .help-btn.active {
-    background: #3b82f6;
-    border-color: #3b82f6;
-    color: white;
-  }
-
-  /* Eye-catching pulse/breathing animation for help button on page load */
-  @keyframes help-pulse {
-    0% {
-      transform: scale(1);
-      box-shadow: 
-        0 4px 16px rgba(0, 0, 0, 0.3),
-        0 0 0 0 rgba(59, 130, 246, 0.7),
-        0 0 0 0 rgba(59, 130, 246, 0.4);
-    }
-    50% {
-      transform: scale(1.08);
-      box-shadow: 
-        0 6px 24px rgba(0, 0, 0, 0.4),
-        0 0 20px 4px rgba(59, 130, 246, 0.6),
-        0 0 40px 8px rgba(59, 130, 246, 0.3);
-    }
-    100% {
-      transform: scale(1);
-      box-shadow: 
-        0 4px 16px rgba(0, 0, 0, 0.3),
-        0 0 0 0 rgba(59, 130, 246, 0.7),
-        0 0 0 0 rgba(59, 130, 246, 0.4);
-    }
-  }
-
-  .help-btn.pulsing {
-    animation: help-pulse 0.75s ease-in-out 2;
-    background: linear-gradient(135deg, rgba(59, 130, 246, 0.9), rgba(99, 102, 241, 0.9));
-    border-color: rgba(99, 102, 241, 0.8);
-    color: white;
-  }
-
-  .help-btn.pulsing .help-icon {
-    filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.6));
-  }
-
-  .help-icon {
-    width: 1.5rem;
-    height: 1.5rem;
-  }
-
   .viewer-hud {
     position: absolute;
     top: 1rem;
@@ -639,23 +528,9 @@
 
   /* Mobile adjustments */
   @media (max-width: 480px) {
-    .help-btn {
-      top: 0.625rem; /* Vertically centered with mobile HUD */
-      right: 0.5rem;
-      left: auto;
-      width: 2.25rem;
-      height: 2.25rem;
-    }
-
-    .help-icon {
-      width: 1.25rem;
-      height: 1.25rem;
-    }
-
     .viewer-hud {
       top: 0.5rem;
       left: 0.5rem;
-      right: 3.25rem; /* Leave space for help button on right */
       max-width: none;
       padding: 0.5rem;
     }

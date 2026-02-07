@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { settingsModalOpen } from '$lib/stores/settings';
+  import { onMount } from 'svelte';
+  import { settingsModalOpen, helpMenuOpen } from '$lib/stores/settings';
   import SettingsModal from '$lib/components/settings/SettingsModal.svelte';
 
   interface Props {
@@ -13,8 +14,27 @@
 
   let { showMenuButton = false, onMenuClick, title = 'Histion' }: Props = $props();
 
+  // Help button pulse animation state (plays on mount for 1500ms)
+  let helpButtonPulsing = $state(true);
+
+  onMount(() => {
+    // Stop the pulse animation after 1500ms
+    const timer = setTimeout(() => {
+      helpButtonPulsing = false;
+    }, 1500);
+    return () => clearTimeout(timer);
+  });
+
   function openSettings() {
     settingsModalOpen.set(true);
+  }
+
+  function toggleHelp() {
+    helpMenuOpen.update(v => !v);
+  }
+
+  function closeHelp() {
+    helpMenuOpen.set(false);
   }
 </script>
 
@@ -33,6 +53,22 @@
   </div>
 
   <div class="header-right">
+    <!-- Help button -->
+    <button 
+      class="help-btn" 
+      class:active={$helpMenuOpen}
+      class:pulsing={helpButtonPulsing && !$helpMenuOpen}
+      onclick={toggleHelp} 
+      title="Help (H)" 
+      aria-label="Open help"
+    >
+      <!-- Question mark icon -->
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="icon">
+        <path d="M11.07 12.85c.77-1.39 2.25-2.21 3.11-3.44.91-1.29.4-3.7-2.18-3.7-1.69 0-2.52 1.28-2.87 2.34L6.54 6.96C7.25 4.83 9.18 3 11.99 3c2.35 0 3.96.95 4.87 2.17.9 1.21 1.14 2.72.72 4.13-.52 1.71-1.9 2.94-2.93 4.15-.73.86-.68 1.55-.68 2.55H11c0-1.15-.08-2.29.07-3.15zM14 20c0 1.1-.9 2-2 2s-2-.9-2-2 .9-2 2-2 2 .9 2 2z"/>
+      </svg>
+    </button>
+    
+    <!-- Settings button -->
     <button class="settings-btn" onclick={openSettings} title="Settings" aria-label="Open settings">
       <!-- Gear/Cog icon -->
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="icon">
@@ -41,6 +77,56 @@
     </button>
   </div>
 </header>
+
+<!-- Global Help Menu (centered over all content) -->
+{#if $helpMenuOpen}
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="help-overlay" onclick={closeHelp}>
+    <div class="help-modal" onclick={(e) => e.stopPropagation()}>
+      <div class="help-header">
+        <h2>Help</h2>
+        <button class="help-close" onclick={closeHelp} aria-label="Close help">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+            <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+          </svg>
+        </button>
+      </div>
+      <div class="help-grid">
+        <div class="help-card">
+          <h3>Viewport Navigation</h3>
+          <div class="help-row"><kbd>Click + Drag</kbd><span>Pan the viewport</span></div>
+          <div class="help-row"><kbd>Scroll Wheel</kbd><span>Zoom in/out at cursor</span></div>
+          <div class="help-row"><kbd>Pinch</kbd><span>Zoom on touch devices</span></div>
+          <div class="help-row"><kbd>Dbl-click Gamma</kbd><span>Reset to 1.0</span></div>
+        </div>
+
+        <div class="help-card">
+          <h3>Keyboard Shortcuts</h3>
+          <div class="help-row"><kbd>H</kbd><span>Toggle this help</span></div>
+          <div class="help-row"><kbd>N</kbd><span>Cycle stain normalization</span></div>
+          <div class="help-row"><kbd>E</kbd><span>Cycle stain enhancement</span></div>
+          <div class="help-row"><kbd>Esc</kbd><span>Close help</span></div>
+        </div>
+
+        <div class="help-card">
+          <h3>Stain Normalization</h3>
+          <div class="help-row"><strong>None</strong><span>Original colors</span></div>
+          <div class="help-row"><strong>Macenko</strong><span>SVD-based separation</span></div>
+          <div class="help-row"><strong>Vahadane</strong><span>Sparse NMF-based</span></div>
+        </div>
+
+        <div class="help-card">
+          <h3>Stain Enhancement</h3>
+          <div class="help-row"><strong>None</strong><span>No enhancement</span></div>
+          <div class="help-row"><strong>Gram</strong><span>Gram+/Gram− bacteria</span></div>
+          <div class="help-row"><strong>AFB</strong><span>Acid-Fast Bacilli</span></div>
+          <div class="help-row"><strong>GMS</strong><span>Grocott Silver stain</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+{/if}
 
 {#if $settingsModalOpen}
   <SettingsModal />
@@ -77,7 +163,8 @@
   }
 
   .menu-btn,
-  .settings-btn {
+  .settings-btn,
+  .help-btn {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -89,13 +176,51 @@
     color: #9ca3af;
     cursor: pointer;
     border-radius: 0.5rem;
-    transition: background-color 0.15s, color 0.15s;
+    transition: background-color 0.15s, color 0.15s, transform 0.15s, box-shadow 0.15s;
   }
 
   .menu-btn:hover,
-  .settings-btn:hover {
+  .settings-btn:hover,
+  .help-btn:hover {
     background: #333;
     color: #fff;
+  }
+
+  .help-btn.active {
+    background: #3b82f6;
+    color: white;
+  }
+
+  /* Eye-catching pulse/breathing animation for help button on page load */
+  @keyframes help-pulse {
+    0% {
+      transform: scale(1);
+      box-shadow: 
+        0 0 0 0 rgba(59, 130, 246, 0.7),
+        0 0 0 0 rgba(59, 130, 246, 0.4);
+    }
+    50% {
+      transform: scale(1.1);
+      box-shadow: 
+        0 0 16px 4px rgba(59, 130, 246, 0.6),
+        0 0 32px 8px rgba(59, 130, 246, 0.3);
+    }
+    100% {
+      transform: scale(1);
+      box-shadow: 
+        0 0 0 0 rgba(59, 130, 246, 0.7),
+        0 0 0 0 rgba(59, 130, 246, 0.4);
+    }
+  }
+
+  .help-btn.pulsing {
+    animation: help-pulse 0.75s ease-in-out 2;
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.9), rgba(99, 102, 241, 0.9));
+    color: white;
+  }
+
+  .help-btn.pulsing .icon {
+    filter: drop-shadow(0 0 3px rgba(255, 255, 255, 0.6));
   }
 
   .icon {
@@ -103,10 +228,163 @@
     height: 1.25rem;
   }
 
+  /* Help overlay - fills entire viewport */
+  .help-overlay {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+    z-index: 1000;
+  }
+
+  /* Help modal container */
+  .help-modal {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    max-width: 900px;
+    max-height: calc(100vh - 48px);
+    background: rgba(20, 20, 20, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+
+  .help-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    flex-shrink: 0;
+  }
+
+  .help-header h2 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+    color: #fff;
+  }
+
+  .help-close {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    background: rgba(255, 255, 255, 0.1);
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    color: rgba(255, 255, 255, 0.7);
+    transition: background 0.15s, color 0.15s;
+  }
+
+  .help-close:hover {
+    background: rgba(255, 255, 255, 0.2);
+    color: #fff;
+  }
+
+  .help-close svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  /* Responsive card grid */
+  .help-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 16px;
+    padding: 20px;
+    overflow-y: auto;
+    flex: 1;
+  }
+
+  .help-card {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    padding: 16px 18px;
+  }
+
+  .help-card h3 {
+    margin: 0 0 12px 0;
+    font-size: 12px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.7);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    padding-bottom: 8px;
+  }
+
+  .help-row {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 4px 0;
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.9);
+    flex-wrap: wrap;
+  }
+
+  .help-row kbd {
+    display: inline-block;
+    padding: 2px 6px;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 4px;
+    font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+    font-size: 11px;
+    text-align: center;
+    color: #fff;
+    white-space: nowrap;
+  }
+
+  .help-row strong {
+    min-width: 70px;
+    color: #fff;
+    font-weight: 600;
+  }
+
+  .help-row span {
+    color: rgba(255, 255, 255, 0.6);
+    line-height: 1.4;
+  }
+
   /* Hide header title on very small screens if menu button is present */
   @media (max-width: 360px) {
     .header-title {
       display: none;
+    }
+  }
+
+  /* Mobile: full-screen modal */
+  @media (max-width: 600px) {
+    .help-overlay {
+      padding: 0;
+    }
+
+    .help-modal {
+      max-width: 100%;
+      max-height: 100%;
+      height: 100%;
+      border-radius: 0;
+      border: none;
+    }
+
+    .help-grid {
+      grid-template-columns: 1fr;
+      gap: 12px;
+      padding: 16px;
+    }
+
+    .help-card {
+      padding: 14px 16px;
     }
   }
 </style>
