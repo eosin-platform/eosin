@@ -1,0 +1,44 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: histion-data-upload
+  namespace: histion
+spec:
+  restartPolicy: Never
+  containers:
+    - name: uploader
+      image: amazon/aws-cli:2.15.0
+      env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: spaces-cred
+              key: access_key_id
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: spaces-cred
+              key: secret_access_key
+        # DO Spaces wants some region value; nyc3 is fine here
+        - name: AWS_DEFAULT_REGION
+          value: nyc3
+        - name: AWS_EC2_METADATA_DISABLED
+          value: "true"
+        - name: S3_ENDPOINT
+          value: https://nyc3.digitaloceanspaces.com
+        - name: S3_BUCKET
+          value: eosin
+      volumeMounts:
+        - name: data
+          mountPath: /data
+      command: ["/bin/sh", "-c"]
+      args:
+        - |
+          set -euo pipefail
+          echo "Uploading /data to s3://$S3_BUCKET/ ..."
+          aws s3 sync /data "s3://$S3_BUCKET/" --endpoint-url "$S3_ENDPOINT"
+          echo "Upload complete."
+  volumes:
+    - name: data
+      persistentVolumeClaim:
+        claimName: data-histion-storage-0
