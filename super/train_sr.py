@@ -26,6 +26,12 @@ from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 from torchvision.utils import save_image
 
+try:
+    import openslide
+    OPENSLIDE_AVAILABLE = True
+except ImportError:
+    OPENSLIDE_AVAILABLE = False
+
 # Assume these are generated and importable
 import storage_pb2
 import storage_pb2_grpc
@@ -39,6 +45,7 @@ import storage_pb2_grpc
 class SlideMetadata:
     """Metadata for a single slide."""
     slide_id: str  # UUID hex string
+    filename: str  # TIF filename (without .tif extension)
     width_px: int
     height_px: int
     max_tiles_x: int  # width_px // 512
@@ -48,56 +55,34 @@ class SlideMetadata:
 def load_csv(csv_path: str) -> List[SlideMetadata]:
     """Load slide metadata from CSV file.
     
-    Supports both:
-    - CSV with header: slide_id,width_px,height_px
-    - CSV without header: slide_id,width_px,height_px (auto-detected)
+    Expected format: slide_id,filename,width_px,height_px
+    The filename should be the TIF filename (with or without .tif extension).
     """
     slides = []
     with open(csv_path, 'r', newline='') as f:
-        # Peek at first line to detect if there's a header
-        first_line = f.readline().strip()
-        f.seek(0)
-        
-        # Check if first line looks like a header
-        has_header = 'slide_id' in first_line.lower() or not any(c == '-' for c in first_line.split(',')[0])
-        
-        if has_header and 'slide_id' in first_line.lower():
-            reader = csv.DictReader(f)
-            for row in reader:
-                slide_id = row['slide_id'].strip()
-                width_px = int(row['width_px'])
-                height_px = int(row['height_px'])
-                max_tiles_x = width_px // 512
-                max_tiles_y = height_px // 512
-                # Only include slides with at least one full tile
-                if max_tiles_x > 0 and max_tiles_y > 0:
-                    slides.append(SlideMetadata(
-                        slide_id=slide_id,
-                        width_px=width_px,
-                        height_px=height_px,
-                        max_tiles_x=max_tiles_x,
-                        max_tiles_y=max_tiles_y,
-                    ))
-        else:
-            # No header - assume format: slide_id,width_px,height_px
-            reader = csv.reader(f)
-            for row in reader:
-                if len(row) < 3:
-                    continue
-                slide_id = row[0].strip()
-                width_px = int(row[1])
-                height_px = int(row[2])
-                max_tiles_x = width_px // 512
-                max_tiles_y = height_px // 512
-                # Only include slides with at least one full tile
-                if max_tiles_x > 0 and max_tiles_y > 0:
-                    slides.append(SlideMetadata(
-                        slide_id=slide_id,
-                        width_px=width_px,
-                        height_px=height_px,
-                        max_tiles_x=max_tiles_x,
-                        max_tiles_y=max_tiles_y,
-                    ))
+        reader = csv.reader(f)
+        for row in reader:
+            if len(row) < 4:
+                continue
+            slide_id = row[0].strip()
+            # Strip .tif extension if present for consistency
+            filename = row[1].strip()
+            if filename.lower().endswith('.tif'):
+                filename = filename[:-4]
+            width_px = int(row[2])
+            height_px = int(row[3])
+            max_tiles_x = width_px // 512
+            max_tiles_y = height_px // 512
+            # Only include slides with at least one full tile
+            if max_tiles_x > 0 and max_tiles_y > 0:
+                slides.append(SlideMetadata(
+                    slide_id=slide_id,
+                    filename=filename,
+                    width_px=width_px,
+                    height_px=height_px,
+                    max_tiles_x=max_tiles_x,
+                    max_tiles_y=max_tiles_y,
+                ))
     return slides
 
 
@@ -133,6 +118,158 @@ def check_grpc_health(grpc_address: str, timeout: float = 10.0) -> bool:
 # =============================================================================
 # Dataset
 # =============================================================================
+
+class OpenSlideTileDataset(Dataset):
+    """
+    PyTorch Dataset that extracts tiles from local TIF files using OpenSlide.
+    """
+
+    def __init__(
+        self,
+        slides: List[SlideMetadata],
+        data_root: str,
+        train_level: int = 0,
+        target_tile_size: int = 512,
+        tiles_per_slide: int = 100,
+        color_jitter: bool = False,
+        color_jitter_strength: float = 0.05,
+    ):
+        if not OPENSLIDE_AVAILABLE:
+            raise ImportError("openslide-python is required for --data-root. Install with: pip install openslide-python")
+
+        self.slides = slides
+        self.data_root = data_root
+        self.train_level = train_level
+        self.target_tile_size = target_tile_size
+        self.tiles_per_slide = tiles_per_slide
+        self.color_jitter = color_jitter
+
+        # Cache for OpenSlide objects (opened lazily)
+        self._slide_cache: dict = {}
+
+        # Augmentation transforms
+        self.to_tensor = transforms.ToTensor()
+        if color_jitter:
+            self.jitter = transforms.ColorJitter(
+                brightness=color_jitter_strength,
+                contrast=color_jitter_strength,
+                saturation=color_jitter_strength,
+                hue=color_jitter_strength * 0.5,
+            )
+        else:
+            self.jitter = None
+
+    def _get_slide(self, filename: str) -> openslide.OpenSlide:
+        """Get or open an OpenSlide object for the given slide."""
+        if filename not in self._slide_cache:
+            tif_path = os.path.join(self.data_root, f"{filename}.tif")
+            if not os.path.exists(tif_path):
+                raise FileNotFoundError(f"TIF file not found: {tif_path}")
+            self._slide_cache[filename] = openslide.OpenSlide(tif_path)
+        return self._slide_cache[filename]
+
+    def __len__(self) -> int:
+        return len(self.slides) * self.tiles_per_slide
+
+    def _get_random_tile_coords(self, slide: SlideMetadata) -> Tuple[int, int]:
+        """Get random valid tile coordinates for a slide."""
+        tile_x = random.randint(0, slide.max_tiles_x - 1)
+        tile_y = random.randint(0, slide.max_tiles_y - 1)
+        return tile_x, tile_y
+
+    def _extract_tile(self, slide: SlideMetadata, tile_x: int, tile_y: int) -> Optional[Image.Image]:
+        """Extract a tile from the TIF file using OpenSlide."""
+        try:
+            osr = self._get_slide(slide.filename)
+            
+            # Calculate pixel coordinates from tile indices
+            # At the training level, each tile is 512x512 pixels
+            # OpenSlide read_region expects (x, y) in level 0 coordinates
+            level = self.train_level
+            
+            # Get the downsample factor for this level
+            if level >= osr.level_count:
+                level = osr.level_count - 1
+            downsample = osr.level_downsamples[level]
+            
+            # Tile coordinates in pixels at the training level
+            px_x = tile_x * self.target_tile_size
+            px_y = tile_y * self.target_tile_size
+            
+            # Convert to level 0 coordinates for read_region
+            level0_x = int(px_x * downsample)
+            level0_y = int(px_y * downsample)
+            
+            # Read the region at the specified level
+            img = osr.read_region(
+                (level0_x, level0_y),
+                level,
+                (self.target_tile_size, self.target_tile_size)
+            )
+            
+            # Convert RGBA to RGB (OpenSlide returns RGBA)
+            img = img.convert('RGB')
+            return img
+            
+        except Exception as e:
+            print(f"Error extracting tile [{slide.slide_id}, {tile_x}, {tile_y}]: {e}")
+            return None
+
+    def _apply_augmentations(self, img: Image.Image) -> torch.Tensor:
+        """Apply augmentations and convert to tensor."""
+        # Random horizontal flip
+        if random.random() > 0.5:
+            img = img.transpose(Image.FLIP_LEFT_RIGHT)
+
+        # Random vertical flip
+        if random.random() > 0.5:
+            img = img.transpose(Image.FLIP_TOP_BOTTOM)
+
+        # Random 90° rotations
+        k = random.randint(0, 3)
+        if k > 0:
+            img = img.rotate(k * 90, expand=False)
+
+        # Color jitter (optional)
+        if self.jitter is not None:
+            img = self.jitter(img)
+
+        # Convert to tensor [0, 1]
+        tensor = self.to_tensor(img)
+        return tensor
+
+    def __getitem__(self, idx: int) -> torch.Tensor:
+        """Get a single tile sample."""
+        # Map index to slide (round-robin)
+        slide_idx = idx % len(self.slides)
+        slide = self.slides[slide_idx]
+
+        # Try to fetch a valid tile (retry with different coords if needed)
+        max_attempts = 10
+        for _ in range(max_attempts):
+            tile_x, tile_y = self._get_random_tile_coords(slide)
+            img = self._extract_tile(slide, tile_x, tile_y)
+
+            if img is None:
+                continue
+
+            # Check if tile is exactly 512x512
+            if img.size != (self.target_tile_size, self.target_tile_size):
+                continue
+
+            # Apply augmentations and return
+            tensor = self._apply_augmentations(img)
+            return tensor
+
+        # If we couldn't get a valid tile, try a different slide
+        new_slide_idx = random.randint(0, len(self.slides) - 1)
+        return self.__getitem__(new_slide_idx * self.tiles_per_slide)
+
+    def __del__(self):
+        """Close all cached OpenSlide objects."""
+        for osr in self._slide_cache.values():
+            osr.close()
+
 
 class GrpcTileDataset(Dataset):
     """
@@ -514,24 +651,43 @@ def train(args: argparse.Namespace) -> None:
     if len(slides) == 0:
         raise ValueError("No valid slides found in CSV (need at least one 512x512 tile)")
 
-    # Test gRPC connection before starting training
-    if not check_grpc_health(args.grpc_address):
-        print("WARNING: gRPC health check failed. Continuing anyway...")
-        print("If you continue to see connection errors, check:")
-        print("  1. Is the storage server running?")
-        print("  2. Is kubectl port-forward active?")
-        print(f"  3. Is {args.grpc_address} the correct address?")
+    # Create dataset based on data source
+    if args.data_root is not None:
+        # Use OpenSlide with local TIF files
+        print(f"Creating dataset with OpenSlide from: {args.data_root}")
+        if not OPENSLIDE_AVAILABLE:
+            raise ImportError(
+                "openslide-python is required for --data-root. "
+                "Install with: pip install openslide-python"
+            )
+        dataset = OpenSlideTileDataset(
+            slides=slides,
+            data_root=args.data_root,
+            train_level=args.train_level,
+            tiles_per_slide=max(1, args.num_steps // len(slides)),
+            color_jitter=args.color_jitter,
+            color_jitter_strength=args.color_jitter_strength,
+        )
+    else:
+        # Use gRPC
+        # Test gRPC connection before starting training
+        if not check_grpc_health(args.grpc_address):
+            print("WARNING: gRPC health check failed. Continuing anyway...")
+            print("If you continue to see connection errors, check:")
+            print("  1. Is the storage server running?")
+            print("  2. Is kubectl port-forward active?")
+            print(f"  3. Is {args.grpc_address} the correct address?")
 
-    # Create dataset and dataloader
-    print(f"Creating dataset with gRPC address: {args.grpc_address}")
-    dataset = GrpcTileDataset(
-        slides=slides,
-        grpc_address=args.grpc_address,
-        train_level=args.train_level,
-        tiles_per_slide=max(1, args.num_steps // len(slides)),
-        color_jitter=args.color_jitter,
-        color_jitter_strength=args.color_jitter_strength,
-    )
+        # Create dataset and dataloader
+        print(f"Creating dataset with gRPC address: {args.grpc_address}")
+        dataset = GrpcTileDataset(
+            slides=slides,
+            grpc_address=args.grpc_address,
+            train_level=args.train_level,
+            tiles_per_slide=max(1, args.num_steps // len(slides)),
+            color_jitter=args.color_jitter,
+            color_jitter_strength=args.color_jitter_strength,
+        )
 
     dataloader = DataLoader(
         dataset,
@@ -762,12 +918,19 @@ def main():
         help='Path to CSV file with columns: slide_id,width_px,height_px',
     )
 
-    # gRPC settings
+    # Data source settings (mutually exclusive: --data-root or --grpc-address)
+    parser.add_argument(
+        '--data-root',
+        type=str,
+        default=None,
+        help='Path to directory containing TIF slide files (uses OpenSlide). '
+             'Files should be named <slide_id>.tif. If set, gRPC is not used.',
+    )
     parser.add_argument(
         '--grpc-address',
         type=str,
         default='localhost:8080',
-        help='Address of the StorageApi gRPC server',
+        help='Address of the StorageApi gRPC server (ignored if --data-root is set)',
     )
     parser.add_argument(
         '--train-level',
