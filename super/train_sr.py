@@ -2,8 +2,14 @@
 """
 Pathology Super-Resolution Training Script
 
-Trains a generator G that upsamples 40x histology tiles (512x512) to 2x resolution (1024x1024)
-while preserving consistency: downsampling the SR image should reconstruct the original.
+Trains a generator G that upsamples 40x histology tiles (128x128) to 4x super-resolution
+(512x512), hallucinating higher-than-optical resolution details.
+
+This is an UNSUPERVISED approach - we have no ground-truth at the target resolution.
+Training uses:
+  - Cycle consistency: downsampling the SR image should reconstruct the original
+  - Adversarial loss: discriminator distinguishes real vs generated high-res patches
+  - Perceptual/edge losses: encourage realistic textures and sharp edges
 """
 
 import argparse
@@ -317,8 +323,8 @@ class SlideMetadata:
     filename: str  # TIF filename (without .tif extension)
     width_px: int
     height_px: int
-    max_tiles_x: int  # width_px // 512
-    max_tiles_y: int  # height_px // 512
+    max_tiles_x: int  # width_px // 128
+    max_tiles_y: int  # height_px // 128
 
 
 def load_csv(csv_path: str) -> List[SlideMetadata]:
@@ -340,8 +346,8 @@ def load_csv(csv_path: str) -> List[SlideMetadata]:
                 filename = filename[:-4]
             width_px = int(row[2])
             height_px = int(row[3])
-            max_tiles_x = width_px // 512
-            max_tiles_y = height_px // 512
+            max_tiles_x = width_px // 128
+            max_tiles_y = height_px // 128
             # Only include slides with at least one full tile
             if max_tiles_x > 0 and max_tiles_y > 0:
                 slides.append(SlideMetadata(
@@ -416,16 +422,15 @@ def check_grpc_health(grpc_address: str, timeout: float = 10.0) -> bool:
 class OpenSlideTileDataset(Dataset):
     """
     PyTorch Dataset that extracts tiles from local TIF files using OpenSlide.
-    Returns (LR, HR) pairs for super-resolution training using synthetic degradation.
+    Returns full-resolution tiles for unsupervised super-resolution training.
     """
 
     def __init__(
         self,
         slides: List[SlideMetadata],
         data_root: str,
-        degradation_model: DegradationModel,
         train_level: int = 0,
-        target_tile_size: int = 512,
+        target_tile_size: int = 128,
         tiles_per_slide: int = 100,
         color_jitter: bool = False,
         color_jitter_strength: float = 0.05,
@@ -435,7 +440,6 @@ class OpenSlideTileDataset(Dataset):
 
         self.slides = slides
         self.data_root = data_root
-        self.degradation_model = degradation_model
         self.train_level = train_level
         self.target_tile_size = target_tile_size
         self.tiles_per_slide = tiles_per_slide
@@ -480,7 +484,7 @@ class OpenSlideTileDataset(Dataset):
             osr = self._get_slide(slide.filename)
             
             # Calculate pixel coordinates from tile indices
-            # At the training level, each tile is 512x512 pixels
+            # At the training level, each tile is 128x128 pixels
             # OpenSlide read_region expects (x, y) in level 0 coordinates
             level = self.train_level
             
@@ -541,8 +545,8 @@ class OpenSlideTileDataset(Dataset):
 
         return img
 
-    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Get a (LR, HR) pair for super-resolution training."""
+    def __getitem__(self, idx: int) -> torch.Tensor:
+        """Get a full-resolution tile for unsupervised super-resolution training."""
         # Map index to slide (round-robin)
         slide_idx = idx % len(self.slides)
         slide = self.slides[slide_idx]
@@ -556,7 +560,7 @@ class OpenSlideTileDataset(Dataset):
             if img is None:
                 continue
 
-            # Check if tile is exactly 512x512
+            # Check if tile is exactly 128x128
             if img.size != (self.target_tile_size, self.target_tile_size):
                 continue
 
@@ -564,25 +568,13 @@ class OpenSlideTileDataset(Dataset):
             if not has_content(img):
                 continue
 
-            # Apply spatial augmentations first (same for LR and HR)
-            hr_img = self._apply_augmentations(img)
+            # Apply spatial augmentations
+            img = self._apply_augmentations(img)
             
-            # Create degraded LR version using PIL-based degradation
-            lr_img = self.degradation_model.degrade_pil(hr_img)
+            # Convert to tensor
+            tensor = self.to_tensor(img)
             
-            # Convert to tensors
-            hr_tensor = self.to_tensor(hr_img)
-            lr_tensor = self.to_tensor(lr_img)
-            
-            # Apply tensor-based noise degradation
-            lr_tensor = self.degradation_model.degrade_tensor(
-                hr_tensor if random.random() < 0.5 else lr_tensor
-            )[:, :int(lr_tensor.shape[1]), :int(lr_tensor.shape[2])]  # Keep size
-            
-            # Actually just use clean degradation for better training
-            lr_tensor = self.to_tensor(lr_img)
-            
-            return lr_tensor, hr_tensor
+            return tensor
 
         # If we couldn't get a valid tile, try a different slide
         new_slide_idx = random.randint(0, len(self.slides) - 1)
@@ -597,16 +589,15 @@ class OpenSlideTileDataset(Dataset):
 class GrpcTileDataset(Dataset):
     """
     PyTorch Dataset that fetches tiles via gRPC from StorageApi.
-    Returns (LR, HR) pairs for super-resolution training using synthetic degradation.
+    Returns full-resolution tiles for unsupervised super-resolution training.
     """
 
     def __init__(
         self,
         slides: List[SlideMetadata],
         grpc_address: str,
-        degradation_model: DegradationModel,
         train_level: int = 0,
-        target_tile_size: int = 512,
+        target_tile_size: int = 128,
         tiles_per_slide: int = 100,
         color_jitter: bool = False,
         color_jitter_strength: float = 0.05,
@@ -614,7 +605,6 @@ class GrpcTileDataset(Dataset):
         max_retries: int = 3,
     ):
         self.slides = slides
-        self.degradation_model = degradation_model
         self.train_level = train_level
         self.target_tile_size = target_tile_size
         self.tiles_per_slide = tiles_per_slide
@@ -704,8 +694,8 @@ class GrpcTileDataset(Dataset):
 
         return img
 
-    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Get a (LR, HR) pair for super-resolution training."""
+    def __getitem__(self, idx: int) -> torch.Tensor:
+        """Get a full-resolution tile for unsupervised super-resolution training."""
         # Map index to slide (round-robin)
         slide_idx = idx % len(self.slides)
         slide = self.slides[slide_idx]
@@ -719,7 +709,7 @@ class GrpcTileDataset(Dataset):
             if img is None:
                 continue
 
-            # Check if tile is exactly 512x512
+            # Check if tile is exactly 128x128
             if img.size != (self.target_tile_size, self.target_tile_size):
                 continue
 
@@ -727,17 +717,13 @@ class GrpcTileDataset(Dataset):
             if not has_content(img):
                 continue
 
-            # Apply spatial augmentations first (same for LR and HR)
-            hr_img = self._apply_augmentations(img)
+            # Apply spatial augmentations
+            img = self._apply_augmentations(img)
             
-            # Create degraded LR version
-            lr_img = self.degradation_model.degrade_pil(hr_img)
+            # Convert to tensor
+            tensor = self.to_tensor(img)
             
-            # Convert to tensors
-            hr_tensor = self.to_tensor(hr_img)
-            lr_tensor = self.to_tensor(lr_img)
-            
-            return lr_tensor, hr_tensor
+            return tensor
 
         # If we couldn't get a valid tile, try a different slide
         new_slide_idx = random.randint(0, len(self.slides) - 1)
@@ -865,8 +851,8 @@ class Generator(nn.Module):
     """
     Enhanced super-resolution generator with RRDB blocks and attention.
     
-    Takes a 256x256 input and produces a 512x512 output with hallucinated
-    high-frequency details for crisp morphological clarity.
+    Takes a 128x128 input and produces a 512x512 output (4x upscaling)
+    with hallucinated high-frequency details for higher-than-optical resolution.
     """
 
     def __init__(
@@ -876,9 +862,11 @@ class Generator(nn.Module):
         num_residual_blocks: int = 16,
         use_rrdb: bool = True,
         growth_channels: int = 32,
+        scale_factor: int = 4,
     ):
         super().__init__()
         self.use_rrdb = use_rrdb
+        self.scale_factor = scale_factor
 
         # Initial feature extraction
         self.conv_in = nn.Conv2d(in_channels, base_channels, 3, padding=1)
@@ -898,14 +886,20 @@ class Generator(nn.Module):
         # Post-body conv
         self.conv_mid = nn.Conv2d(base_channels, base_channels, 3, padding=1)
 
-        # Upsampling via PixelShuffle (2x)
-        self.upsample = nn.Sequential(
+        # Upsampling via PixelShuffle (4x = 2x + 2x)
+        self.upsample1 = nn.Sequential(
+            nn.Conv2d(base_channels, base_channels * 4, 3, padding=1),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.PixelShuffle(2),
+        )
+        
+        self.upsample2 = nn.Sequential(
             nn.Conv2d(base_channels, base_channels * 4, 3, padding=1),
             nn.LeakyReLU(0.2, inplace=True),
             nn.PixelShuffle(2),
         )
 
-        # High-frequency detail enhancement
+        # High-frequency detail enhancement (after upsampling)
         self.detail_enhance = nn.Sequential(
             nn.Conv2d(base_channels, base_channels, 3, padding=1),
             nn.LeakyReLU(0.2, inplace=True),
@@ -929,10 +923,10 @@ class Generator(nn.Module):
             x: Input tensor of shape (B, 3, H, W) in [0, 1]
             
         Returns:
-            y: Super-resolved output (B, 3, 2H, 2W)
+            y: Super-resolved output (B, 3, 4H, 4W)
         """
         # Bicubic upsample input to target resolution (baseline)
-        x_up = F.interpolate(x, scale_factor=2, mode='bicubic', align_corners=False)
+        x_up = F.interpolate(x, scale_factor=self.scale_factor, mode='bicubic', align_corners=False)
         x_up = torch.clamp(x_up, 0, 1)
 
         # Extract features
@@ -944,8 +938,9 @@ class Generator(nn.Module):
         feat = self.conv_mid(feat)
         feat = feat + trunk  # Global residual
 
-        # Upsample features
-        feat = self.upsample(feat)
+        # Upsample features (4x = 2x + 2x)
+        feat = self.upsample1(feat)
+        feat = self.upsample2(feat)
 
         # Detail enhancement
         feat = self.detail_enhance(feat)
@@ -1003,19 +998,19 @@ class Discriminator(nn.Module):
 # Loss Functions and Utilities
 # =============================================================================
 
-def downsample(y: torch.Tensor, scale_factor: float = 0.5) -> torch.Tensor:
-    """Differentiable bicubic downsampling."""
+def downsample(y: torch.Tensor, scale_factor: float = 0.25) -> torch.Tensor:
+    """Differentiable bicubic downsampling (4x by default)."""
     return F.interpolate(y, scale_factor=scale_factor, mode='bicubic', align_corners=False)
 
 
-def upsample(x: torch.Tensor, scale_factor: float = 2.0) -> torch.Tensor:
-    """Differentiable bicubic upsampling."""
+def upsample(x: torch.Tensor, scale_factor: float = 4.0) -> torch.Tensor:
+    """Differentiable bicubic upsampling (4x by default)."""
     return F.interpolate(x, scale_factor=scale_factor, mode='bicubic', align_corners=False)
 
 
 def reconstruction_loss(y: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
-    """L1 loss between downsampled SR and original."""
-    y_down = downsample(y)
+    """L1 loss between downsampled SR and original (cycle consistency)."""
+    y_down = downsample(y)  # 4x downsample
     return F.l1_loss(y_down, x)
 
 
@@ -1175,6 +1170,79 @@ def save_sample_grid_v2(
     panel_width = hr.shape[3]
     row_height = hr.shape[2]
     labels = ["LR (Input)", "Bicubic", "Super-Res", "HR (Target)"]
+    
+    # Draw labels on each row
+    for row_idx in range(num_samples):
+        y_offset = row_idx * row_height
+        for col_idx, label in enumerate(labels):
+            x_pos = col_idx * panel_width + 10
+            y_pos = y_offset + 10
+            # Draw text with outline for visibility
+            outline_color = (0, 0, 0)
+            text_color = (255, 255, 255)
+            for dx, dy in [(-1, -1), (-1, 1), (1, -1), (1, 1), (-2, 0), (2, 0), (0, -2), (0, 2)]:
+                draw.text((x_pos + dx, y_pos + dy), label, font=font, fill=outline_color)
+            draw.text((x_pos, y_pos), label, font=font, fill=text_color)
+
+    # Save
+    save_path = os.path.join(out_dir, f'sample_step_{step:06d}.png')
+    img.save(save_path)
+    print(f"Saved sample to {save_path}")
+
+
+def save_sample_grid_unsupervised(
+    x: torch.Tensor,
+    sr: torch.Tensor,
+    step: int,
+    out_dir: str,
+    num_samples: int = 4,
+) -> None:
+    """Save a grid showing Input, Bicubic 4x, and SR output with labels (no target)."""
+    from PIL import ImageDraw, ImageFont
+
+    x = x[:num_samples].cpu()
+    sr = sr[:num_samples].cpu()
+    num_samples = x.shape[0]  # Actual batch size after slicing
+
+    # Bicubic upsample input 4x for comparison
+    bicubic = F.interpolate(x, scale_factor=4, mode='bicubic', align_corners=False)
+    bicubic = torch.clamp(bicubic, 0, 1)
+
+    # Nearest upsample input for visualization (to match SR size)
+    x_vis = F.interpolate(x, scale_factor=4, mode='nearest')
+
+    # Stack horizontally: Input | Bicubic | SR
+    grid = torch.cat([x_vis, bicubic, sr], dim=3)  # Concat along width
+
+    # Convert to PIL for annotation
+    grid_np = (grid * 255).clamp(0, 255).byte()
+    # Stack samples vertically
+    rows = []
+    for i in range(num_samples):
+        row_tensor = grid_np[i]  # (C, H, W)
+        row_np = row_tensor.permute(1, 2, 0).numpy()  # (H, W, C)
+        rows.append(row_np)
+    
+    # Combine all rows vertically
+    combined = np.vstack(rows)
+    img = Image.fromarray(combined, mode='RGB')
+    
+    # Draw labels
+    draw = ImageDraw.Draw(img)
+    
+    # Try to load a font, fall back to default if unavailable
+    try:
+        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 20)
+    except (IOError, OSError):
+        try:
+            font = ImageFont.truetype("/usr/share/fonts/TTF/DejaVuSans-Bold.ttf", 20)
+        except (IOError, OSError):
+            font = ImageFont.load_default()
+    
+    # Image width for each panel (512 pixels each)
+    panel_width = sr.shape[3]
+    row_height = sr.shape[2]
+    labels = ["Input (nearest)", "Bicubic 4x", "Super-Res 4x"]
     
     # Draw labels on each row
     for row_idx in range(num_samples):
@@ -1356,19 +1424,7 @@ def train(args: argparse.Namespace) -> None:
     print(f"Loaded {len(slides)} slides")
 
     if len(slides) == 0:
-        raise ValueError("No valid slides found in CSV (need at least one 512x512 tile)")
-
-    # Create degradation model for synthetic LR-HR pairs
-    degradation_model = DegradationModel(
-        scale_factor=0.5,  # 512 -> 256 for training
-        blur_sigma_range=(0.5, 1.5),
-        noise_sigma_range=(0.0, 0.02),
-        jpeg_quality_range=(75, 95),
-        apply_blur_prob=0.7,
-        apply_noise_prob=0.5,
-        apply_jpeg_prob=0.3,
-    )
-    print("Created degradation model for synthetic LR-HR pairs")
+        raise ValueError("No valid slides found in CSV (need at least one 128x128 tile)")
 
     # Create dataset based on data source
     if args.data_root is not None:
@@ -1382,7 +1438,6 @@ def train(args: argparse.Namespace) -> None:
         dataset = OpenSlideTileDataset(
             slides=slides,
             data_root=args.data_root,
-            degradation_model=degradation_model,
             train_level=args.train_level,
             tiles_per_slide=max(1, args.num_steps // len(slides)),
             color_jitter=args.color_jitter,
@@ -1403,7 +1458,6 @@ def train(args: argparse.Namespace) -> None:
         dataset = GrpcTileDataset(
             slides=slides,
             grpc_address=args.grpc_address,
-            degradation_model=degradation_model,
             train_level=args.train_level,
             tiles_per_slide=max(1, args.num_steps // len(slides)),
             color_jitter=args.color_jitter,
@@ -1487,29 +1541,26 @@ def train(args: argparse.Namespace) -> None:
 
     print(f"\nStarting training for {args.num_steps} steps")
     print(f"Pretrain steps (no adversarial): {args.pretrain_steps}")
-    print(f"Loss weights: pixel={lambda_pixel}, perceptual={lambda_perceptual}, "
+    print(f"Loss weights: cycle={lambda_pixel}, perceptual={lambda_perceptual}, "
           f"edge={lambda_edge}, freq={lambda_freq}, adv={lambda_adv}")
     print("-" * 60)
 
     # Fixed batch for sampling
-    sample_lr_batch = None
-    sample_hr_batch = None
+    sample_batch = None
 
     while global_step < args.num_steps:
-        # Get next batch (now returns LR, HR pairs)
+        # Get next batch (returns full-res tiles only)
         try:
-            lr, hr = next(data_iter)
+            x = next(data_iter)
         except StopIteration:
             data_iter = iter(dataloader)
-            lr, hr = next(data_iter)
+            x = next(data_iter)
 
-        lr = lr.to(device, non_blocking=True)
-        hr = hr.to(device, non_blocking=True)
+        x = x.to(device, non_blocking=True)
 
         # Save first batch for sampling
-        if sample_lr_batch is None:
-            sample_lr_batch = lr.clone()
-            sample_hr_batch = hr.clone()
+        if sample_batch is None:
+            sample_batch = x.clone()
 
         # Pretraining phase (no adversarial loss)
         if global_step < args.pretrain_steps:
@@ -1518,21 +1569,27 @@ def train(args: argparse.Namespace) -> None:
             optimizer_g.zero_grad()
 
             with autocast():
-                # Forward pass: LR (256x256) -> SR (512x512)
-                sr = generator(lr)
-
-                # Losses against HR ground truth
-                loss_pixel = F.l1_loss(sr, hr)
+                # Forward pass: input (128x128) -> SR (512x512)
+                sr = generator(x)
                 
+                # Downsample SR back to original resolution for cycle consistency
+                sr_down = F.interpolate(sr, scale_factor=0.25, mode='bicubic', align_corners=False)
+                sr_down = torch.clamp(sr_down, 0, 1)
+
+                # Cycle consistency loss: downsampled SR should match original input
+                loss_cycle = F.l1_loss(sr_down, x)
+                
+                # Perceptual loss on downsampled SR vs input (if available)
                 loss_perceptual = torch.tensor(0.0, device=device)
                 if perceptual_loss_fn is not None:
-                    loss_perceptual = perceptual_loss_fn(sr, hr)
+                    loss_perceptual = perceptual_loss_fn(sr_down, x)
                 
-                loss_edge = edge_loss_fn(sr, hr)
-                loss_freq = freq_loss_fn(sr, hr)
+                # Edge and frequency losses on downsampled SR vs input
+                loss_edge = edge_loss_fn(sr_down, x)
+                loss_freq = freq_loss_fn(sr_down, x)
 
                 loss_g = (
-                    lambda_pixel * loss_pixel +
+                    lambda_pixel * loss_cycle +
                     lambda_perceptual * loss_perceptual +
                     lambda_edge * loss_edge +
                     lambda_freq * loss_freq
@@ -1547,12 +1604,12 @@ def train(args: argparse.Namespace) -> None:
             if global_step % args.log_interval == 0:
                 print(
                     f"[Pretrain] Step {global_step}/{args.num_steps} | "
-                    f"L_pixel: {loss_pixel.item():.4f} | "
+                    f"L_cycle: {loss_cycle.item():.4f} | "
                     f"L_perc: {loss_perceptual.item():.4f} | "
                     f"L_edge: {loss_edge.item():.4f} | "
                     f"L_freq: {loss_freq.item():.4f}"
                 )
-                writer.add_scalar('Loss/pixel', loss_pixel.item(), global_step)
+                writer.add_scalar('Loss/cycle', loss_cycle.item(), global_step)
                 writer.add_scalar('Loss/perceptual', loss_perceptual.item(), global_step)
                 writer.add_scalar('Loss/edge', loss_edge.item(), global_step)
                 writer.add_scalar('Loss/frequency', loss_freq.item(), global_step)
@@ -1571,11 +1628,14 @@ def train(args: argparse.Namespace) -> None:
             with autocast():
                 # Generate SR (detached for D update)
                 with torch.no_grad():
-                    sr = generator(lr)
+                    sr = generator(x)
+                    # Downsample SR to input resolution for discrimination
+                    sr_down = F.interpolate(sr, scale_factor=0.25, mode='bicubic', align_corners=False)
+                    sr_down = torch.clamp(sr_down, 0, 1)
 
-                # Real = actual HR ground truth (not bicubic!)
-                # Fake = SR output
-                d_real = discriminator(hr)
+                # Real = original input tiles at full resolution
+                # Fake = downsampled SR (should look like real tiles)
+                d_real = discriminator(F.interpolate(x, scale_factor=4, mode='bicubic', align_corners=False))
                 d_fake = discriminator(sr.detach())
 
                 loss_d = discriminator_loss(d_real, d_fake)
@@ -1589,25 +1649,31 @@ def train(args: argparse.Namespace) -> None:
             optimizer_g.zero_grad()
 
             with autocast():
-                # Forward pass
-                sr = generator(lr)
+                # Forward pass: input (128x128) -> SR (512x512)
+                sr = generator(x)
+                
+                # Downsample SR back to original resolution
+                sr_down = F.interpolate(sr, scale_factor=0.25, mode='bicubic', align_corners=False)
+                sr_down = torch.clamp(sr_down, 0, 1)
 
-                # Discriminator on fake
+                # Discriminator on generated SR
                 d_fake = discriminator(sr)
 
-                # Losses
-                loss_pixel = F.l1_loss(sr, hr)
+                # Cycle consistency loss
+                loss_cycle = F.l1_loss(sr_down, x)
                 
+                # Perceptual loss on downsampled SR vs input
                 loss_perceptual = torch.tensor(0.0, device=device)
                 if perceptual_loss_fn is not None:
-                    loss_perceptual = perceptual_loss_fn(sr, hr)
+                    loss_perceptual = perceptual_loss_fn(sr_down, x)
                 
-                loss_edge = edge_loss_fn(sr, hr)
-                loss_freq = freq_loss_fn(sr, hr)
+                # Edge and frequency losses
+                loss_edge = edge_loss_fn(sr_down, x)
+                loss_freq = freq_loss_fn(sr_down, x)
                 loss_adv_g = generator_adversarial_loss(d_fake)
 
                 loss_g = (
-                    lambda_pixel * loss_pixel +
+                    lambda_pixel * loss_cycle +
                     lambda_perceptual * loss_perceptual +
                     lambda_edge * loss_edge +
                     lambda_freq * loss_freq +
@@ -1622,13 +1688,13 @@ def train(args: argparse.Namespace) -> None:
             if global_step % args.log_interval == 0:
                 print(
                     f"Step {global_step}/{args.num_steps} | "
-                    f"L_pixel: {loss_pixel.item():.4f} | "
+                    f"L_cycle: {loss_cycle.item():.4f} | "
                     f"L_perc: {loss_perceptual.item():.4f} | "
                     f"L_edge: {loss_edge.item():.4f} | "
                     f"L_adv: {loss_adv_g.item():.4f} | "
                     f"L_D: {loss_d.item():.4f}"
                 )
-                writer.add_scalar('Loss/pixel', loss_pixel.item(), global_step)
+                writer.add_scalar('Loss/cycle', loss_cycle.item(), global_step)
                 writer.add_scalar('Loss/perceptual', loss_perceptual.item(), global_step)
                 writer.add_scalar('Loss/edge', loss_edge.item(), global_step)
                 writer.add_scalar('Loss/frequency', loss_freq.item(), global_step)
@@ -1644,26 +1710,30 @@ def train(args: argparse.Namespace) -> None:
         if global_step > 0 and global_step % args.log_images_interval == 0:
             generator.eval()
             with torch.no_grad():
-                sr_sample = generator(sample_lr_batch)
-                # Input LR (upsampled for comparison)
-                lr_up = F.interpolate(sample_lr_batch, scale_factor=2, mode='bicubic', align_corners=False)
-                lr_up = torch.clamp(lr_up, 0, 1)
-                # Create comparison grids
-                input_grid = make_grid(lr_up[:4].cpu(), nrow=2, normalize=False)
+                sr_sample = generator(sample_batch)
+                # Input (upsampled for comparison with SR)
+                x_up = F.interpolate(sample_batch, scale_factor=4, mode='bicubic', align_corners=False)
+                x_up = torch.clamp(x_up, 0, 1)
+                # Downsampled SR (should match input) - resize for comparison grid
+                sr_down = F.interpolate(sr_sample, scale_factor=0.25, mode='bicubic', align_corners=False)
+                sr_down = torch.clamp(sr_down, 0, 1)
+                sr_down_up = F.interpolate(sr_down, scale_factor=4, mode='bicubic', align_corners=False)
+                # Create comparison grids (at SR resolution)
+                input_grid = make_grid(x_up[:4].cpu(), nrow=2, normalize=False)
                 output_grid = make_grid(sr_sample[:4].cpu(), nrow=2, normalize=False)
-                target_grid = make_grid(sample_hr_batch[:4].cpu(), nrow=2, normalize=False)
-                writer.add_image('Images/input_bicubic', input_grid, global_step)
+                cycle_grid = make_grid(sr_down_up[:4].cpu(), nrow=2, normalize=False)
+                writer.add_image('Images/input_bicubic_4x', input_grid, global_step)
                 writer.add_image('Images/output_sr', output_grid, global_step)
-                writer.add_image('Images/target_hr', target_grid, global_step)
+                writer.add_image('Images/cycle_reconstructed', cycle_grid, global_step)
             generator.train()
 
         # Save samples
         if global_step > 0 and global_step % args.sample_interval == 0:
             generator.eval()
             with torch.no_grad():
-                sr_sample = generator(sample_lr_batch)
-            save_sample_grid_v2(
-                sample_lr_batch, sample_hr_batch, sr_sample, 
+                sr_sample = generator(sample_batch)
+            save_sample_grid_unsupervised(
+                sample_batch, sr_sample, 
                 global_step, args.out_dir
             )
             generator.train()
@@ -1753,7 +1823,7 @@ def main():
     parser.add_argument(
         '--batch-size',
         type=int,
-        default=2,
+        default=8,
         help='Training batch size (reduce if OOM)',
     )
     parser.add_argument(
@@ -1817,7 +1887,7 @@ def main():
     parser.add_argument(
         '--g-blocks',
         type=int,
-        default=21,
+        default=20,
         help='Number of RRDB/residual blocks in generator (reduce for lower VRAM)',
     )
     parser.add_argument(
@@ -1841,7 +1911,7 @@ def main():
     parser.add_argument(
         '--d-channels',
         type=int,
-        default=48,
+        default=64,
         help='Base channels for discriminator (reduce for lower VRAM)',
     )
 
