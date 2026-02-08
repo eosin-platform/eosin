@@ -49,7 +49,10 @@
   function updateMenuHeight() {
     if (menuElement && browser) {
       const rect = menuElement.getBoundingClientRect();
-      const availableHeight = window.innerHeight - rect.top - 16; // 16px bottom margin
+      // Use 1rem (16px) from bottom edge to match the left edge padding of the HUD,
+      // plus extra space for the bottom stats bar (~40px)
+      const bottomMargin = 16 + 40; // 1rem + stats bar height
+      const availableHeight = window.innerHeight - rect.top - bottomMargin;
       menuMaxHeight = `${Math.max(200, availableHeight)}px`;
     }
   }
@@ -472,13 +475,34 @@
     left: 0;
     min-width: 240px;
     overflow-y: auto;
-    background: rgba(20, 20, 20, 0.95);
+    background: rgba(20, 20, 20, 0.75);
     backdrop-filter: blur(12px);
     border-radius: 0.75rem;
     border: 1px solid rgba(255, 255, 255, 0.1);
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
     padding: 0.5rem;
     z-index: 40;
+
+    /* Custom scrollbar styling */
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
+  }
+
+  .more-menu::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .more-menu::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .more-menu::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 3px;
+  }
+
+  .more-menu::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.5);
   }
 
   .menu-content {
