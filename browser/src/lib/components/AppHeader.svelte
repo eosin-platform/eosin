@@ -111,8 +111,14 @@
   // Stain enhancement dropdown state
   let enhancementDropdownOpen = $state(false);
   let enhancementDropdownEl = $state<HTMLDivElement>();
+  let enhancementTriggerEl = $state<HTMLButtonElement>();
+  let dropdownPosition = $state({ top: 0, left: 0 });
   
   function toggleEnhancementDropdown() {
+    if (!enhancementDropdownOpen && enhancementTriggerEl) {
+      const rect = enhancementTriggerEl.getBoundingClientRect();
+      dropdownPosition = { top: rect.bottom + 4, left: rect.left };
+    }
     enhancementDropdownOpen = !enhancementDropdownOpen;
   }
   
@@ -293,6 +299,7 @@
           class="enhancement-trigger"
           class:open={enhancementDropdownOpen}
           onclick={toggleEnhancementDropdown}
+          bind:this={enhancementTriggerEl}
           title="Stain Enhancement"
           aria-haspopup="listbox"
           aria-expanded={enhancementDropdownOpen}
@@ -303,7 +310,7 @@
           </svg>
         </button>
         {#if enhancementDropdownOpen}
-          <div class="enhancement-menu" role="listbox">
+          <div class="enhancement-menu" role="listbox" style="top: {dropdownPosition.top}px; left: {dropdownPosition.left}px;">
             {#each stainEnhancementOptions as mode}
               <button
                 class="enhancement-option"
@@ -493,6 +500,8 @@
     border-bottom: 1px solid #333;
     flex-shrink: 0;
     height: 48px;
+    position: relative;
+    z-index: 100;
   }
 
   .header-left {
@@ -597,10 +606,8 @@
   }
   
   .enhancement-menu {
-    position: absolute;
-    top: calc(100% + 4px);
-    left: 0;
-    min-width: 100%;
+    position: fixed;
+    min-width: 120px;
     background: #222;
     border: 1px solid #444;
     border-radius: 6px;
