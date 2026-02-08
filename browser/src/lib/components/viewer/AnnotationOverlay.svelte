@@ -455,6 +455,47 @@
   function handleRightMouseDown(e: MouseEvent, annotation: Annotation) {
     // Only handle right mouse button
     if (e.button !== 2) return;
+    
+    // For mask annotations, only trigger if the pixel under cursor is painted
+    if (annotation.kind === 'mask_patch') {
+      const geo = annotation.geometry as MaskGeometry;
+      if (!geo || !geo.data_base64) return;
+      
+      // Get mask data (cached)
+      const maskData = getCachedMaskData(annotation.id, geo.data_base64);
+      if (!maskData) return;
+      
+      // Convert screen position to image coordinates
+      const imageX = viewportX + e.clientX / viewportZoom;
+      const imageY = viewportY + e.clientY / viewportZoom;
+      
+      // Check bounds - get the element's bounding rect to get proper offset
+      const target = e.currentTarget as SVGElement;
+      const svg = target.ownerSVGElement;
+      if (!svg) return;
+      const rect = svg.getBoundingClientRect();
+      const screenX = e.clientX - rect.left;
+      const screenY = e.clientY - rect.top;
+      const imgX = viewportX + screenX / viewportZoom;
+      const imgY = viewportY + screenY / viewportZoom;
+      
+      // Convert to mask-local coordinates
+      const maskX = Math.floor(imgX - geo.x0_level0);
+      const maskY = Math.floor(imgY - geo.y0_level0);
+      
+      // Check bounds
+      if (maskX < 0 || maskX >= geo.width || maskY < 0 || maskY >= geo.height) return;
+      
+      // Check if pixel is painted
+      const bitIndex = maskY * geo.width + maskX;
+      const byteIndex = Math.floor(bitIndex / 8);
+      const bitOffset = bitIndex % 8;
+      const isPainted = byteIndex < maskData.length && (maskData[byteIndex] & (1 << bitOffset)) !== 0;
+      
+      // If pixel is not painted, don't handle the event - let it propagate to viewport
+      if (!isPainted) return;
+    }
+    
     e.preventDefault();
     e.stopPropagation();
     if (onAnnotationRightClick) {
