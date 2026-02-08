@@ -95,6 +95,9 @@
   let isDragging = $state(false);
   let lastMouseX = 0;
   let lastMouseY = 0;
+  // Track right-click start position for context menu threshold
+  let rightClickStart = $state<{ x: number; y: number } | null>(null);
+  const RIGHT_CLICK_THRESHOLD = 5; // Pixels - if moved more than this, don't show context menu
 
   // Measurement tool state
   interface MeasurementState {
@@ -1184,12 +1187,13 @@
       return;
     }
 
-    // Middle mouse button (button 1) - pan viewport
-    if (e.button === 1) {
+    // Right mouse button (button 2) - pan viewport, show context menu on release if no drag
+    if (e.button === 2) {
       e.preventDefault();
       isDragging = true;
       lastMouseX = e.clientX;
       lastMouseY = e.clientY;
+      rightClickStart = { x: e.clientX, y: e.clientY };
       return;
     }
 
@@ -1330,9 +1334,26 @@
       return;
     }
     
-    // Middle mouse button released - stop panning
+    // Middle mouse button released - stop brush size adjustment
     if (e && e.button === 1) {
+      maskBrushDragStart = null;
+      return;
+    }
+    
+    // Right mouse button released - stop panning, show context menu if no drag
+    if (e && e.button === 2) {
       isDragging = false;
+      // Check if we moved more than the threshold
+      if (rightClickStart) {
+        const dx = e.clientX - rightClickStart.x;
+        const dy = e.clientY - rightClickStart.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < RIGHT_CLICK_THRESHOLD) {
+          // Didn't move much, show context menu
+          showContextMenu(e.clientX, e.clientY);
+        }
+        rightClickStart = null;
+      }
       return;
     }
     
@@ -1529,6 +1550,7 @@
   let contextMenuImageY = $state<number | undefined>(undefined);
 
   function showContextMenu(x: number, y: number) {
+    if (!imageDesc) return;
     contextMenuX = x;
     contextMenuY = y;
     // Convert to image coordinates
@@ -1541,10 +1563,9 @@
   }
 
   function handleContextMenu(e: MouseEvent) {
+    // Prevent native context menu - we handle it via mouseup
     e.preventDefault();
     e.stopPropagation();
-    if (!imageDesc) return;
-    showContextMenu(e.clientX, e.clientY);
   }
 
   function handleContextMenuClose() {
