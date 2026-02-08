@@ -20,6 +20,10 @@
   // Help button pulse animation state (plays on mount for 1500ms)
   let helpButtonPulsing = $state(true);
   
+  // Scroll area overflow detection
+  let headerLeftEl: HTMLElement | undefined = $state();
+  let isScrollable = $state(false);
+  
   // Tool state from focused pane
   let tools = $state<ToolState>({ annotationTool: null, measurementActive: false, measurementMode: null, canUndo: false, canRedo: false });
   const unsubTools = toolState.subscribe(s => tools = s);
@@ -39,9 +43,26 @@
     const timer = setTimeout(() => {
       helpButtonPulsing = false;
     }, 1500);
+    
+    // Check if scroll area has overflow
+    function checkScrollable() {
+      if (headerLeftEl) {
+        isScrollable = headerLeftEl.scrollWidth > headerLeftEl.clientWidth;
+      }
+    }
+    
+    // Observe resize to detect overflow changes
+    let resizeObserver: ResizeObserver | undefined;
+    if (headerLeftEl) {
+      resizeObserver = new ResizeObserver(checkScrollable);
+      resizeObserver.observe(headerLeftEl);
+      checkScrollable();
+    }
+    
     return () => {
       clearTimeout(timer);
       unsubTools();
+      resizeObserver?.disconnect();
     };
   });
 
@@ -142,7 +163,7 @@
     </button>
   {/if}
 
-  <div class="header-left">
+  <div class="header-left" class:scrollable={isScrollable} bind:this={headerLeftEl}>
     <!-- Tool toolbar -->
     <div class="tool-toolbar">
       <!-- Undo/Redo group -->
@@ -498,6 +519,15 @@
 
   .header-left::-webkit-scrollbar-track {
     background: transparent;
+  }
+
+  .header-left.scrollable {
+    background: rgba(0, 0, 0, 0.5);
+    padding-left: 0.5rem;
+    margin-top: -0.5rem;
+    margin-bottom: -0.5rem;
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
   }
 
   /* Tool toolbar */
