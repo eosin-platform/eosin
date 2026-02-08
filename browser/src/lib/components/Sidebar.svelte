@@ -706,7 +706,7 @@
   .sidebar {
     width: 280px;
     min-width: 280px;
-    height: 100vh;
+    height: 100%;
     background: #141414;
     border-right: 1px solid #333;
     display: flex;
@@ -761,7 +761,7 @@
     background: #141414;
     z-index: 10;
     gap: 0.5rem;
-    height: 48px;
+    min-height: 48px;
   }
 
   .sidebar-header.collapsed {

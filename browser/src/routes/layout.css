@@ -6,10 +6,15 @@ html, body {
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
   overscroll-behavior: none;
-  /* Fix for mobile browser viewport issues */
+  /* Fix for mobile browser viewport issues - use lvh for fullscreen PWA */
   height: 100%;
-  height: 100dvh;
+  height: 100lvh;
   overflow: hidden;
+  /* Ensure content fills entire viewport including safe areas */
+  padding: 0;
+  margin: 0;
+  /* Dark background to fill any safe area gutters */
+  background: #111;
 }
 
 /* CSS custom property for safe viewport height (set by JS as fallback) */

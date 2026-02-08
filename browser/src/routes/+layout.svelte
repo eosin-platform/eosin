@@ -132,11 +132,9 @@
 <style>
 	.app-layout {
 		display: flex;
-		height: 100vh; /* Fallback for oldest browsers */
-		height: calc(var(--vh, 1vh) * 100); /* JS-calculated height for older mobile browsers */
-		height: 100dvh; /* Dynamic viewport height - best for modern mobile browsers */
+		position: fixed;
+		inset: 0;
 		overflow: hidden;
-		position: relative;
 	}
 
 	.sidebar-container {
@@ -172,7 +170,7 @@
 		position: fixed;
 		left: 0;
 		top: 0;
-		height: 100vh;
+		height: 100%;
 		z-index: 50;
 		transform: translateX(-100%);
 		transition: transform 0.2s ease;

@@ -500,6 +500,7 @@
     border-bottom: 1px solid #333;
     flex-shrink: 0;
     height: 48px;
+    box-sizing: border-box;
     position: relative;
     z-index: 100;
   }
