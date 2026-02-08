@@ -16,63 +16,19 @@
   let { zoom, onZoomChange, onFitView, magnification }: Props = $props();
 
   // Bind to settings store
-  let brightness = $state($settings.image.brightness);
-  let contrast = $state($settings.image.contrast);
   let stainEnhancement = $state<StainEnhancementMode>($settings.image.stainEnhancement);
   let scaleBarVisible = $state($settings.image.scaleBarVisible);
   let annotationsVisible = $state($settings.annotations.visible);
 
   // Keep local state in sync with store
   $effect(() => {
-    brightness = $settings.image.brightness;
-    contrast = $settings.image.contrast;
     stainEnhancement = $settings.image.stainEnhancement;
     scaleBarVisible = $settings.image.scaleBarVisible;
     annotationsVisible = $settings.annotations.visible;
   });
 
-  // Debounce for sliders
-  let brightnessTimeout: ReturnType<typeof setTimeout> | null = null;
-  let contrastTimeout: ReturnType<typeof setTimeout> | null = null;
-
-  // Tooltip visibility state
-  let brightnessTooltipVisible = $state(false);
-  let contrastTooltipVisible = $state(false);
-  let brightnessAdjusting = $state(false);
-  let contrastAdjusting = $state(false);
-
   // Local state for the more menu (per-instance, not global)
   let moreMenuOpen = $state(false);
-
-  function handleBrightnessChange(e: Event) {
-    const target = e.target as HTMLInputElement;
-    brightness = parseFloat(target.value);
-    
-    if (brightnessTimeout) clearTimeout(brightnessTimeout);
-    brightnessTimeout = setTimeout(() => {
-      settings.setSetting('image', 'brightness', brightness);
-    }, 50);
-  }
-
-  function resetBrightness() {
-    brightness = 0;
-    settings.setSetting('image', 'brightness', 0);
-  }
-
-  function handleContrastChange(e: Event) {
-    const target = e.target as HTMLInputElement;
-    contrast = parseFloat(target.value);
-    
-    if (contrastTimeout) clearTimeout(contrastTimeout);
-    contrastTimeout = setTimeout(() => {
-      settings.setSetting('image', 'contrast', contrast);
-    }, 50);
-  }
-
-  function resetContrast() {
-    contrast = 0;
-    settings.setSetting('image', 'contrast', 0);
-  }
 
   function handleStainEnhancementChange(e: Event) {
     const target = e.target as HTMLSelectElement;
@@ -191,69 +147,6 @@
     ontouchstart={stopPropagation}
     onwheel={stopPropagation}
   >
-  <!-- Brightness slider -->
-  <div class="slider-control">
-    <span class="slider-label" aria-hidden="true">
-      <!-- Sun icon for brightness -->
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="icon">
-        <path d="M10 2a.75.75 0 01.75.75v1.5a.75.75 0 01-1.5 0v-1.5A.75.75 0 0110 2zM10 15a.75.75 0 01.75.75v1.5a.75.75 0 01-1.5 0v-1.5A.75.75 0 0110 15zM10 7a3 3 0 100 6 3 3 0 000-6zM15.657 5.404a.75.75 0 10-1.06-1.06l-1.061 1.06a.75.75 0 001.06 1.061l1.061-1.06zM6.464 14.596a.75.75 0 10-1.06-1.06l-1.06 1.06a.75.75 0 001.06 1.06l1.06-1.06zM18 10a.75.75 0 01-.75.75h-1.5a.75.75 0 010-1.5h1.5A.75.75 0 0118 10zM5 10a.75.75 0 01-.75.75h-1.5a.75.75 0 010-1.5h1.5A.75.75 0 015 10zM14.596 15.657a.75.75 0 001.06-1.06l-1.06-1.061a.75.75 0 10-1.06 1.06l1.06 1.06zM5.404 6.464a.75.75 0 001.06-1.06l-1.06-1.06a.75.75 0 10-1.061 1.06l1.06 1.06z" />
-      </svg>
-    </span>
-    <div class="slider-wrapper">
-      <input
-        type="range"
-        min="-100"
-        max="100"
-        step="1"
-        value={brightness}
-        oninput={handleBrightnessChange}
-        ondblclick={resetBrightness}
-        onmouseenter={() => brightnessTooltipVisible = true}
-        onmouseleave={() => { if (!brightnessAdjusting) brightnessTooltipVisible = false; }}
-        onmousedown={() => brightnessAdjusting = true}
-        onmouseup={() => { brightnessAdjusting = false; brightnessTooltipVisible = false; }}
-        class="slider"
-        aria-label="Brightness (double-click to reset)"
-      />
-      {#if brightnessTooltipVisible || brightnessAdjusting}
-        <div class="slider-tooltip">{brightness}</div>
-      {/if}
-    </div>
-  </div>
-  
-  <!-- Contrast slider -->
-  <div class="slider-control">
-    <span class="slider-label" aria-hidden="true">
-      <!-- Contrast icon (circle half-filled) -->
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="icon">
-        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm0-2a6 6 0 100-12v12z" clip-rule="evenodd" />
-      </svg>
-    </span>
-    <div class="slider-wrapper">
-      <input
-        type="range"
-        min="-100"
-        max="100"
-        step="1"
-        value={contrast}
-        oninput={handleContrastChange}
-        ondblclick={resetContrast}
-        onmouseenter={() => contrastTooltipVisible = true}
-        onmouseleave={() => { if (!contrastAdjusting) contrastTooltipVisible = false; }}
-        onmousedown={() => contrastAdjusting = true}
-        onmouseup={() => { contrastAdjusting = false; contrastTooltipVisible = false; }}
-        class="slider"
-        aria-label="Contrast (double-click to reset)"
-      />
-      {#if contrastTooltipVisible || contrastAdjusting}
-        <div class="slider-tooltip">{contrast}</div>
-      {/if}
-    </div>
-  </div>
-
-  <!-- Divider -->
-  <div class="hud-divider"></div>
-
   <!-- Stain enhancement selector -->
   <select
     value={stainEnhancement}
@@ -376,92 +269,9 @@
     flex-shrink: 0;
   }
 
-  .slider-control {
-    display: flex;
-    align-items: center;
-    gap: 0.375rem;
-    min-width: 0;
-  }
-
-  .slider-label {
-    display: flex;
-    align-items: center;
-    color: #9ca3af;
-    flex-shrink: 0;
-  }
-
   .icon {
     width: 1rem;
     height: 1rem;
-  }
-
-  .slider {
-    flex: 1;
-    height: 4px;
-    background: #374151;
-    border-radius: 2px;
-    appearance: none;
-    min-width: 0;
-    cursor: pointer;
-    min-width: 80px;
-  }
-
-  .slider::-webkit-slider-thumb {
-    appearance: none;
-    width: 12px;
-    height: 12px;
-    background: #3b82f6;
-    border-radius: 50%;
-    cursor: pointer;
-    transition: transform 0.1s;
-  }
-
-  .slider::-webkit-slider-thumb:hover {
-    transform: scale(1.2);
-  }
-
-  .slider::-moz-range-thumb {
-    width: 12px;
-    height: 12px;
-    background: #3b82f6;
-    border: none;
-    border-radius: 50%;
-    cursor: pointer;
-  }
-
-  .slider-wrapper {
-    position: relative;
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    align-items: center;
-  }
-
-  .slider-tooltip {
-    position: absolute;
-    top: -28px;
-    left: 50%;
-    transform: translateX(-50%);
-    background: #1f2937;
-    color: #e5e7eb;
-    padding: 0.25rem 0.5rem;
-    border-radius: 0.25rem;
-    font-size: 0.6875rem;
-    font-variant-numeric: tabular-nums;
-    white-space: nowrap;
-    pointer-events: none;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
-    z-index: 10;
-  }
-
-  .slider-tooltip::after {
-    content: '';
-    position: absolute;
-    top: 100%;
-    left: 50%;
-    transform: translateX(-50%);
-    border: 4px solid transparent;
-    border-top-color: #1f2937;
   }
 
   .stain-select {
@@ -546,10 +356,6 @@
       max-width: none;
       padding: 0.5rem;
     }
-
-    .slider {
-      min-width: 60px;
-    }
   }
 
   /* Touch device adaptations - larger touch targets */
@@ -562,22 +368,6 @@
     .icon-btn svg {
       width: 1.25rem;
       height: 1.25rem;
-    }
-
-    /* Larger slider track and thumb for touch */
-    .slider {
-      height: 8px;
-      border-radius: 4px;
-    }
-
-    .slider::-webkit-slider-thumb {
-      width: 24px;
-      height: 24px;
-    }
-
-    .slider::-moz-range-thumb {
-      width: 24px;
-      height: 24px;
     }
 
     /* Larger select/combobox for touch */

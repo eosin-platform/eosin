@@ -18,6 +18,8 @@
 
   // Local state bound to settings
   let gamma = $state($settings.image.gamma);
+  let brightness = $state($settings.image.brightness);
+  let contrast = $state($settings.image.contrast);
   let measurementUnits = $state<MeasurementUnit>($settings.measurements.units);
   let zoomSensitivity = $state<SensitivityLevel>($settings.navigation.zoomSensitivity);
   let panSensitivity = $state<SensitivityLevel>($settings.navigation.panSensitivity);
@@ -29,6 +31,8 @@
   // Keep local state in sync with store
   $effect(() => {
     gamma = $settings.image.gamma;
+    brightness = $settings.image.brightness;
+    contrast = $settings.image.contrast;
     measurementUnits = $settings.measurements.units;
     zoomSensitivity = $settings.navigation.zoomSensitivity;
     panSensitivity = $settings.navigation.panSensitivity;
@@ -87,6 +91,42 @@
   function resetGamma() {
     gamma = 1.0;
     settings.setSetting('image', 'gamma', gamma);
+  }
+
+  // Debounce for brightness slider
+  let brightnessTimeout: ReturnType<typeof setTimeout> | null = null;
+
+  function handleBrightnessChange(e: Event) {
+    const target = e.target as HTMLInputElement;
+    brightness = parseFloat(target.value);
+    
+    if (brightnessTimeout) clearTimeout(brightnessTimeout);
+    brightnessTimeout = setTimeout(() => {
+      settings.setSetting('image', 'brightness', brightness);
+    }, 50);
+  }
+
+  function resetBrightness() {
+    brightness = 0;
+    settings.setSetting('image', 'brightness', brightness);
+  }
+
+  // Debounce for contrast slider
+  let contrastTimeout: ReturnType<typeof setTimeout> | null = null;
+
+  function handleContrastChange(e: Event) {
+    const target = e.target as HTMLInputElement;
+    contrast = parseFloat(target.value);
+    
+    if (contrastTimeout) clearTimeout(contrastTimeout);
+    contrastTimeout = setTimeout(() => {
+      settings.setSetting('image', 'contrast', contrast);
+    }, 50);
+  }
+
+  function resetContrast() {
+    contrast = 0;
+    settings.setSetting('image', 'contrast', contrast);
   }
 
   function resetToDefaults() {
@@ -226,25 +266,6 @@
   </div>
   
   <div class="menu-content">
-  <!-- Gamma slider -->
-  <div class="menu-section">
-    <span class="menu-label" id="gamma-label">Gamma</span>
-    <div class="slider-row">
-      <input
-        type="range"
-        min="0.1"
-        max="3.0"
-        step="0.1"
-        value={gamma}
-        oninput={handleGammaChange}
-        ondblclick={resetGamma}
-        class="slider"
-        aria-labelledby="gamma-label"
-      />
-      <span class="slider-value">{gamma.toFixed(1)}</span>
-    </div>
-  </div>
-
   <!-- Sharpening slider (0 = disabled) -->
   <div class="menu-section">
     <span class="menu-label" id="sharpening-label">Sharpness</span>
@@ -294,6 +315,63 @@
           {opt.label}
         </button>
       {/each}
+    </div>
+  </div>
+
+  <!-- Gamma slider -->
+  <div class="menu-section">
+    <span class="menu-label" id="gamma-label">Gamma</span>
+    <div class="slider-row">
+      <input
+        type="range"
+        min="0.1"
+        max="3.0"
+        step="0.1"
+        value={gamma}
+        oninput={handleGammaChange}
+        ondblclick={resetGamma}
+        class="slider"
+        aria-labelledby="gamma-label"
+      />
+      <span class="slider-value">{gamma.toFixed(1)}</span>
+    </div>
+  </div>
+
+  <!-- Brightness slider -->
+  <div class="menu-section">
+    <span class="menu-label" id="brightness-label">Brightness</span>
+    <div class="slider-row">
+      <input
+        type="range"
+        min="-100"
+        max="100"
+        step="1"
+        value={brightness}
+        oninput={handleBrightnessChange}
+        ondblclick={resetBrightness}
+        class="slider"
+        aria-labelledby="brightness-label"
+      />
+      <span class="slider-value">{brightness}</span>
+    </div>
+  </div>
+
+  <!-- Contrast slider -->
+  <div class="menu-section">
+    <span class="menu-label" id="contrast-label">Contrast</span>
+    <div class="slider-row">
+      <input
+        type="range"
+        min="-100"
+        max="100"
+        step="1"
+        value={contrast}
+        oninput={handleContrastChange}
+        ondblclick={resetContrast}
+        class="slider"
+        aria-labelledby="contrast-label"
+      />
+      <span class="slider-value">{contrast}</span>
     </div>
   </div>
 
