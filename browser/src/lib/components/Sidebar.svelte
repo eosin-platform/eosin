@@ -1073,9 +1073,8 @@
 
     /* Larger slide items for easier tapping */
     .slide-item {
-      padding: 0.625rem 0.75rem;
-      gap: 0.375rem;
-      min-height: 56px;
+      padding: 0.75rem;
+      gap: 0;
     }
 
     .slide-name {
