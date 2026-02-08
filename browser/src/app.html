@@ -2,10 +2,52 @@
 <html lang="en">
 	<head>
 		<meta charset="utf-8" />
-		<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
+		<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no, interactive-widget=resizes-content" />
+		
+		<!-- PWA Meta Tags -->
+		<link rel="manifest" href="/manifest.json" />
+		<meta name="theme-color" content="#000000" />
+		
+		<!-- Apple PWA Meta Tags -->
+		<meta name="apple-mobile-web-app-capable" content="yes" />
+		<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+		<meta name="apple-mobile-web-app-title" content="Eosin" />
+		<link rel="apple-touch-icon" sizes="180x180" href="/logo_180.png" />
+		
+		<!-- Prevent iOS text size adjustment -->
+		<meta name="format-detection" content="telephone=no" />
+		
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-data="hover">
 		<div style="display: contents">%sveltekit.body%</div>
+		
+		<!-- Service Worker Registration -->
+		<script>
+			if ('serviceWorker' in navigator) {
+				window.addEventListener('load', () => {
+					navigator.serviceWorker.register('/sw.js')
+						.then((registration) => {
+							console.log('[PWA] Service worker registered:', registration.scope);
+							
+							// Check for updates
+							registration.addEventListener('updatefound', () => {
+								const newWorker = registration.installing;
+								if (newWorker) {
+									newWorker.addEventListener('statechange', () => {
+										if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+											// New content is available, skip waiting
+											newWorker.postMessage({ type: 'SKIP_WAITING' });
+										}
+									});
+								}
+							});
+						})
+						.catch((error) => {
+							console.error('[PWA] Service worker registration failed:', error);
+						});
+				});
+			}
+		</script>
 	</body>
 </html>

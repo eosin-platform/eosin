@@ -1,0 +1,25 @@
+{
+  "name": "Eosin",
+  "short_name": "Eosin",
+  "description": "Eosin slide viewer",
+  "theme_color": "#000000",
+  "background_color": "#000000",
+  "display": "standalone",
+  "orientation": "any",
+  "scope": "/",
+  "start_url": "/",
+  "icons": [
+    {
+      "src": "/logo_180.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/logo_full.png",
+      "sizes": "264x264",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
