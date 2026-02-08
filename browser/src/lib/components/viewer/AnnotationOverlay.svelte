@@ -24,12 +24,13 @@
     modifyRadii?: { rx: number; ry: number } | null;
     modifyMousePos?: { x: number; y: number } | null;
     modifyAngleOffset?: number;
+    modifyRotation?: number;
   }
 
   let { 
     viewportX, viewportY, viewportZoom, containerWidth, containerHeight, 
     onAnnotationClick, onAnnotationRightClick,
-    modifyPhase = 'idle', modifyAnnotationId = null, modifyCenter = null, modifyRadii = null, modifyMousePos = null, modifyAngleOffset = 0
+    modifyPhase = 'idle', modifyAnnotationId = null, modifyCenter = null, modifyRadii = null, modifyMousePos = null, modifyAngleOffset = 0, modifyRotation = 0
   }: Props = $props();
 
   // Settings: global annotation visibility
@@ -373,11 +374,34 @@
       {#if modifyPhase === 'ellipse-center'}
         <!-- Show crosshair at mouse position for center selection -->
         {@const screen = imageToScreen(modifyMousePos.x, modifyMousePos.y)}
-        <g class="preview-center">
-          <circle cx={screen.x} cy={screen.y} r="6" fill={previewColor} fill-opacity="0.5" stroke={previewColor} stroke-width="2"/>
-          <line x1={screen.x - 12} y1={screen.y} x2={screen.x + 12} y2={screen.y} stroke={previewColor} stroke-width="1"/>
-          <line x1={screen.x} y1={screen.y - 12} x2={screen.x} y2={screen.y + 12} stroke={previewColor} stroke-width="1"/>
-        </g>
+        {#if modifyRadii}
+          <!-- If radii already exist, show full ellipse preview centered on mouse -->
+          {@const rx = getScreenRadius(modifyRadii.rx)}
+          {@const ry = getScreenRadius(modifyRadii.ry)}
+          {@const angleDeg = modifyRotation * (180 / Math.PI)}
+          <g class="preview-ellipse-repositioning">
+            <ellipse 
+              cx={screen.x} 
+              cy={screen.y} 
+              rx={rx}
+              ry={ry}
+              transform="rotate({angleDeg} {screen.x} {screen.y})"
+              fill={previewColor}
+              fill-opacity="0.15"
+              stroke={previewColor}
+              stroke-width="2"
+              stroke-dasharray="6 3"
+            />
+            <circle cx={screen.x} cy={screen.y} r="4" fill={previewColor} stroke="white" stroke-width="1"/>
+          </g>
+        {:else}
+          <!-- No radii yet, just show crosshair -->
+          <g class="preview-center">
+            <circle cx={screen.x} cy={screen.y} r="6" fill={previewColor} fill-opacity="0.5" stroke={previewColor} stroke-width="2"/>
+            <line x1={screen.x - 12} y1={screen.y} x2={screen.x + 12} y2={screen.y} stroke={previewColor} stroke-width="1"/>
+            <line x1={screen.x} y1={screen.y - 12} x2={screen.x} y2={screen.y + 12} stroke={previewColor} stroke-width="1"/>
+          </g>
+        {/if}
       {:else if modifyPhase === 'ellipse-radii' && modifyCenter}
         <!-- Show ellipse preview with horizontal/vertical mouse offset for rx/ry -->
         {@const centerScreen = imageToScreen(modifyCenter.x, modifyCenter.y)}
@@ -385,12 +409,16 @@
         {@const ryImage = Math.abs(modifyMousePos.y - modifyCenter.y)}
         {@const rx = getScreenRadius(Math.max(rxImage, 1))}
         {@const ry = getScreenRadius(Math.max(ryImage, 1))}
+        {@const angleDeg = modifyRotation * (180 / Math.PI)}
+        {@const cosA = Math.cos(modifyRotation)}
+        {@const sinA = Math.sin(modifyRotation)}
         <g class="preview-ellipse">
           <ellipse 
             cx={centerScreen.x} 
             cy={centerScreen.y} 
             rx={rx}
             ry={ry}
+            transform="rotate({angleDeg} {centerScreen.x} {centerScreen.y})"
             fill={previewColor}
             fill-opacity="0.15"
             stroke={previewColor}
@@ -398,9 +426,9 @@
             stroke-dasharray="6 3"
           />
           <circle cx={centerScreen.x} cy={centerScreen.y} r="4" fill={previewColor} stroke="white" stroke-width="1"/>
-          <!-- Show rx and ry guidelines -->
-          <line x1={centerScreen.x} y1={centerScreen.y} x2={centerScreen.x + rx} y2={centerScreen.y} stroke={previewColor} stroke-width="1" stroke-dasharray="3 2"/>
-          <line x1={centerScreen.x} y1={centerScreen.y} x2={centerScreen.x} y2={centerScreen.y + ry} stroke={previewColor} stroke-width="1" stroke-dasharray="3 2"/>
+          <!-- Show rx and ry guidelines (rotated) -->
+          <line x1={centerScreen.x} y1={centerScreen.y} x2={centerScreen.x + rx * cosA} y2={centerScreen.y + rx * sinA} stroke={previewColor} stroke-width="1" stroke-dasharray="3 2"/>
+          <line x1={centerScreen.x} y1={centerScreen.y} x2={centerScreen.x - ry * sinA} y2={centerScreen.y + ry * cosA} stroke={previewColor} stroke-width="1" stroke-dasharray="3 2"/>
         </g>
       {:else if modifyPhase === 'ellipse-angle' && modifyCenter && modifyRadii}
         <!-- Show ellipse preview with rotation based on mouse angle -->

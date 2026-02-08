@@ -141,6 +141,7 @@
     tempCenter?: { x: number; y: number };
     tempRadii?: { rx: number; ry: number };
     tempAngleOffset?: number; // Initial angle when entering ellipse-angle phase (to avoid jank)
+    tempRotation?: number; // Stored rotation value (used when going back to center/radii phases)
   }>({ phase: 'idle', annotation: null, isCreating: false });
 
   // Mouse position in image coordinates during modify mode
@@ -242,7 +243,7 @@
     if (e.key === 'n' || e.key === 'N') {
       cycleNormalization();
     }
-    if (e.key === 'e' || e.key === 'E') {
+    if (e.key === 'm' || e.key === 'M') {
       cycleEnhancement();
     }
     if (e.key === 'h' || e.key === 'H') {
@@ -314,6 +315,95 @@
         const count = modifyMode.pointsCreated || 0;
         cancelModifyMode();
         showHudNotification(count > 0 ? `Created ${count} point${count === 1 ? '' : 's'}` : 'No points created');
+      }
+    }
+    // Q/W/E keys switch ellipse modification phases
+    if (e.key === 'q' || e.key === 'Q') {
+      // Switch to center/position phase
+      if (modifyMode.phase === 'ellipse-radii' || modifyMode.phase === 'ellipse-angle') {
+        // If in angle phase, capture current rotation before switching
+        let currentRotation = modifyMode.tempRotation;
+        if (modifyMode.phase === 'ellipse-angle' && modifyMouseImagePos && modifyMode.tempCenter) {
+          const rawAngle = Math.atan2(modifyMouseImagePos.y - modifyMode.tempCenter.y, modifyMouseImagePos.x - modifyMode.tempCenter.x);
+          currentRotation = rawAngle - (modifyMode.tempAngleOffset ?? 0);
+        }
+        modifyMode = {
+          ...modifyMode,
+          phase: 'ellipse-center',
+          tempRotation: currentRotation,
+        };
+        showHudNotification('Adjusting position (W=size, E=rotation)');
+      } else if (modifyMode.phase === 'ellipse-center') {
+        showHudNotification('Already adjusting position');
+      }
+    }
+    if (e.key === 'w' || e.key === 'W') {
+      // Switch to radii/size phase
+      if (modifyMode.phase === 'ellipse-center' && modifyMode.tempCenter) {
+        modifyMode = {
+          ...modifyMode,
+          phase: 'ellipse-radii',
+        };
+        showHudNotification('Adjusting size (Q=position, E=rotation)');
+      } else if (modifyMode.phase === 'ellipse-angle' && modifyMode.tempCenter && modifyMouseImagePos) {
+        // Capture current rotation before switching to radii
+        const rawAngle = Math.atan2(modifyMouseImagePos.y - modifyMode.tempCenter.y, modifyMouseImagePos.x - modifyMode.tempCenter.x);
+        const currentRotation = rawAngle - (modifyMode.tempAngleOffset ?? 0);
+        modifyMode = {
+          ...modifyMode,
+          phase: 'ellipse-radii',
+          tempRotation: currentRotation,
+        };
+        showHudNotification('Adjusting size (Q=position, E=rotation)');
+      } else if (modifyMode.phase === 'ellipse-radii') {
+        showHudNotification('Already adjusting size');
+      }
+    }
+    if (e.key === 'e' || e.key === 'E') {
+      // Switch to angle/rotation phase
+      if (modifyMode.phase === 'ellipse-center' && modifyMode.tempCenter) {
+        // Need radii before rotation - use existing or current mouse position for radii
+        if (modifyMode.tempRadii) {
+          // Already have radii, just switch to angle phase
+          if (modifyMouseImagePos) {
+            // Compute offset so that current rotation is preserved
+            const rawAngle = Math.atan2(modifyMouseImagePos.y - modifyMode.tempCenter.y, modifyMouseImagePos.x - modifyMode.tempCenter.x);
+            const desiredRotation = modifyMode.tempRotation ?? 0;
+            modifyMode = {
+              ...modifyMode,
+              phase: 'ellipse-angle',
+              tempAngleOffset: rawAngle - desiredRotation,
+            };
+            showHudNotification('Adjusting rotation (Q=position, W=size)');
+          }
+        } else if (modifyMouseImagePos) {
+          const rx = Math.abs(modifyMouseImagePos.x - modifyMode.tempCenter.x);
+          const ry = Math.abs(modifyMouseImagePos.y - modifyMode.tempCenter.y);
+          const initialAngle = Math.atan2(modifyMouseImagePos.y - modifyMode.tempCenter.y, modifyMouseImagePos.x - modifyMode.tempCenter.x);
+          modifyMode = {
+            ...modifyMode,
+            phase: 'ellipse-angle',
+            tempRadii: { rx: Math.max(rx, 1), ry: Math.max(ry, 1) },
+            tempAngleOffset: initialAngle,
+          };
+          showHudNotification('Adjusting rotation (Q=position, W=size)');
+        }
+      } else if (modifyMode.phase === 'ellipse-radii' && modifyMode.tempCenter && modifyMouseImagePos) {
+        // Capture current radii from mouse position and switch to angle
+        const rx = Math.abs(modifyMouseImagePos.x - modifyMode.tempCenter.x);
+        const ry = Math.abs(modifyMouseImagePos.y - modifyMode.tempCenter.y);
+        // Compute angle offset to preserve existing rotation if any
+        const rawAngle = Math.atan2(modifyMouseImagePos.y - modifyMode.tempCenter.y, modifyMouseImagePos.x - modifyMode.tempCenter.x);
+        const desiredRotation = modifyMode.tempRotation ?? 0;
+        modifyMode = {
+          ...modifyMode,
+          phase: 'ellipse-angle',
+          tempRadii: { rx: Math.max(rx, 1), ry: Math.max(ry, 1) },
+          tempAngleOffset: rawAngle - desiredRotation,
+        };
+        showHudNotification('Adjusting rotation (Q=position, W=size)');
+      } else if (modifyMode.phase === 'ellipse-angle') {
+        showHudNotification('Already adjusting rotation');
       }
     }
     // Escape closes help and cancels measurement and modify mode
@@ -1155,21 +1245,40 @@
       }
       // Stay in multi-point mode, don't call cancelModifyMode()
     } else if (modifyMode.phase === 'ellipse-center') {
-      // Store center and move to radii phase
-      modifyMode = {
-        phase: 'ellipse-radii',
-        annotation,
-        isCreating: modifyMode.isCreating,
-        tempCenter: { x: imagePos.x, y: imagePos.y },
-      };
-      showHudNotification('Move mouse to set width & height, then click');
+      // Store center and move to next phase
+      // If we already have radii (user went back to adjust), go to radii phase preserving existing values
+      // If we already have angle too, go straight to angle phase
+      if (modifyMode.tempRadii && modifyMode.tempAngleOffset !== undefined) {
+        modifyMode = {
+          ...modifyMode,
+          phase: 'ellipse-angle',
+          tempCenter: { x: imagePos.x, y: imagePos.y },
+        };
+        showHudNotification('Adjust rotation, then click to confirm');
+      } else if (modifyMode.tempRadii) {
+        modifyMode = {
+          ...modifyMode,
+          phase: 'ellipse-radii',
+          tempCenter: { x: imagePos.x, y: imagePos.y },
+        };
+        showHudNotification('Adjust size, then click (W=size, E=rotation)');
+      } else {
+        modifyMode = {
+          phase: 'ellipse-radii',
+          annotation,
+          isCreating: modifyMode.isCreating,
+          tempCenter: { x: imagePos.x, y: imagePos.y },
+        };
+        showHudNotification('Move mouse to set width & height, then click');
+      }
     } else if (modifyMode.phase === 'ellipse-radii') {
       // Store radii based on mouse offset from center
       const center = modifyMode.tempCenter!;
       const rx = Math.abs(imagePos.x - center.x);
       const ry = Math.abs(imagePos.y - center.y);
-      // Store initial angle to use as offset (so rotation starts at 0, not mouse position)
-      const initialAngle = Math.atan2(imagePos.y - center.y, imagePos.x - center.x);
+      // If we already have an angle offset (user went back to adjust size), preserve it
+      // Otherwise, create a new one based on current mouse position
+      const initialAngle = modifyMode.tempAngleOffset ?? Math.atan2(imagePos.y - center.y, imagePos.x - center.x);
       modifyMode = {
         phase: 'ellipse-angle',
         annotation,
@@ -1380,6 +1489,7 @@
       modifyRadii={modifyMode.tempRadii ?? null}
       modifyMousePos={modifyMouseImagePos}
       modifyAngleOffset={modifyMode.tempAngleOffset ?? 0}
+      modifyRotation={modifyMode.tempRotation ?? 0}
     />
     
     <!-- Viewer HUD overlay (top-left) -->
