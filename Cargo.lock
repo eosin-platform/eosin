@@ -1765,9 +1765,13 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
+ "axum-keycloak-auth",
+ "base64",
+ "chrono",
  "clap",
  "deadpool-postgres",
  "eosin-common",
+ "keycloak",
  "postgres",
  "postgres-types",
  "reqwest",

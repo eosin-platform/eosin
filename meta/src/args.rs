@@ -41,6 +41,9 @@ pub struct ServerArgs {
 
     #[clap(flatten)]
     pub postgres: PostgresArgs,
+
+    #[clap(flatten)]
+    pub kc: KeycloakArgs,
 }
 
 #[derive(Parser, Debug, Clone)]

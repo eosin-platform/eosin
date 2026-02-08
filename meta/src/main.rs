@@ -1,7 +1,11 @@
 use anyhow::Result;
 use clap::Parser;
 
+mod annotation_db;
+mod annotation_handlers;
+mod annotation_models;
 mod args;
+mod bitmask;
 mod cli;
 mod client;
 mod db;

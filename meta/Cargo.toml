@@ -29,3 +29,7 @@ tower-http = { workspace = true }
 reqwest = { workspace = true }
 tracing = "0.1"
 tracing-subscriber = "0.3"
+chrono = { version = "0.4", features = ["serde"] }
+base64 = "0.22"
+keycloak = { workspace = true }
+axum-keycloak-auth = { workspace = true }
