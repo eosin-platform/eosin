@@ -5,6 +5,7 @@
 	import type { Snippet } from 'svelte';
 	import { onMount } from 'svelte';
 	import { browser } from '$app/environment';
+	import { authStore, type UserCredentials } from '$lib/stores/auth';
 
 	interface SlideListItem {
 		id: string;
@@ -27,9 +28,20 @@
 		hasMore: boolean;
 		pageSize: number;
 		error: string | null;
+		auth: {
+			user: UserCredentials;
+			refreshExpiry: number | null;
+		} | null;
 	}
 
 	let { children, data }: { children: Snippet; data: LayoutData } = $props();
+
+	// Initialize auth store from SSR data on mount
+	onMount(() => {
+		if (data.auth) {
+			authStore.initialize(data.auth.user, data.auth.refreshExpiry);
+		}
+	});
 
 	// Breakpoint for mobile/tablet
 	const MOBILE_BREAKPOINT = 768;

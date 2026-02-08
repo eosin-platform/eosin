@@ -1,7 +1,10 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { settingsModalOpen, helpMenuOpen } from '$lib/stores/settings';
+  import { authStore, loginModalOpen } from '$lib/stores/auth';
+  import { logout } from '$lib/auth/client';
   import SettingsModal from '$lib/components/settings/SettingsModal.svelte';
+  import LoginModal from '$lib/components/LoginModal.svelte';
 
   interface Props {
     /** Show menu button (for mobile) */
@@ -34,6 +37,14 @@
   function closeHelp() {
     helpMenuOpen.set(false);
   }
+
+  function openLogin() {
+    loginModalOpen.set(true);
+  }
+
+  function handleLogout() {
+    logout();
+  }
 </script>
 
 <header class="app-header">
@@ -51,6 +62,35 @@
   </div>
 
   <div class="header-right">
+    <!-- Login/Logout button -->
+    {#if $authStore.user}
+      <button 
+        class="auth-btn logout-btn" 
+        onclick={handleLogout} 
+        title="Logout" 
+        aria-label="Logout"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="icon">
+          <path fill-rule="evenodd" d="M3 4.25A2.25 2.25 0 015.25 2h5.5A2.25 2.25 0 0113 4.25v2a.75.75 0 01-1.5 0v-2a.75.75 0 00-.75-.75h-5.5a.75.75 0 00-.75.75v11.5c0 .414.336.75.75.75h5.5a.75.75 0 00.75-.75v-2a.75.75 0 011.5 0v2A2.25 2.25 0 0110.75 18h-5.5A2.25 2.25 0 013 15.75V4.25z" clip-rule="evenodd" />
+          <path fill-rule="evenodd" d="M19 10a.75.75 0 00-.75-.75H8.704l1.048-.943a.75.75 0 10-1.004-1.114l-2.5 2.25a.75.75 0 000 1.114l2.5 2.25a.75.75 0 101.004-1.114l-1.048-.943h9.546A.75.75 0 0019 10z" clip-rule="evenodd" />
+        </svg>
+        <span class="auth-label">LOGOUT</span>
+      </button>
+    {:else}
+      <button 
+        class="auth-btn login-btn" 
+        onclick={openLogin} 
+        title="Login" 
+        aria-label="Login"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="icon">
+          <path fill-rule="evenodd" d="M3 4.25A2.25 2.25 0 015.25 2h5.5A2.25 2.25 0 0113 4.25v2a.75.75 0 01-1.5 0v-2a.75.75 0 00-.75-.75h-5.5a.75.75 0 00-.75.75v11.5c0 .414.336.75.75.75h5.5a.75.75 0 00.75-.75v-2a.75.75 0 011.5 0v2A2.25 2.25 0 0110.75 18h-5.5A2.25 2.25 0 013 15.75V4.25z" clip-rule="evenodd" />
+          <path fill-rule="evenodd" d="M6 10a.75.75 0 01.75-.75h9.546l-1.048-.943a.75.75 0 111.004-1.114l2.5 2.25a.75.75 0 010 1.114l-2.5 2.25a.75.75 0 11-1.004-1.114l1.048-.943H6.75A.75.75 0 016 10z" clip-rule="evenodd" />
+        </svg>
+        <span class="auth-label">LOGIN</span>
+      </button>
+    {/if}
+
     <!-- Help button -->
     <button 
       class="help-btn" 
@@ -156,6 +196,8 @@
   <SettingsModal />
 {/if}
 
+<LoginModal />
+
 <style>
   .app-header {
     display: flex;
@@ -184,6 +226,63 @@
     display: flex;
     align-items: center;
     gap: 0.5rem;
+  }
+
+  /* Auth buttons (Login/Logout) */
+  .auth-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 36px;
+    padding: 0 12px;
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #9ca3af;
+    cursor: pointer;
+    border-radius: 0.5rem;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    transition: background-color 0.15s, color 0.15s, border-color 0.15s;
+  }
+
+  .auth-btn .icon {
+    width: 16px;
+    height: 16px;
+  }
+
+  .auth-btn:hover {
+    background: #333;
+    color: #fff;
+    border-color: rgba(255, 255, 255, 0.3);
+  }
+
+  .login-btn:hover {
+    background: rgba(59, 130, 246, 0.2);
+    border-color: #3b82f6;
+    color: #60a5fa;
+  }
+
+  .logout-btn:hover {
+    background: rgba(239, 68, 68, 0.2);
+    border-color: #ef4444;
+    color: #fca5a5;
+  }
+
+  .auth-label {
+    display: block;
+  }
+
+  /* Hide label on small screens */
+  @media (max-width: 500px) {
+    .auth-label {
+      display: none;
+    }
+    .auth-btn {
+      padding: 0;
+      width: 36px;
+    }
   }
 
   .menu-btn,

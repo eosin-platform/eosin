@@ -1,4 +1,11 @@
 import { env } from '$env/dynamic/private';
+import { serverRefreshToken } from '$lib/auth/server';
+import type { UserCredentials } from '$lib/stores/auth';
+
+const AUTH_COOKIE_NAME = 'eosin_refresh_token';
+const AUTH_EXPIRY_COOKIE_NAME = 'eosin_refresh_expiry';
+/** Default refresh token expiry: 30 days (in seconds) */
+const DEFAULT_REFRESH_EXPIRY_SECONDS = 30 * 24 * 60 * 60;
 
 export interface SlideListItem {
   id: string;
@@ -24,7 +31,66 @@ export interface SlidesResponse {
 
 const PAGE_SIZE = 50;
 
-export const load = async () => {
+export const load = async ({ cookies, request, url }) => {
+  // Detect if we're behind HTTPS
+  const forwardedProto = request.headers.get('x-forwarded-proto');
+  const isSecure = forwardedProto === 'https' || url.protocol === 'https:';
+  
+  // Read auth cookies using SvelteKit's cookies API
+  const refreshToken = cookies.get(AUTH_COOKIE_NAME);
+  const refreshExpiryStr = cookies.get(AUTH_EXPIRY_COOKIE_NAME);
+  const refreshExpiry = refreshExpiryStr ? parseInt(refreshExpiryStr, 10) : null;
+
+  // List all cookies for debugging
+  const allCookies = cookies.getAll();
+  console.log('[SSR Auth] All cookies:', allCookies.map(c => ({ name: c.name, valueLen: c.value?.length })));
+  console.log('[SSR Auth] Request info:', { isSecure, forwardedProto, urlProtocol: url.protocol, host: url.host });
+
+  console.log('[SSR Auth] Checking cookies:', {
+    hasRefreshToken: !!refreshToken,
+    refreshTokenLength: refreshToken?.length,
+    refreshTokenPrefix: refreshToken?.substring(0, 20),
+    refreshExpiry,
+    refreshExpiryStr,
+    now: Date.now(),
+    isExpired: refreshExpiry ? Date.now() >= refreshExpiry : 'no expiry'
+  });
+
+  let userCredentials: UserCredentials | null = null;
+  let newRefreshExpiry: number | null = null;
+
+  // Only attempt refresh if we have a token and it hasn't expired
+  if (refreshToken && refreshExpiry && !isNaN(refreshExpiry) && Date.now() < refreshExpiry) {
+    console.log('[SSR Auth] Attempting token refresh...');
+    userCredentials = await serverRefreshToken(refreshToken);
+    console.log('[SSR Auth] Token refresh result:', userCredentials ? 'success' : 'failed');
+    
+    // Update cookies with the NEW refresh token from the refresh response
+    if (userCredentials?.jwt.refresh_token) {
+      // refresh_expires_in: 0 means offline token (never expires), use 30 days default
+      const expirySeconds = userCredentials.jwt.refresh_expires_in && userCredentials.jwt.refresh_expires_in > 0 
+        ? userCredentials.jwt.refresh_expires_in 
+        : DEFAULT_REFRESH_EXPIRY_SECONDS;
+      newRefreshExpiry = Date.now() + expirySeconds * 1000;
+      const expiryDate = new Date(newRefreshExpiry);
+      
+      cookies.set(AUTH_COOKIE_NAME, userCredentials.jwt.refresh_token, {
+        path: '/',
+        httpOnly: false,
+        sameSite: 'lax',
+        secure: isSecure,
+        expires: expiryDate
+      });
+      cookies.set(AUTH_EXPIRY_COOKIE_NAME, newRefreshExpiry.toString(), {
+        path: '/',
+        httpOnly: false,
+        sameSite: 'lax',
+        secure: isSecure,
+        expires: expiryDate
+      });
+    }
+  }
+
   const metaEndpoint = env.META_ENDPOINT;
   
   if (!metaEndpoint) {
@@ -34,7 +100,11 @@ export const load = async () => {
       totalCount: 0, 
       hasMore: false,
       pageSize: PAGE_SIZE,
-      error: 'Server configuration error' 
+      error: 'Server configuration error',
+      auth: userCredentials ? {
+        user: userCredentials,
+        refreshExpiry: newRefreshExpiry
+      } : null
     };
   }
 
@@ -48,7 +118,11 @@ export const load = async () => {
         totalCount: 0, 
         hasMore: false,
         pageSize: PAGE_SIZE,
-        error: 'Failed to fetch slides' 
+        error: 'Failed to fetch slides',
+        auth: userCredentials ? {
+          user: userCredentials,
+          refreshExpiry: newRefreshExpiry
+        } : null
       };
     }
 
@@ -59,7 +133,11 @@ export const load = async () => {
       totalCount: data.full_count,
       hasMore: data.offset + data.items.length < data.full_count,
       pageSize: PAGE_SIZE,
-      error: null 
+      error: null,
+      auth: userCredentials ? {
+        user: userCredentials,
+        refreshExpiry: newRefreshExpiry
+      } : null
     };
   } catch (err) {
     console.error('Failed to fetch slides from meta server:', err);
@@ -68,7 +146,11 @@ export const load = async () => {
       totalCount: 0, 
       hasMore: false,
       pageSize: PAGE_SIZE,
-      error: 'Failed to connect to metadata server' 
+      error: 'Failed to connect to metadata server',
+      auth: userCredentials ? {
+        user: userCredentials,
+        refreshExpiry: newRefreshExpiry
+      } : null
     };
   }
 };

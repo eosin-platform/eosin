@@ -55,10 +55,29 @@ const TOKEN_REFRESH_BUFFER_MS = 30_000;
 // Helpers
 // ============================================================================
 
+function isSecureContext(): boolean {
+	if (!browser) return false;
+	return window.location.protocol === 'https:';
+}
+
 function setCookie(name: string, value: string, expiryMs: number): void {
 	if (!browser) return;
 	const expires = new Date(expiryMs).toUTCString();
-	document.cookie = `${name}=${encodeURIComponent(value)}; expires=${expires}; path=/; SameSite=Lax`;
+	const secure = isSecureContext();
+	let cookieStr = `${name}=${encodeURIComponent(value)}; expires=${expires}; path=/; SameSite=Lax`;
+	if (secure) {
+		cookieStr += '; Secure';
+	}
+	console.log('[Auth Cookie] Setting cookie:', { name, valueLen: value.length, expires, expiryMs, secure });
+	document.cookie = cookieStr;
+	
+	// Immediately verify it was set
+	const verifyMatch = document.cookie.match(new RegExp(`(^| )${name}=([^;]+)`));
+	if (verifyMatch) {
+		console.log('[Auth Cookie] Cookie verified, length:', decodeURIComponent(verifyMatch[2]).length);
+	} else {
+		console.error('[Auth Cookie] Cookie NOT found after setting! Full cookie string:', document.cookie.substring(0, 100));
+	}
 }
 
 function getCookie(name: string): string | null {
@@ -69,12 +88,26 @@ function getCookie(name: string): string | null {
 
 function deleteCookie(name: string): void {
 	if (!browser) return;
-	document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;`;
+	const secure = isSecureContext();
+	let cookieStr = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; SameSite=Lax`;
+	if (secure) {
+		cookieStr += '; Secure';
+	}
+	document.cookie = cookieStr;
 }
 
 function calculateExpiry(expiresInSeconds: number | undefined): number | null {
 	if (!expiresInSeconds) return null;
 	return Date.now() + expiresInSeconds * 1000;
+}
+
+/** Default refresh token expiry: 30 days */
+const DEFAULT_REFRESH_EXPIRY_SECONDS = 30 * 24 * 60 * 60;
+
+function calculateRefreshExpiry(expiresInSeconds: number | undefined): number {
+	// If no expiry provided OR is 0 (offline token), default to 30 days
+	const seconds = expiresInSeconds && expiresInSeconds > 0 ? expiresInSeconds : DEFAULT_REFRESH_EXPIRY_SECONDS;
+	return Date.now() + seconds * 1000;
 }
 
 // ============================================================================
@@ -96,11 +129,21 @@ function createAuthStore() {
 		subscribe,
 
 		/**
-		 * Initialize auth state from cookies (for client-side hydration)
+		 * Initialize auth state from SSR data (for client-side hydration).
+		 * Also updates cookies with the new refresh token from the server refresh.
 		 */
-		initialize(credentials: UserCredentials | null, refreshExpiry: number | null) {
+		initialize(credentials: UserCredentials | null, _refreshExpiry: number | null) {
 			if (credentials) {
 				const accessExpiry = calculateExpiry(credentials.jwt.expires_in);
+				// Use the new refresh token expiry from credentials, not the old cookie value
+				const refreshExpiry = calculateRefreshExpiry(credentials.jwt.refresh_expires_in);
+
+				// Update cookies with the NEW refresh token from server refresh
+				if (credentials.jwt.refresh_token) {
+					setCookie(AUTH_COOKIE_NAME, credentials.jwt.refresh_token, refreshExpiry);
+					setCookie(AUTH_EXPIRY_COOKIE_NAME, refreshExpiry.toString(), refreshExpiry);
+				}
+
 				update((state) => ({
 					...state,
 					user: credentials,
@@ -117,12 +160,24 @@ function createAuthStore() {
 		 */
 		setCredentials(credentials: UserCredentials) {
 			const accessExpiry = calculateExpiry(credentials.jwt.expires_in);
-			const refreshExpiry = calculateExpiry(credentials.jwt.refresh_expires_in);
+			const refreshExpiry = calculateRefreshExpiry(credentials.jwt.refresh_expires_in);
+
+			console.log('[Auth] setCredentials called:', {
+				hasRefreshToken: !!credentials.jwt.refresh_token,
+				refreshTokenLength: credentials.jwt.refresh_token?.length,
+				refreshExpiry,
+				expires_in: credentials.jwt.expires_in,
+				refresh_expires_in: credentials.jwt.refresh_expires_in
+			});
 
 			// Store refresh token in cookie for SSR
-			if (credentials.jwt.refresh_token && refreshExpiry) {
+			if (credentials.jwt.refresh_token) {
 				setCookie(AUTH_COOKIE_NAME, credentials.jwt.refresh_token, refreshExpiry);
 				setCookie(AUTH_EXPIRY_COOKIE_NAME, refreshExpiry.toString(), refreshExpiry);
+				console.log('[Auth] Cookies set. Verifying:', {
+					tokenCookie: getCookie(AUTH_COOKIE_NAME)?.length,
+					expiryCookie: getCookie(AUTH_EXPIRY_COOKIE_NAME)
+				});
 			}
 
 			update((state) => ({

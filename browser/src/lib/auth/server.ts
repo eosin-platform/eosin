@@ -52,9 +52,11 @@ export function getRefreshExpiryFromCookies(cookies: Record<string, string>): nu
 export async function serverRefreshToken(refreshToken: string): Promise<UserCredentials | null> {
 	const iamEndpoint = env.IAM_ENDPOINT;
 	if (!iamEndpoint) {
-		console.error('IAM_ENDPOINT environment variable is not set');
+		console.error('[SSR Auth] IAM_ENDPOINT environment variable is not set');
 		return null;
 	}
+
+	console.log('[SSR Auth] Refreshing token via:', `${iamEndpoint}/user/refresh`);
 
 	try {
 		const response = await fetch(`${iamEndpoint}/user/refresh`, {
@@ -66,14 +68,16 @@ export async function serverRefreshToken(refreshToken: string): Promise<UserCred
 		});
 
 		if (!response.ok) {
-			console.error(`Token refresh failed: ${response.status}`);
+			const text = await response.text();
+			console.error(`[SSR Auth] Token refresh failed: ${response.status} - ${text}`);
 			return null;
 		}
 
 		const credentials: UserCredentials = await response.json();
+		console.log('[SSR Auth] Token refresh succeeded for user:', credentials.username);
 		return credentials;
 	} catch (error) {
-		console.error('Failed to refresh token on server:', error);
+		console.error('[SSR Auth] Failed to refresh token on server:', error);
 		return null;
 	}
 }

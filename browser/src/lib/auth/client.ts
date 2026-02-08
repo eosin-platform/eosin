@@ -27,7 +27,8 @@ export async function login(request: LoginRequest): Promise<UserCredentials> {
 			headers: {
 				'Content-Type': 'application/json'
 			},
-			body: JSON.stringify(request)
+			body: JSON.stringify(request),
+			credentials: 'same-origin' // Ensure cookies are included in response
 		});
 
 		if (!response.ok) {
@@ -38,6 +39,10 @@ export async function login(request: LoginRequest): Promise<UserCredentials> {
 
 		const credentials: UserCredentials = await response.json();
 		authStore.setCredentials(credentials);
+		
+		// Debug: verify cookies were set
+		console.log('[Auth Client] After login, document.cookie:', document.cookie);
+		
 		return credentials;
 	} catch (error) {
 		const message = error instanceof Error ? error.message : 'Login failed';
