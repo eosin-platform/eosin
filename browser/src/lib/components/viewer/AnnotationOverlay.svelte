@@ -114,13 +114,16 @@
     // Clear the canvas
     ctx.clearRect(0, 0, containerWidth, containerHeight);
     
+    // Guard against invalid visible annotations
+    if (!Array.isArray(visibleAnnotations)) return;
+    
     // Get visible mask annotations
-    const masks = visibleAnnotations.filter(a => a.annotation.kind === 'mask_patch' && isInView(a.annotation));
+    const masks = visibleAnnotations.filter(a => a && a.annotation && a.annotation.kind === 'mask_patch' && isInView(a.annotation));
     
     // Render stored masks
     for (const { annotation, color } of masks) {
       const geo = annotation.geometry as MaskGeometry;
-      if (!geo.data_base64) continue;
+      if (!geo || !geo.data_base64) continue;
       
       const maskData = getCachedMaskData(annotation.id, geo.data_base64);
       if (!maskData) continue;
@@ -129,7 +132,7 @@
     }
     
     // Render painting preview tiles
-    if (modifyPhase === 'mask-paint' && maskAllTiles && maskAllTiles.length > 0) {
+    if (modifyPhase === 'mask-paint' && maskAllTiles && Array.isArray(maskAllTiles) && maskAllTiles.length > 0) {
       const previewColor = '#3b82f6';
       for (const tile of maskAllTiles) {
         if (!tile || !tile.origin || !tile.data) continue;
@@ -150,6 +153,9 @@
     opacity: number
   ) {
     if (!maskData || maskData.length === 0) return;
+    if (!Number.isFinite(x0) || !Number.isFinite(y0)) return;
+    if (!Number.isFinite(width) || !Number.isFinite(height)) return;
+    if (width <= 0 || height <= 0) return;
     
     // Parse color once
     const r = parseInt(colorHex.slice(1, 3), 16) || 0;
@@ -157,11 +163,11 @@
     const b = parseInt(colorHex.slice(5, 7), 16) || 0;
     ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${opacity})`;
     
-    // Determine effective mask dimensions
-    const effectiveWidth = maskData.length === 32768 ? 512 : Math.min(width, Math.floor(maskData.length * 8 / height));
+    // Determine effective mask dimensions - guard against division by zero
+    const effectiveWidth = maskData.length === 32768 ? 512 : Math.min(width, Math.floor(maskData.length * 8 / Math.max(height, 1)));
     const effectiveHeight = maskData.length === 32768 ? 512 : height;
     
-    if (effectiveWidth <= 0 || effectiveHeight <= 0) return;
+    if (effectiveWidth <= 0 || effectiveHeight <= 0 || !Number.isFinite(effectiveWidth) || !Number.isFinite(effectiveHeight)) return;
     
     // Calculate viewport bounds in mask coordinates  
     const viewLeft = viewportX;
@@ -232,16 +238,23 @@
     const result: Array<{ annotation: Annotation; setId: string; setName: string; color: string }> = [];
     
     // Get annotation sets for this specific slide
-    const annotationSets = annotationSetsBySlide.get(slideId) ?? [];
-    const annotationsBySet = annotationsBySlide.get(slideId) ?? new Map();
+    const annotationSets = annotationSetsBySlide.get(slideId);
+    if (!annotationSets || !Array.isArray(annotationSets)) return [];
+    
+    const annotationsBySet = annotationsBySlide.get(slideId);
+    if (!annotationsBySet) return [];
     
     for (const set of annotationSets) {
+      if (!set || !set.id) continue;
       if (!layerVisibility.get(set.id)) continue;
       
-      const annotations = annotationsBySet.get(set.id) ?? [];
+      const annotations = annotationsBySet.get(set.id);
+      if (!annotations || !Array.isArray(annotations)) continue;
+      
       const color = getLayerColor(set.id, slideId);
       
       for (const annotation of annotations) {
+        if (!annotation || !annotation.id) continue;
         result.push({ annotation, setId: set.id, setName: set.name, color });
       }
     }
@@ -363,7 +376,14 @@
   // Decode base64 mask data to Uint8Array
   function decodeMaskData(base64: string): Uint8Array | null {
     try {
+      if (!base64 || typeof base64 !== 'string' || base64.length === 0) {
+        return null;
+      }
       const binaryString = atob(base64);
+      if (binaryString.length === 0 || binaryString.length > 100000000) {
+        // Guard against empty or unreasonably large data
+        return null;
+      }
       const bytes = new Uint8Array(binaryString.length);
       for (let i = 0; i < binaryString.length; i++) {
         bytes[i] = binaryString.charCodeAt(i);
