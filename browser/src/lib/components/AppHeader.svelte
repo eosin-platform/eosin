@@ -756,16 +756,9 @@
     display: block;
   }
 
-  /* Hide label and logout button on small screens */
+  /* Hide auth buttons (login/logout) completely on small screens */
   @media (max-width: 600px) {
-    .auth-label {
-      display: none;
-    }
     .auth-btn {
-      padding: 0;
-      width: 36px;
-    }
-    .header-right .auth-btn.logout-btn {
       display: none !important;
     }
   }
