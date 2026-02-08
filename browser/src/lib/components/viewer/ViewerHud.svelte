@@ -1,8 +1,20 @@
 <script lang="ts">
   import { settings, type StainEnhancementMode } from '$lib/stores/settings';
-  import { fade } from 'svelte/transition';
   import { cubicInOut } from 'svelte/easing';
   import ViewerHudMoreMenu from './ViewerHudMoreMenu.svelte';
+
+  // Custom transition that animates opacity and backdrop-filter blur together
+  function menuFade(node: Element, { duration = 350, easing = cubicInOut }: { duration?: number; easing?: (t: number) => number } = {}) {
+    return {
+      duration,
+      easing,
+      css: (t: number) => `
+        opacity: ${t};
+        backdrop-filter: blur(${t * 12}px);
+        -webkit-backdrop-filter: blur(${t * 12}px);
+      `
+    };
+  }
 
   interface Props {
     /** Current zoom level (0-1 range typically, displayed as percentage) */
@@ -245,7 +257,7 @@
 
   <!-- More menu popover - rendered inside hud-container for proper positioning -->
   {#if moreMenuOpen}
-    <div transition:fade={{ duration: 350, easing: cubicInOut }}>
+    <div class="menu-wrapper" transition:menuFade={{ duration: 350 }}>
       <ViewerHudMoreMenu onClose={closeMoreMenu} />
     </div>
   {/if}
@@ -396,6 +408,32 @@
       font-size: 0.875rem;
       min-height: 44px;
       width: 5rem;
+    }
+  }
+
+  /* Menu wrapper for smooth backdrop-filter animation */
+  .menu-wrapper {
+    position: absolute;
+    top: calc(100% + 0.5rem);
+    left: 0;
+    min-width: 240px;
+    background: rgba(20, 20, 20, 0.75);
+    border-radius: 0.75rem;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    z-index: 40;
+    /* overflow: hidden is needed for border-radius to clip content, but scrolling is handled by .more-menu inside */
+  }
+
+  /* On mobile, the menu handles its own full-screen styling */
+  @media (max-width: 600px) {
+    .menu-wrapper {
+      position: static;
+      min-width: unset;
+      background: transparent;
+      border: none;
+      border-radius: 0;
+      box-shadow: none;
     }
   }
 </style>

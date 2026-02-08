@@ -470,18 +470,9 @@
   }
 
   .more-menu {
-    position: absolute;
-    top: calc(100% + 0.5rem);
-    left: 0;
-    min-width: 240px;
     overflow-y: auto;
-    background: rgba(20, 20, 20, 0.75);
-    backdrop-filter: blur(12px);
-    border-radius: 0.75rem;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
     padding: 0.5rem;
-    z-index: 40;
+    border-radius: 0.75rem;
 
     /* Custom scrollbar styling */
     scrollbar-width: thin;
