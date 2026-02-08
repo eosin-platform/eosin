@@ -588,6 +588,9 @@
         
         // Set hoveredMaskId for mask canvas rendering
         hoveredMaskId = annotation.id;
+      } else {
+        // Clear hoveredMaskId when selecting a non-mask annotation
+        hoveredMaskId = null;
       }
       
       e.stopPropagation();
