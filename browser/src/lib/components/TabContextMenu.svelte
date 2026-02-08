@@ -173,6 +173,7 @@
     padding: 4px 0;
     min-width: 200px;
     animation: fadeIn 0.1s ease-out;
+    user-select: none;
   }
 
   @keyframes fadeIn {
