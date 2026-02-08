@@ -22,9 +22,11 @@
     onClose: () => void;
     /** Callback after creating an annotation */
     onAnnotationCreated?: () => void;
+    /** Callback to start interactive ellipse creation at given center */
+    onStartEllipseCreation?: (centerX: number, centerY: number) => void;
   }
 
-  let { x, y, visible, imageX, imageY, onSaveImage, onCopyImage, onClose, onAnnotationCreated }: Props = $props();
+  let { x, y, visible, imageX, imageY, onSaveImage, onCopyImage, onClose, onAnnotationCreated, onStartEllipseCreation }: Props = $props();
 
   let menuEl = $state<HTMLDivElement>();
   let showAnnotationSubmenu = $state(false);
@@ -81,7 +83,14 @@
   async function handleCreateEllipse() {
     if (!canCreate || imageX === undefined || imageY === undefined) return;
     
-    // Default radius of 50 pixels at level 0
+    // Start interactive ellipse creation flow
+    if (onStartEllipseCreation) {
+      onStartEllipseCreation(imageX, imageY);
+      onClose();
+      return;
+    }
+    
+    // Fallback: create default ellipse if no interactive mode available
     const defaultRadius = 50;
     
     try {

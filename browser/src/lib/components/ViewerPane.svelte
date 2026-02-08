@@ -134,9 +134,13 @@
   let modifyMode = $state<{
     phase: ModifyPhase;
     annotation: Annotation | null;
+    isCreating: boolean;
     tempCenter?: { x: number; y: number };
     tempRadii?: { rx: number; ry: number };
-  }>({ phase: 'idle', annotation: null });
+  }>({ phase: 'idle', annotation: null, isCreating: false });
+
+  // Mouse position in image coordinates during modify mode
+  let modifyMouseImagePos = $state<{ x: number; y: number } | null>(null);
 
   // Long press state for mobile context menu
   let longPressTimer: ReturnType<typeof setTimeout> | null = null;
@@ -727,6 +731,11 @@
   }
 
   function handleMouseMove(e: MouseEvent) {
+    // Track mouse position for modify mode preview
+    if (modifyMode.phase !== 'idle') {
+      modifyMouseImagePos = screenToImage(e.clientX, e.clientY);
+    }
+
     // Handle measurement mode (both drag and toggle)
     if (measurement.active && measurement.startImage) {
       const imagePos = screenToImage(e.clientX, e.clientY);
@@ -955,26 +964,40 @@
   function handleAnnotationModify(annotation: Annotation) {
     // Start modification mode based on annotation kind
     if (annotation.kind === 'point') {
-      modifyMode = { phase: 'point-position', annotation };
+      modifyMode = { phase: 'point-position', annotation, isCreating: false };
       showHudNotification('Click to set new position');
     } else if (annotation.kind === 'ellipse') {
-      modifyMode = { phase: 'ellipse-center', annotation };
+      modifyMode = { phase: 'ellipse-center', annotation, isCreating: false };
       showHudNotification('Click to set center');
     }
   }
 
+  function handleStartEllipseCreation(centerX: number, centerY: number) {
+    // Start interactive ellipse creation with center already set
+    modifyMode = {
+      phase: 'ellipse-radii',
+      annotation: null,
+      isCreating: true,
+      tempCenter: { x: centerX, y: centerY },
+    };
+    showHudNotification('Move mouse to set width & height, then click');
+  }
+
   function cancelModifyMode() {
-    modifyMode = { phase: 'idle', annotation: null };
+    modifyMode = { phase: 'idle', annotation: null, isCreating: false };
+    modifyMouseImagePos = null;
   }
 
   async function handleModifyClick(e: MouseEvent) {
-    if (!modifyMode.annotation) return;
+    // For creation mode, annotation is null but we still proceed
+    if (!modifyMode.annotation && !modifyMode.isCreating) return;
     
     const imagePos = screenToImage(e.clientX, e.clientY);
     const annotation = modifyMode.annotation;
 
     if (modifyMode.phase === 'point-position') {
-      // Update point position
+      // Update point position (only for existing annotations)
+      if (!annotation) return;
       try {
         await annotationStore.updateAnnotation(annotation.id, {
           geometry: {
@@ -993,43 +1016,54 @@
       modifyMode = {
         phase: 'ellipse-radii',
         annotation,
+        isCreating: modifyMode.isCreating,
         tempCenter: { x: imagePos.x, y: imagePos.y },
       };
-      showHudNotification('Move mouse to set size, then click');
+      showHudNotification('Move mouse to set width & height, then click');
     } else if (modifyMode.phase === 'ellipse-radii') {
-      // Store radii and move to angle phase
+      // Store radii based on mouse offset from center
       const center = modifyMode.tempCenter!;
-      const dx = imagePos.x - center.x;
-      const dy = imagePos.y - center.y;
-      const distance = Math.sqrt(dx * dx + dy * dy);
+      const rx = Math.abs(imagePos.x - center.x);
+      const ry = Math.abs(imagePos.y - center.y);
       modifyMode = {
         phase: 'ellipse-angle',
         annotation,
+        isCreating: modifyMode.isCreating,
         tempCenter: center,
-        tempRadii: { rx: distance, ry: distance * 0.6 }, // Slightly elliptical by default
+        tempRadii: { rx: Math.max(rx, 10), ry: Math.max(ry, 10) }, // Minimum radius of 10
       };
       showHudNotification('Move mouse to set rotation, then click');
     } else if (modifyMode.phase === 'ellipse-angle') {
-      // Calculate final angle and update
+      // Calculate final angle and create/update
       const center = modifyMode.tempCenter!;
       const dx = imagePos.x - center.x;
       const dy = imagePos.y - center.y;
       const angle = Math.atan2(dy, dx);
       
+      const geometry = {
+        cx_level0: center.x,
+        cy_level0: center.y,
+        radius_x: modifyMode.tempRadii!.rx,
+        radius_y: modifyMode.tempRadii!.ry,
+        rotation_radians: angle,
+      };
+      
       try {
-        await annotationStore.updateAnnotation(annotation.id, {
-          geometry: {
-            cx_level0: center.x,
-            cy_level0: center.y,
-            radius_x: modifyMode.tempRadii!.rx,
-            radius_y: modifyMode.tempRadii!.ry,
-            rotation_radians: angle,
-          },
-        });
-        showHudNotification('Ellipse updated');
+        if (modifyMode.isCreating) {
+          // Creating new ellipse
+          await annotationStore.createAnnotation({
+            kind: 'ellipse',
+            geometry,
+          });
+          showHudNotification('Ellipse created');
+        } else {
+          // Updating existing ellipse
+          await annotationStore.updateAnnotation(annotation!.id, { geometry });
+          showHudNotification('Ellipse updated');
+        }
       } catch (err) {
-        console.error('Failed to update ellipse:', err);
-        showHudNotification('Failed to update ellipse');
+        console.error('Failed to save ellipse:', err);
+        showHudNotification('Failed to save ellipse');
       }
       cancelModifyMode();
     }
@@ -1189,6 +1223,11 @@
       containerWidth={viewport.width}
       containerHeight={viewport.height}
       onAnnotationRightClick={handleAnnotationRightClick}
+      modifyPhase={modifyMode.phase}
+      modifyAnnotationId={modifyMode.annotation?.id ?? null}
+      modifyCenter={modifyMode.tempCenter ?? null}
+      modifyRadii={modifyMode.tempRadii ?? null}
+      modifyMousePos={modifyMouseImagePos}
     />
     
     <!-- Viewer HUD overlay (top-left) -->
@@ -1282,6 +1321,7 @@
     onSaveImage={handleSaveImage}
     onCopyImage={handleCopyImage}
     onClose={handleContextMenuClose}
+    onStartEllipseCreation={handleStartEllipseCreation}
   />
 
   <!-- Annotation context menu (right-click on annotation) -->

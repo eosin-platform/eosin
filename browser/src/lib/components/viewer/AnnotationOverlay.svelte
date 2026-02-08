@@ -17,9 +17,19 @@
     onAnnotationClick?: (annotation: Annotation, screenX: number, screenY: number) => void;
     /** Callback when an annotation is right-clicked */
     onAnnotationRightClick?: (annotation: Annotation, screenX: number, screenY: number) => void;
+    /** Modification mode state */
+    modifyPhase?: 'idle' | 'point-position' | 'ellipse-center' | 'ellipse-radii' | 'ellipse-angle';
+    modifyAnnotationId?: string | null;
+    modifyCenter?: { x: number; y: number } | null;
+    modifyRadii?: { rx: number; ry: number } | null;
+    modifyMousePos?: { x: number; y: number } | null;
   }
 
-  let { viewportX, viewportY, viewportZoom, containerWidth, containerHeight, onAnnotationClick, onAnnotationRightClick }: Props = $props();
+  let { 
+    viewportX, viewportY, viewportZoom, containerWidth, containerHeight, 
+    onAnnotationClick, onAnnotationRightClick,
+    modifyPhase = 'idle', modifyAnnotationId = null, modifyCenter = null, modifyRadii = null, modifyMousePos = null
+  }: Props = $props();
 
   // Settings: global annotation visibility
   let globalVisible = $state(true);
@@ -371,6 +381,81 @@
         {/if}
       {/if}
     {/each}
+
+    <!-- Ellipse modification preview -->
+    {#if modifyMousePos && (modifyPhase === 'ellipse-center' || modifyPhase === 'ellipse-radii' || modifyPhase === 'ellipse-angle')}
+      {@const previewColor = '#ffcc00'}
+      
+      {#if modifyPhase === 'ellipse-center'}
+        <!-- Show crosshair at mouse position for center selection -->
+        {@const screen = imageToScreen(modifyMousePos.x, modifyMousePos.y)}
+        <g class="preview-center">
+          <circle cx={screen.x} cy={screen.y} r="6" fill={previewColor} fill-opacity="0.5" stroke={previewColor} stroke-width="2"/>
+          <line x1={screen.x - 12} y1={screen.y} x2={screen.x + 12} y2={screen.y} stroke={previewColor} stroke-width="1"/>
+          <line x1={screen.x} y1={screen.y - 12} x2={screen.x} y2={screen.y + 12} stroke={previewColor} stroke-width="1"/>
+        </g>
+      {:else if modifyPhase === 'ellipse-radii' && modifyCenter}
+        <!-- Show ellipse preview with horizontal/vertical mouse offset for rx/ry -->
+        {@const centerScreen = imageToScreen(modifyCenter.x, modifyCenter.y)}
+        {@const rxImage = Math.max(Math.abs(modifyMousePos.x - modifyCenter.x), 10)}
+        {@const ryImage = Math.max(Math.abs(modifyMousePos.y - modifyCenter.y), 10)}
+        {@const rx = getScreenRadius(rxImage)}
+        {@const ry = getScreenRadius(ryImage)}
+        <g class="preview-ellipse">
+          <ellipse 
+            cx={centerScreen.x} 
+            cy={centerScreen.y} 
+            rx={rx}
+            ry={ry}
+            fill={previewColor}
+            fill-opacity="0.15"
+            stroke={previewColor}
+            stroke-width="2"
+            stroke-dasharray="6 3"
+          />
+          <circle cx={centerScreen.x} cy={centerScreen.y} r="4" fill={previewColor} stroke="white" stroke-width="1"/>
+          <!-- Show rx and ry guidelines -->
+          <line x1={centerScreen.x} y1={centerScreen.y} x2={centerScreen.x + rx} y2={centerScreen.y} stroke={previewColor} stroke-width="1" stroke-dasharray="3 2"/>
+          <line x1={centerScreen.x} y1={centerScreen.y} x2={centerScreen.x} y2={centerScreen.y + ry} stroke={previewColor} stroke-width="1" stroke-dasharray="3 2"/>
+        </g>
+      {:else if modifyPhase === 'ellipse-angle' && modifyCenter && modifyRadii}
+        <!-- Show ellipse preview with rotation based on mouse angle -->
+        {@const centerScreen = imageToScreen(modifyCenter.x, modifyCenter.y)}
+        {@const dx = modifyMousePos.x - modifyCenter.x}
+        {@const dy = modifyMousePos.y - modifyCenter.y}
+        {@const angleRad = Math.atan2(dy, dx)}
+        {@const angleDeg = angleRad * (180 / Math.PI)}
+        {@const rx = getScreenRadius(modifyRadii.rx)}
+        {@const ry = getScreenRadius(modifyRadii.ry)}
+        {@const lineEndX = centerScreen.x + Math.cos(angleRad) * rx}
+        {@const lineEndY = centerScreen.y + Math.sin(angleRad) * rx}
+        <g class="preview-ellipse-rotated">
+          <ellipse 
+            cx={centerScreen.x} 
+            cy={centerScreen.y} 
+            rx={rx}
+            ry={ry}
+            transform="rotate({angleDeg} {centerScreen.x} {centerScreen.y})"
+            fill={previewColor}
+            fill-opacity="0.2"
+            stroke={previewColor}
+            stroke-width="2"
+          />
+          <circle cx={centerScreen.x} cy={centerScreen.y} r="4" fill={previewColor} stroke="white" stroke-width="1"/>
+          <!-- Rotation line indicator -->
+          <line x1={centerScreen.x} y1={centerScreen.y} x2={lineEndX} y2={lineEndY} stroke={previewColor} stroke-width="2"/>
+        </g>
+      {/if}
+    {/if}
+
+    <!-- Point modification preview -->
+    {#if modifyMousePos && modifyPhase === 'point-position'}
+      {@const screen = imageToScreen(modifyMousePos.x, modifyMousePos.y)}
+      {@const previewColor = '#ffcc00'}
+      <g class="preview-point">
+        <circle cx={screen.x} cy={screen.y} r={POINT_RADIUS} fill={previewColor} fill-opacity="0.7" stroke="white" stroke-width={POINT_STROKE_WIDTH}/>
+      </g>
+    {/if}
   </svg>
 {/if}
 
@@ -433,5 +518,23 @@
   .handle.radius-x,
   .handle.radius-y {
     cursor: ew-resize;
+  }
+
+  /* Preview styling for modification mode */
+  .preview-center,
+  .preview-point,
+  .preview-ellipse,
+  .preview-ellipse-rotated {
+    pointer-events: none;
+    animation: previewPulse 1s ease-in-out infinite;
+  }
+
+  @keyframes previewPulse {
+    0%, 100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.6;
+    }
   }
 </style>
