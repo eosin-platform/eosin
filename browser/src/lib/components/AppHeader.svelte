@@ -3,6 +3,7 @@
   import { settingsModalOpen, helpMenuOpen } from '$lib/stores/settings';
   import { authStore, loginModalOpen } from '$lib/stores/auth';
   import { logout } from '$lib/auth/client';
+  import { toolState, dispatchToolCommand, type ToolState } from '$lib/stores/tools';
   import SettingsModal from '$lib/components/settings/SettingsModal.svelte';
   import LoginModal from '$lib/components/LoginModal.svelte';
 
@@ -17,13 +18,20 @@
 
   // Help button pulse animation state (plays on mount for 1500ms)
   let helpButtonPulsing = $state(true);
+  
+  // Tool state from focused pane
+  let tools = $state<ToolState>({ annotationTool: null, measurementActive: false, measurementMode: null, canUndo: false, canRedo: false });
+  const unsubTools = toolState.subscribe(s => tools = s);
 
   onMount(() => {
     // Stop the pulse animation after 1500ms
     const timer = setTimeout(() => {
       helpButtonPulsing = false;
     }, 1500);
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      unsubTools();
+    };
   });
 
   function openSettings() {
@@ -45,6 +53,28 @@
   function handleLogout() {
     logout();
   }
+  
+  // Tool actions
+  function handleUndo() {
+    dispatchToolCommand({ type: 'undo' });
+  }
+  
+  function handleRedo() {
+    dispatchToolCommand({ type: 'redo' });
+  }
+  
+  function handleMeasure() {
+    dispatchToolCommand({ type: 'measure' });
+  }
+  
+  function handleAnnotationTool(tool: 'point' | 'ellipse' | 'polygon' | 'mask') {
+    // Toggle off if already active, otherwise activate
+    if (tools.annotationTool === tool) {
+      dispatchToolCommand({ type: 'annotation', tool: null });
+    } else {
+      dispatchToolCommand({ type: 'annotation', tool });
+    }
+  }
 </script>
 
 <header class="app-header">
@@ -58,7 +88,114 @@
         </svg>
       </button>
     {/if}
-    <span class="dim">(real-time analysis tools will go here soon)</span>
+    
+    <!-- Tool toolbar -->
+    <div class="tool-toolbar">
+      <!-- Undo/Redo group -->
+      <div class="tool-group">
+        <button 
+          class="tool-btn" 
+          class:disabled={!tools.canUndo}
+          onclick={handleUndo}
+          title="Undo (Ctrl+Z)"
+          aria-label="Undo"
+        >
+          <!-- Undo arrow icon -->
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 7v6h6"></path>
+            <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"></path>
+          </svg>
+        </button>
+        <button 
+          class="tool-btn"
+          class:disabled={!tools.canRedo}
+          onclick={handleRedo}
+          title="Redo (Ctrl+Y)"
+          aria-label="Redo"
+        >
+          <!-- Redo arrow icon -->
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 7v6h-6"></path>
+            <path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7"></path>
+          </svg>
+        </button>
+      </div>
+      
+      <div class="tool-separator"></div>
+      
+      <!-- Measurement tool -->
+      <button 
+        class="tool-btn"
+        class:active={tools.measurementActive}
+        onclick={handleMeasure}
+        title="Measure Distance (D)"
+        aria-label="Measure distance"
+      >
+        <!-- Ruler icon -->
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21.3 8.7 8.7 21.3c-1 1-2.5 1-3.4 0l-2.6-2.6c-1-1-1-2.5 0-3.4L15.3 2.7c1-1 2.5-1 3.4 0l2.6 2.6c1 1 1 2.5 0 3.4Z"></path>
+          <path d="m7.5 10.5 2 2"></path>
+          <path d="m10.5 7.5 2 2"></path>
+          <path d="m13.5 4.5 2 2"></path>
+          <path d="m4.5 13.5 2 2"></path>
+        </svg>
+      </button>
+      
+      <div class="tool-separator"></div>
+      
+      <!-- Annotation tools group -->
+      <div class="tool-group">
+        <button 
+          class="tool-btn"
+          class:active={tools.annotationTool === 'point'}
+          onclick={() => handleAnnotationTool('point')}
+          title="Point Annotation (1)"
+          aria-label="Point annotation"
+        >
+          <!-- Point/dot icon -->
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+            <circle cx="12" cy="12" r="4"></circle>
+          </svg>
+        </button>
+        <button 
+          class="tool-btn"
+          class:active={tools.annotationTool === 'ellipse'}
+          onclick={() => handleAnnotationTool('ellipse')}
+          title="Ellipse Annotation (2)"
+          aria-label="Ellipse annotation"
+        >
+          <!-- Ellipse/oval icon -->
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <ellipse cx="12" cy="12" rx="9" ry="6"></ellipse>
+          </svg>
+        </button>
+        <button 
+          class="tool-btn"
+          class:active={tools.annotationTool === 'polygon'}
+          onclick={() => handleAnnotationTool('polygon')}
+          title="Polygon Annotation (3)"
+          aria-label="Polygon annotation"
+        >
+          <!-- Pentagon/polygon icon -->
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round">
+            <polygon points="12 2 22 8.5 19 21 5 21 2 8.5"></polygon>
+          </svg>
+        </button>
+        <button 
+          class="tool-btn"
+          class:active={tools.annotationTool === 'mask'}
+          onclick={() => handleAnnotationTool('mask')}
+          title="Mask Painting (4)"
+          aria-label="Mask painting"
+        >
+          <!-- Paintbrush icon -->
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="m9.06 11.9 8.07-8.06a2.85 2.85 0 1 1 4.03 4.03l-8.06 8.08"></path>
+            <path d="M7.07 14.94c-1.66 0-3 1.35-3 3.02 0 1.33-2.5 1.52-2 2.02 1.08 1.1 2.49 2.02 4 2.02 2.2 0 4-1.8 4-4.04a3.01 3.01 0 0 0-3-3.02z"></path>
+          </svg>
+        </button>
+      </div>
+    </div>
   </div>
 
   <div class="header-right">
@@ -214,6 +351,66 @@
     display: flex;
     align-items: center;
     gap: 0.75rem;
+  }
+
+  /* Tool toolbar */
+  .tool-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 6px;
+    padding: 4px 6px;
+  }
+
+  .tool-group {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+
+  .tool-separator {
+    width: 1px;
+    height: 20px;
+    background: rgba(255, 255, 255, 0.15);
+    margin: 0 4px;
+  }
+
+  .tool-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    color: #9ca3af;
+    cursor: pointer;
+    transition: background-color 0.15s, color 0.15s;
+  }
+
+  .tool-btn:hover:not(.disabled) {
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
+  }
+
+  .tool-btn.active {
+    background: #0088ff;
+    color: #fff;
+  }
+
+  .tool-btn.active:hover {
+    background: #0077e6;
+  }
+
+  .tool-btn.disabled {
+    color: #555;
+    cursor: not-allowed;
+  }
+
+  .tool-btn svg {
+    flex-shrink: 0;
   }
 
   .header-title {

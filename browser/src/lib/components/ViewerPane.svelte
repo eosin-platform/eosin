@@ -36,6 +36,7 @@
   import { acquireCache, releaseCache } from '$lib/stores/slideCache';
   import { updatePerformanceMetrics } from '$lib/stores/metrics';
   import { settings, navigationSettings, imageSettings, performanceSettings, helpMenuOpen, type StainNormalization, type StainEnhancementMode } from '$lib/stores/settings';
+  import { toolState, toolCommand, clearToolCommand, updateToolState, resetToolState, type ToolCommand } from '$lib/stores/tools';
 
   interface Props {
     /** The pane ID this viewer belongs to */
@@ -892,6 +893,80 @@
 
   // Can create annotations if logged in and have an unlocked active set
   let canCreate = $derived(isLoggedIn && currentActiveSet !== null && !currentActiveSet.locked);
+
+  // Subscribe to tool commands from AppHeader toolbar
+  const unsubToolCommand = toolCommand.subscribe((cmd) => {
+    if (!cmd || !isPaneFocused) return;
+    
+    switch (cmd.type) {
+      case 'undo':
+        performUndo();
+        break;
+      case 'redo':
+        performRedo();
+        break;
+      case 'measure':
+        // Toggle measurement mode (same as 'd' key)
+        if (!imageDesc || !container) break;
+        if (measurement.active && measurement.mode === 'toggle') {
+          cancelMeasurement();
+        } else {
+          const rect = container.getBoundingClientRect();
+          const screenX = lastMouseX || (rect.left + rect.width / 2);
+          const screenY = lastMouseY || (rect.top + rect.height / 2);
+          const imagePos = screenToImage(screenX, screenY);
+          measurement = {
+            active: true,
+            mode: 'toggle',
+            startScreen: { x: screenX, y: screenY },
+            endScreen: { x: screenX, y: screenY },
+            startImage: imagePos,
+            endImage: imagePos,
+          };
+        }
+        break;
+      case 'annotation':
+        if (cmd.tool === null) {
+          // Deactivate current tool
+          if (modifyMode.phase === 'mask-paint') {
+            confirmMaskPainting();
+            cancelModifyMode();
+            showHudNotification('Mask saved');
+          } else if (modifyMode.phase !== 'idle') {
+            cancelModifyMode();
+          }
+        } else if (cmd.tool === 'point') {
+          if (canCreate) handleStartMultiPointCreation();
+        } else if (cmd.tool === 'ellipse') {
+          if (canCreate) handleStartEllipseCreation();
+        } else if (cmd.tool === 'polygon') {
+          if (canCreate) handleStartFreehandLasso();
+        } else if (cmd.tool === 'mask') {
+          if (canCreate) handleStartMaskPainting();
+        }
+        break;
+    }
+    clearToolCommand();
+  });
+
+  // Update tool state when this pane is focused
+  $effect(() => {
+    if (isPaneFocused) {
+      updateToolState({
+        annotationTool: 
+          modifyMode.phase === 'multi-point' ? 'point' :
+          modifyMode.phase === 'ellipse-center' || modifyMode.phase === 'ellipse-radii' || modifyMode.phase === 'ellipse-angle' ? 'ellipse' :
+          modifyMode.phase === 'polygon-vertices' || modifyMode.phase === 'polygon-edit' || modifyMode.phase === 'polygon-freehand' ? 'polygon' :
+          modifyMode.phase === 'mask-paint' ? 'mask' : null,
+        measurementActive: measurement.active,
+        measurementMode: measurement.mode,
+        canUndo: undoStack.length > 0,
+        canRedo: redoStack.length > 0,
+      });
+    } else {
+      resetToolState();
+    }
+  });
 
   $effect(() => {
     if (!paneActiveTab) {
@@ -2386,6 +2461,7 @@
     unsubNavigation();
     unsubAuth();
     unsubActiveSet();
+    unsubToolCommand();
     onUnregisterTileHandler(paneId);
     closeCurrentSlide();
     if (activeSlideId) {
