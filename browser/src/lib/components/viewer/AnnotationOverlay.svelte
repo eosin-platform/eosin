@@ -25,12 +25,13 @@
     modifyMousePos?: { x: number; y: number } | null;
     modifyAngleOffset?: number;
     modifyRotation?: number;
+    modifyCenterOffset?: { x: number; y: number } | null;
   }
 
   let { 
     viewportX, viewportY, viewportZoom, containerWidth, containerHeight, 
     onAnnotationClick, onAnnotationRightClick,
-    modifyPhase = 'idle', modifyAnnotationId = null, modifyCenter = null, modifyRadii = null, modifyMousePos = null, modifyAngleOffset = 0, modifyRotation = 0
+    modifyPhase = 'idle', modifyAnnotationId = null, modifyCenter = null, modifyRadii = null, modifyMousePos = null, modifyAngleOffset = 0, modifyRotation = 0, modifyCenterOffset = null
   }: Props = $props();
 
   // Settings: global annotation visibility
@@ -373,9 +374,12 @@
       
       {#if modifyPhase === 'ellipse-center'}
         <!-- Show crosshair at mouse position for center selection -->
-        {@const screen = imageToScreen(modifyMousePos.x, modifyMousePos.y)}
+        <!-- When modifyCenterOffset exists, offset the preview so ellipse doesn't snap to cursor -->
+        {@const offset = modifyCenterOffset ?? { x: 0, y: 0 }}
+        {@const previewPos = { x: modifyMousePos.x - offset.x, y: modifyMousePos.y - offset.y }}
+        {@const screen = imageToScreen(previewPos.x, previewPos.y)}
         {#if modifyRadii}
-          <!-- If radii already exist, show full ellipse preview centered on mouse -->
+          <!-- If radii already exist, show full ellipse preview centered on offset position -->
           {@const rx = getScreenRadius(modifyRadii.rx)}
           {@const ry = getScreenRadius(modifyRadii.ry)}
           {@const angleDeg = modifyRotation * (180 / Math.PI)}

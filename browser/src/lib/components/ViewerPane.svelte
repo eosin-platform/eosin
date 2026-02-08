@@ -142,7 +142,11 @@
     tempRadii?: { rx: number; ry: number };
     tempAngleOffset?: number; // Initial angle when entering ellipse-angle phase (to avoid jank)
     tempRotation?: number; // Stored rotation value (used when going back to center/radii phases)
+    tempCenterOffset?: { x: number; y: number }; // Offset between cursor and center when re-entering center phase
   }>({ phase: 'idle', annotation: null, isCreating: false });
+
+  // Track if '1' key is being held for multi-point mode
+  let oneKeyHeld = $state(false);
 
   // Mouse position in image coordinates during modify mode
   let modifyMouseImagePos = $state<{ x: number; y: number } | null>(null);
@@ -277,8 +281,9 @@
         };
       }
     }
-    // '1' key starts point creation, Ctrl+1 starts multi-point mode
+    // '1' key: hold for multi-point, tap for single point
     if (e.key === '1') {
+      if (e.repeat) return; // Ignore key repeat events
       if (!canCreate) {
         if (!isLoggedIn) {
           showHudNotification('Log in to create annotations');
@@ -289,11 +294,8 @@
         }
         return;
       }
-      if (e.altKey) {
-        handleStartMultiPointCreation();
-      } else {
-        handleStartPointCreation();
-      }
+      oneKeyHeld = true;
+      handleStartMultiPointCreation();
     }
     // '2' key starts ellipse creation
     if (e.key === '2') {
@@ -327,10 +329,15 @@
           const rawAngle = Math.atan2(modifyMouseImagePos.y - modifyMode.tempCenter.y, modifyMouseImagePos.x - modifyMode.tempCenter.x);
           currentRotation = rawAngle - (modifyMode.tempAngleOffset ?? 0);
         }
+        // Store offset between current mouse position and center so ellipse doesn't snap to cursor
+        const centerOffset = modifyMouseImagePos && modifyMode.tempCenter
+          ? { x: modifyMouseImagePos.x - modifyMode.tempCenter.x, y: modifyMouseImagePos.y - modifyMode.tempCenter.y }
+          : { x: 0, y: 0 };
         modifyMode = {
           ...modifyMode,
           phase: 'ellipse-center',
           tempRotation: currentRotation,
+          tempCenterOffset: centerOffset,
         };
         showHudNotification('Adjusting position (W=size, E=rotation)');
       } else if (modifyMode.phase === 'ellipse-center') {
@@ -440,6 +447,18 @@
         } else {
           showHudNotification(wasCreating ? 'Creation cancelled' : 'Modification cancelled');
         }
+      }
+    }
+  }
+
+  function handleKeyUp(e: KeyboardEvent) {
+    // Handle '1' key release - exit multi-point mode if active
+    if (e.key === '1') {
+      oneKeyHeld = false;
+      if (modifyMode.phase === 'multi-point') {
+        const pointsCreated = modifyMode.pointsCreated || 0;
+        cancelModifyMode();
+        showHudNotification(pointsCreated > 0 ? `Created ${pointsCreated} point${pointsCreated === 1 ? '' : 's'}` : 'Multi-point cancelled');
       }
     }
   }
@@ -1262,20 +1281,25 @@
       // Stay in multi-point mode, don't call cancelModifyMode()
     } else if (modifyMode.phase === 'ellipse-center') {
       // Store center and move to next phase
+      // If we have a centerOffset (user went back from radii/angle), apply it
+      const offset = modifyMode.tempCenterOffset ?? { x: 0, y: 0 };
+      const newCenter = { x: imagePos.x - offset.x, y: imagePos.y - offset.y };
       // If we already have radii (user went back to adjust), go to radii phase preserving existing values
       // If we already have angle too, go straight to angle phase
       if (modifyMode.tempRadii && modifyMode.tempAngleOffset !== undefined) {
         modifyMode = {
           ...modifyMode,
           phase: 'ellipse-angle',
-          tempCenter: { x: imagePos.x, y: imagePos.y },
+          tempCenter: newCenter,
+          tempCenterOffset: undefined, // Clear offset after applying
         };
         showHudNotification('Adjust rotation, then click to confirm');
       } else if (modifyMode.tempRadii) {
         modifyMode = {
           ...modifyMode,
           phase: 'ellipse-radii',
-          tempCenter: { x: imagePos.x, y: imagePos.y },
+          tempCenter: newCenter,
+          tempCenterOffset: undefined, // Clear offset after applying
         };
         showHudNotification('Adjust size, then click (W=size, E=rotation)');
       } else {
@@ -1283,7 +1307,7 @@
           phase: 'ellipse-radii',
           annotation,
           isCreating: modifyMode.isCreating,
-          tempCenter: { x: imagePos.x, y: imagePos.y },
+          tempCenter: newCenter,
         };
         showHudNotification('Move mouse to set width & height, then click');
       }
@@ -1439,6 +1463,7 @@
 
     window.addEventListener('mouseup', handleWindowMouseUp);
     window.addEventListener('keydown', handleKeyDown, true);
+    window.addEventListener('keyup', handleKeyUp, true);
     window.addEventListener('mousemove', handleWindowMouseMove);
   });
 
@@ -1463,6 +1488,7 @@
     if (browser) {
       window.removeEventListener('mouseup', handleWindowMouseUp);
       window.removeEventListener('keydown', handleKeyDown, true);
+      window.removeEventListener('keyup', handleKeyUp, true);
       window.removeEventListener('mousemove', handleWindowMouseMove);
     }
   });
@@ -1514,6 +1540,7 @@
       modifyMousePos={modifyMouseImagePos}
       modifyAngleOffset={modifyMode.tempAngleOffset ?? 0}
       modifyRotation={modifyMode.tempRotation ?? 0}
+      modifyCenterOffset={modifyMode.tempCenterOffset ?? null}
     />
     
     <!-- Viewer HUD overlay (top-left) -->
