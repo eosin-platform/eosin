@@ -262,6 +262,7 @@
 
   // Get pixelated brush outline for cursor display
   // Returns an SVG path string for the outline of pixels that would be painted
+  // Must match the algorithm in ViewerPane.svelte paintMaskBrush()
   function getPixelatedBrushPath(centerX: number, centerY: number, brushSize: number): string {
     const radius = brushSize / 2;
     const minPx = Math.floor(centerX - radius);
@@ -270,12 +271,13 @@
     const maxPy = Math.ceil(centerY + radius);
     
     // Build a set of pixel coordinates that are inside the brush
+    // Uses same algorithm as paintMaskBrush: distance from pixel corner to cursor
     const pixels = new Set<string>();
     for (let py = minPy; py <= maxPy; py++) {
       for (let px = minPx; px <= maxPx; px++) {
-        // Check if pixel center is within brush radius
-        const dx = (px + 0.5) - centerX;
-        const dy = (py + 0.5) - centerY;
+        // Check distance from pixel top-left corner to cursor (matches painting algorithm)
+        const dx = px - centerX;
+        const dy = py - centerY;
         if (dx * dx + dy * dy <= radius * radius) {
           pixels.add(`${px},${py}`);
         }
