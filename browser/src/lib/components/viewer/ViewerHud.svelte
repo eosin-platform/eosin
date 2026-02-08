@@ -1,5 +1,7 @@
 <script lang="ts">
   import { settings, type StainEnhancementMode } from '$lib/stores/settings';
+  import { fade } from 'svelte/transition';
+  import { cubicInOut } from 'svelte/easing';
   import ViewerHudMoreMenu from './ViewerHudMoreMenu.svelte';
 
   interface Props {
@@ -11,9 +13,11 @@
     onFitView: () => void;
     /** Current magnification (e.g., "10x", "40x") - optional */
     magnification?: string;
+    /** Whether panning is currently happening - closes menu immediately */
+    isPanning?: boolean;
   }
 
-  let { zoom, onZoomChange, onFitView, magnification }: Props = $props();
+  let { zoom, onZoomChange, onFitView, magnification, isPanning = false }: Props = $props();
 
   // Bind to settings store
   let stainEnhancement = $state<StainEnhancementMode>($settings.image.stainEnhancement);
@@ -29,6 +33,13 @@
 
   // Local state for the more menu (per-instance, not global)
   let moreMenuOpen = $state(false);
+
+  // Close menu immediately when panning starts
+  $effect(() => {
+    if (isPanning && moreMenuOpen) {
+      moreMenuOpen = false;
+    }
+  });
 
   function handleStainEnhancementChange(e: Event) {
     const target = e.target as HTMLSelectElement;
@@ -234,7 +245,9 @@
 
   <!-- More menu popover - rendered inside hud-container for proper positioning -->
   {#if moreMenuOpen}
-    <ViewerHudMoreMenu onClose={closeMoreMenu} />
+    <div transition:fade={{ duration: 350, easing: cubicInOut }}>
+      <ViewerHudMoreMenu onClose={closeMoreMenu} />
+    </div>
   {/if}
 </div>
 

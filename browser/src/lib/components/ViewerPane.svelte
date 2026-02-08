@@ -92,7 +92,7 @@
   const VIEWPORT_UPDATE_DEBOUNCE_MS = 16;
 
   // Mouse interaction state
-  let isDragging = false;
+  let isDragging = $state(false);
   let lastMouseX = 0;
   let lastMouseY = 0;
 
@@ -1497,6 +1497,7 @@
       zoom={viewport.zoom}
       onZoomChange={handleHudZoomChange}
       onFitView={handleHudFitView}
+      isPanning={isDragging}
     />
     
     <!-- Keyboard shortcut notification (center) -->
