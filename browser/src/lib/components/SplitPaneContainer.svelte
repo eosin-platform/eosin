@@ -197,6 +197,11 @@
     flex-direction: column;
   }
 
+  /* Focus indicator for split view - uses inset box-shadow for visible border without layout shift */
+  .split-container:has(.divider) .pane.focused {
+    box-shadow: inset 0 0 0 2px #0088ff;
+  }
+
   .divider {
     width: 5px;
     background: #1a1a1a;

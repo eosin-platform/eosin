@@ -342,7 +342,7 @@
   }
 
   .tab-bar.focused {
-    border-bottom-color: #0066cc44;
+    border-bottom: 2px solid #0088ff;
   }
 
   .tab-bar::-webkit-scrollbar {
