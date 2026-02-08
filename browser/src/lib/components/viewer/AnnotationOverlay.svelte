@@ -18,7 +18,7 @@
     /** Callback when an annotation is right-clicked */
     onAnnotationRightClick?: (annotation: Annotation, screenX: number, screenY: number) => void;
     /** Modification mode state */
-    modifyPhase?: 'idle' | 'point-position' | 'ellipse-center' | 'ellipse-radii' | 'ellipse-angle';
+    modifyPhase?: 'idle' | 'point-position' | 'multi-point' | 'ellipse-center' | 'ellipse-radii' | 'ellipse-angle';
     modifyAnnotationId?: string | null;
     modifyCenter?: { x: number; y: number } | null;
     modifyRadii?: { rx: number; ry: number } | null;
@@ -432,7 +432,7 @@
     {/if}
 
     <!-- Point modification preview -->
-    {#if modifyMousePos && modifyPhase === 'point-position'}
+    {#if modifyMousePos && (modifyPhase === 'point-position' || modifyPhase === 'multi-point')}
       {@const screen = imageToScreen(modifyMousePos.x, modifyMousePos.y)}
       {@const previewColor = '#ffcc00'}
       <g class="preview-point">

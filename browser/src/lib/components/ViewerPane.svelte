@@ -132,8 +132,9 @@
   let annotationMenuTarget = $state<Annotation | null>(null);
 
   // Annotation modification mode state
-  type ModifyPhase = 'idle' | 'point-position' | 'ellipse-center' | 'ellipse-radii' | 'ellipse-angle';
+  type ModifyPhase = 'idle' | 'point-position' | 'multi-point' | 'ellipse-center' | 'ellipse-radii' | 'ellipse-angle';
   let modifyMode = $state<{
+    pointsCreated?: number; // Track count for multi-point mode
     phase: ModifyPhase;
     annotation: Annotation | null;
     isCreating: boolean;
@@ -274,7 +275,7 @@
         };
       }
     }
-    // '1' key starts point creation
+    // '1' key starts point creation, Ctrl+1 starts multi-point mode
     if (e.key === '1') {
       if (!canCreate) {
         if (!isLoggedIn) {
@@ -286,7 +287,11 @@
         }
         return;
       }
-      handleStartPointCreation();
+      if (e.ctrlKey || e.metaKey) {
+        handleStartMultiPointCreation();
+      } else {
+        handleStartPointCreation();
+      }
     }
     // '2' key starts ellipse creation
     if (e.key === '2') {
@@ -302,6 +307,14 @@
       }
       handleStartEllipseCreation();
     }
+    // Enter finishes multi-point mode
+    if (e.key === 'Enter') {
+      if (modifyMode.phase === 'multi-point') {
+        const count = modifyMode.pointsCreated || 0;
+        cancelModifyMode();
+        showHudNotification(count > 0 ? `Created ${count} point${count === 1 ? '' : 's'}` : 'No points created');
+      }
+    }
     // Escape closes help and cancels measurement and modify mode
     if (e.key === 'Escape') {
       if ($helpMenuOpen) {
@@ -312,8 +325,14 @@
       }
       if (modifyMode.phase !== 'idle') {
         const wasCreating = modifyMode.isCreating;
+        const wasMultiPoint = modifyMode.phase === 'multi-point';
+        const pointsCreated = modifyMode.pointsCreated || 0;
         cancelModifyMode();
-        showHudNotification(wasCreating ? 'Creation cancelled' : 'Modification cancelled');
+        if (wasMultiPoint) {
+          showHudNotification(pointsCreated > 0 ? `Created ${pointsCreated} point${pointsCreated === 1 ? '' : 's'}` : 'Multi-point cancelled');
+        } else {
+          showHudNotification(wasCreating ? 'Creation cancelled' : 'Modification cancelled');
+        }
       }
     }
   }
@@ -1062,6 +1081,17 @@
     showHudNotification('Click to place point');
   }
 
+  function handleStartMultiPointCreation() {
+    // Start multi-point creation mode
+    modifyMode = {
+      phase: 'multi-point',
+      annotation: null,
+      isCreating: true,
+      pointsCreated: 0,
+    };
+    showHudNotification('Click to place points, Enter/Esc to finish');
+  }
+
   function cancelModifyMode() {
     modifyMode = { phase: 'idle', annotation: null, isCreating: false };
     modifyMouseImagePos = null;
@@ -1104,6 +1134,25 @@
         showHudNotification('Failed to save point');
       }
       cancelModifyMode();
+    } else if (modifyMode.phase === 'multi-point') {
+      // Create point and stay in multi-point mode
+      try {
+        await annotationStore.createAnnotation({
+          kind: 'point',
+          geometry: {
+            x_level0: imagePos.x,
+            y_level0: imagePos.y,
+          },
+          label_id: 'unlabeled',
+        });
+        const count = (modifyMode.pointsCreated || 0) + 1;
+        modifyMode = { ...modifyMode, pointsCreated: count };
+        showHudNotification(`Point ${count} created (Enter/Esc to finish)`);
+      } catch (err) {
+        console.error('Failed to save point:', err);
+        showHudNotification('Failed to save point');
+      }
+      // Stay in multi-point mode, don't call cancelModifyMode()
     } else if (modifyMode.phase === 'ellipse-center') {
       // Store center and move to radii phase
       modifyMode = {
