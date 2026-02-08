@@ -1634,6 +1634,13 @@
   // Touch event handlers for mobile
   let lastTouchDistance = 0;
   let lastTouchCenter = { x: 0, y: 0 };
+  let touchStartedOnAnnotation = false;
+
+  // Check if an element is an annotation target
+  function isAnnotationElement(el: EventTarget | null): boolean {
+    if (!el || !(el instanceof Element)) return false;
+    return el.closest('.annotation-point, .annotation-ellipse, .annotation-polygon, .annotation-polyline, .annotation-mask-target') !== null;
+  }
 
   function handleTouchStart(e: TouchEvent) {
     cancelLongPress();
@@ -1643,27 +1650,30 @@
       lastMouseY = e.touches[0].clientY;
       
       // Start longpress timer for context menu (only when viewing an image)
-      if (imageDesc) {
+      // Skip if touch started on an annotation - let annotation handle its own tap
+      touchStartedOnAnnotation = isAnnotationElement(e.target);
+      
+      // Always track start position for pan detection
+      longPressStartX = e.touches[0].clientX;
+      longPressStartY = e.touches[0].clientY;
+      isDragging = false;
+      
+      if (imageDesc && !touchStartedOnAnnotation) {
         const touch = e.touches[0];
-        longPressStartX = touch.clientX;
-        longPressStartY = touch.clientY;
-        // Don't set isDragging yet - wait to see if it's a long press or pan
-        isDragging = false;
         longPressTimer = setTimeout(() => {
           longPressTimer = null;
           showContextMenu(touch.clientX, touch.clientY);
         }, LONG_PRESS_MS);
-      } else {
-        isDragging = true;
       }
     } else if (e.touches.length === 2) {
       isDragging = false;
       lastTouchDistance = getTouchDistance(e.touches);
       lastTouchCenter = getTouchCenter(e.touches);
+      // Only preventDefault for pinch-zoom to prevent page zoom
+      e.preventDefault();
     }
     tabStore.setFocusedPane(paneId);
     helpMenuOpen.set(false);
-    e.preventDefault();
   }
 
   function handleTouchMove(e: TouchEvent) {
@@ -1674,6 +1684,18 @@
       if (dx > LONG_PRESS_MOVE_THRESHOLD || dy > LONG_PRESS_MOVE_THRESHOLD) {
         cancelLongPress();
         // Now start panning
+        isDragging = true;
+        lastMouseX = e.touches[0].clientX;
+        lastMouseY = e.touches[0].clientY;
+      }
+    }
+    
+    // If touch started on annotation and user moves, start panning
+    if (touchStartedOnAnnotation && e.touches.length === 1 && !isDragging) {
+      const dx = Math.abs(e.touches[0].clientX - longPressStartX);
+      const dy = Math.abs(e.touches[0].clientY - longPressStartY);
+      if (dx > LONG_PRESS_MOVE_THRESHOLD || dy > LONG_PRESS_MOVE_THRESHOLD) {
+        touchStartedOnAnnotation = false; // Clear flag
         isDragging = true;
         lastMouseX = e.touches[0].clientX;
         lastMouseY = e.touches[0].clientY;
@@ -1737,6 +1759,7 @@
     if (e.touches.length === 0) {
       isDragging = false;
       lastTouchDistance = 0;
+      touchStartedOnAnnotation = false;
     } else if (e.touches.length === 1) {
       isDragging = true;
       lastMouseX = e.touches[0].clientX;

@@ -499,6 +499,48 @@
     }
   }
 
+  // Handle annotation touch for mobile - track touch start position
+  let touchStartPos: { x: number; y: number; time: number } | null = null;
+  let touchAnnotation: Annotation | null = null;
+  const TOUCH_TAP_THRESHOLD = 15; // max movement to count as a tap
+  const TOUCH_TAP_MAX_TIME = 300; // max time for a tap
+
+  function handleAnnotationTouchStart(e: TouchEvent, annotation: Annotation) {
+    // Don't stop propagation - allow parent to handle panning
+    // But track this touch for potential tap detection
+    if (e.touches.length === 1) {
+      touchStartPos = { x: e.touches[0].clientX, y: e.touches[0].clientY, time: Date.now() };
+      touchAnnotation = annotation;
+    }
+  }
+
+  function handleAnnotationTouchEnd(e: TouchEvent, annotation: Annotation) {
+    if (!touchStartPos || touchAnnotation?.id !== annotation.id) {
+      touchStartPos = null;
+      touchAnnotation = null;
+      return;
+    }
+    
+    const touch = e.changedTouches[0];
+    if (!touch) return;
+    
+    const dx = Math.abs(touch.clientX - touchStartPos.x);
+    const dy = Math.abs(touch.clientY - touchStartPos.y);
+    const elapsed = Date.now() - touchStartPos.time;
+    
+    // Only trigger if this was a quick tap (minimal movement and short duration)
+    if (dx < TOUCH_TAP_THRESHOLD && dy < TOUCH_TAP_THRESHOLD && elapsed < TOUCH_TAP_MAX_TIME) {
+      e.stopPropagation();
+      e.preventDefault();
+      if (onAnnotationClick) {
+        onAnnotationClick(annotation, touch.clientX, touch.clientY);
+      }
+    }
+    
+    touchStartPos = null;
+    touchAnnotation = null;
+  }
+
   // Handle annotation right-click (mousedown with right button)
   // This records the start of a potential right-click; the menu is shown on mouseup
   function handleRightMouseDown(e: MouseEvent, annotation: Annotation) {
@@ -646,6 +688,7 @@
   // Point rendering parameters
   const POINT_RADIUS = 6;
   const POINT_STROKE_WIDTH = 2;
+  const POINT_TOUCH_RADIUS = 20; // Larger invisible hit area for touch devices
   
   // Ellipse stroke width
   const ELLIPSE_STROKE_WIDTH = 2;
@@ -718,8 +761,18 @@
             oncontextmenu={handleContextMenu}
             onmouseenter={() => handleMouseEnter(annotation)}
             onmouseleave={handleMouseLeave}
+            ontouchstart={(e) => handleAnnotationTouchStart(e, annotation)}
+            ontouchend={(e) => handleAnnotationTouchEnd(e, annotation)}
           >
             <title>{setName}</title>
+            <!-- Invisible larger touch target -->
+            <circle 
+              cx={screen.x} 
+              cy={screen.y} 
+              r={POINT_TOUCH_RADIUS}
+              fill="transparent"
+              stroke="none"
+            />
             <circle 
               cx={screen.x} 
               cy={screen.y} 
@@ -749,6 +802,8 @@
             oncontextmenu={handleContextMenu}
             onmouseenter={() => handleMouseEnter(annotation)}
             onmouseleave={handleMouseLeave}
+            ontouchstart={(e) => handleAnnotationTouchStart(e, annotation)}
+            ontouchend={(e) => handleAnnotationTouchEnd(e, annotation)}
           >
             <title>{setName}</title>
             <ellipse 
@@ -785,6 +840,8 @@
             oncontextmenu={handleContextMenu}
             onmouseenter={() => handleMouseEnter(annotation)}
             onmouseleave={handleMouseLeave}
+            ontouchstart={(e) => handleAnnotationTouchStart(e, annotation)}
+            ontouchend={(e) => handleAnnotationTouchEnd(e, annotation)}
           >
             <title>{setName}</title>
             <path 
@@ -811,6 +868,8 @@
             oncontextmenu={handleContextMenu}
             onmouseenter={() => handleMouseEnter(annotation)}
             onmouseleave={handleMouseLeave}
+            ontouchstart={(e) => handleAnnotationTouchStart(e, annotation)}
+            ontouchend={(e) => handleAnnotationTouchEnd(e, annotation)}
           >
             <title>{setName}</title>
             <path 
@@ -846,6 +905,8 @@
             oncontextmenu={handleContextMenu}
             onmousemove={(e) => handleMaskMouseMove(e, annotation)}
             onmouseleave={() => handleMaskMouseLeave(annotation)}
+            ontouchstart={(e) => handleAnnotationTouchStart(e, annotation)}
+            ontouchend={(e) => handleAnnotationTouchEnd(e, annotation)}
           />
         {/if}
       {/if}
