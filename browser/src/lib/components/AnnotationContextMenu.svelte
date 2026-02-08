@@ -23,6 +23,7 @@
 
   let menuEl = $state<HTMLDivElement>();
   let isDeleting = $state(false);
+  let showMaskDeleteConfirm = $state(false);
 
   function handleModify() {
     if (!annotation) return;
@@ -31,6 +32,18 @@
   }
 
   async function handleDelete() {
+    if (!annotation || isDeleting) return;
+    
+    // For mask annotations, show confirmation dialog
+    if (annotation.kind === 'mask_patch') {
+      showMaskDeleteConfirm = true;
+      return;
+    }
+    
+    await performDelete();
+  }
+  
+  async function performDelete() {
     if (!annotation || isDeleting) return;
     
     isDeleting = true;
@@ -42,6 +55,15 @@
       isDeleting = false;
     }
     onClose();
+  }
+  
+  function handleMaskDeleteConfirm() {
+    showMaskDeleteConfirm = false;
+    performDelete();
+  }
+  
+  function handleMaskDeleteCancel() {
+    showMaskDeleteConfirm = false;
   }
 
   function handleClickOutside(e: MouseEvent) {
@@ -117,6 +139,35 @@
       </svg>
       <span>{isDeleting ? 'Deleting...' : 'Delete'}</span>
     </button>
+  </div>
+{/if}
+
+<!-- Mask delete confirmation modal -->
+{#if showMaskDeleteConfirm}
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="modal-overlay" onclick={handleMaskDeleteCancel}>
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="modal-dialog" onclick={(e) => e.stopPropagation()}>
+      <div class="modal-header">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2">
+          <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+          <line x1="12" y1="9" x2="12" y2="13"></line>
+          <line x1="12" y1="17" x2="12.01" y2="17"></line>
+        </svg>
+        <h3>Delete Mask Tile</h3>
+      </div>
+      <p class="modal-message">
+        This will erase all mask annotations in this tile. This action is <strong>undoable</strong>.
+      </p>
+      <div class="modal-actions">
+        <button class="modal-btn cancel" onclick={handleMaskDeleteCancel}>Cancel</button>
+        <button class="modal-btn confirm" onclick={handleMaskDeleteConfirm} disabled={isDeleting}>
+          {isDeleting ? 'Deleting...' : 'Confirm'}
+        </button>
+      </div>
+    </div>
   </div>
 {/if}
 
@@ -199,5 +250,92 @@
       width: 18px;
       height: 18px;
     }
+  }
+
+  /* Modal overlay */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10001;
+    animation: fadeIn 0.15s ease-out;
+  }
+
+  .modal-dialog {
+    background: #1a1a1a;
+    border: 1px solid #333;
+    border-radius: 8px;
+    padding: 1.5rem;
+    max-width: 400px;
+    width: 90%;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  }
+
+  .modal-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+  }
+
+  .modal-header h3 {
+    margin: 0;
+    font-size: 1.125rem;
+    font-weight: 600;
+    color: #fff;
+  }
+
+  .modal-message {
+    color: #ccc;
+    font-size: 0.9375rem;
+    line-height: 1.5;
+    margin: 0 0 1.5rem 0;
+  }
+
+  .modal-message strong {
+    color: #f59e0b;
+  }
+
+  .modal-actions {
+    display: flex;
+    gap: 0.75rem;
+    justify-content: flex-end;
+  }
+
+  .modal-btn {
+    padding: 0.5rem 1rem;
+    border-radius: 6px;
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.15s, opacity 0.15s;
+  }
+
+  .modal-btn.cancel {
+    background: #333;
+    border: 1px solid #444;
+    color: #ddd;
+  }
+
+  .modal-btn.cancel:hover {
+    background: #444;
+  }
+
+  .modal-btn.confirm {
+    background: #dc2626;
+    border: none;
+    color: #fff;
+  }
+
+  .modal-btn.confirm:hover:not(:disabled) {
+    background: #b91c1c;
+  }
+
+  .modal-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 </style>
