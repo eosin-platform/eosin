@@ -134,6 +134,8 @@
   let annotationMenuX = $state(0);
   let annotationMenuY = $state(0);
   let annotationMenuTarget = $state<Annotation | null>(null);
+  // Track annotation right-click start for threshold detection (same as viewport context menu)
+  let annotationRightClickStart = $state<{ annotation: Annotation; x: number; y: number } | null>(null);
 
   // Annotation modification mode state
   type ModifyPhase = 'idle' | 'point-position' | 'multi-point' | 'ellipse-center' | 'ellipse-radii' | 'ellipse-angle' | 'polygon-vertices' | 'polygon-freehand' | 'polygon-edit' | 'mask-paint';
@@ -1498,7 +1500,21 @@
     // Right mouse button released - stop panning, show context menu if no drag
     if (e && e.button === 2) {
       isDragging = false;
-      // Check if we moved more than the threshold
+      
+      // First check if we started a right-click on an annotation
+      if (annotationRightClickStart) {
+        const dx = e.clientX - annotationRightClickStart.x;
+        const dy = e.clientY - annotationRightClickStart.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < RIGHT_CLICK_THRESHOLD) {
+          // Didn't move much, show annotation context menu
+          showAnnotationMenu(annotationRightClickStart.annotation, e.clientX, e.clientY);
+        }
+        annotationRightClickStart = null;
+        return;
+      }
+      
+      // Otherwise check for viewport right-click
       if (rightClickStart) {
         const dx = e.clientX - rightClickStart.x;
         const dy = e.clientY - rightClickStart.y;
@@ -1731,10 +1747,19 @@
 
   // Annotation context menu handlers
   function handleAnnotationRightClick(annotation: Annotation, screenX: number, screenY: number) {
+    // Track right-click start on annotation - menu will be shown on mouseup if threshold is met
     // Clear rightClickStart so viewport context menu doesn't also appear
     rightClickStart = null;
-    annotationMenuX = screenX;
-    annotationMenuY = screenY;
+    annotationRightClickStart = { annotation, x: screenX, y: screenY };
+    // Also enable panning - RMB should always pan
+    isDragging = true;
+    lastMouseX = screenX;
+    lastMouseY = screenY;
+  }
+
+  function showAnnotationMenu(annotation: Annotation, x: number, y: number) {
+    annotationMenuX = x;
+    annotationMenuY = y;
     annotationMenuTarget = annotation;
     annotationMenuVisible = true;
   }
