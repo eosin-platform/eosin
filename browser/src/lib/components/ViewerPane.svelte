@@ -143,6 +143,11 @@
     tempAngleOffset?: number; // Initial angle when entering ellipse-angle phase (to avoid jank)
     tempRotation?: number; // Stored rotation value (used when going back to center/radii phases)
     tempCenterOffset?: { x: number; y: number }; // Offset between cursor and center when re-entering center phase
+    // For modification mode: track original values to make edits relative
+    originalCenter?: { x: number; y: number };
+    originalRadii?: { rx: number; ry: number };
+    originalRotation?: number;
+    dragStartPos?: { x: number; y: number }; // Where mouse was when entering current phase
   }>({ phase: 'idle', annotation: null, isCreating: false });
 
   // Track if '1' key is being held for multi-point mode
@@ -326,8 +331,47 @@
         // If in angle phase, capture current rotation before switching
         let currentRotation = modifyMode.tempRotation;
         if (modifyMode.phase === 'ellipse-angle' && modifyMouseImagePos && modifyMode.tempCenter) {
-          const rawAngle = Math.atan2(modifyMouseImagePos.y - modifyMode.tempCenter.y, modifyMouseImagePos.x - modifyMode.tempCenter.x);
-          currentRotation = rawAngle - (modifyMode.tempAngleOffset ?? 0);
+          if (!modifyMode.isCreating && modifyMode.dragStartPos && modifyMode.tempRotation !== undefined) {
+            // Modification mode: compute rotation from delta
+            const rawAngle = Math.atan2(modifyMouseImagePos.y - modifyMode.tempCenter.y, modifyMouseImagePos.x - modifyMode.tempCenter.x);
+            const dragAngle = Math.atan2(modifyMode.dragStartPos.y - modifyMode.tempCenter.y, modifyMode.dragStartPos.x - modifyMode.tempCenter.x);
+            currentRotation = modifyMode.tempRotation + (rawAngle - dragAngle);
+          } else {
+            // Creation mode
+            const rawAngle = Math.atan2(modifyMouseImagePos.y - modifyMode.tempCenter.y, modifyMouseImagePos.x - modifyMode.tempCenter.x);
+            currentRotation = rawAngle - (modifyMode.tempAngleOffset ?? 0);
+          }
+        }
+        // If in radii phase in modification mode, capture current radii before switching
+        let currentRadii = modifyMode.tempRadii;
+        if (modifyMode.phase === 'ellipse-radii' && modifyMouseImagePos && modifyMode.tempCenter) {
+          const dx = modifyMouseImagePos.x - modifyMode.tempCenter.x;
+          const dy = modifyMouseImagePos.y - modifyMode.tempCenter.y;
+          const rot = modifyMode.tempRotation ?? 0;
+          const cosR = Math.cos(-rot);
+          const sinR = Math.sin(-rot);
+          const localX = dx * cosR - dy * sinR;
+          const localY = dx * sinR + dy * cosR;
+          
+          // Use tempRadii as base (current working value), fallback to originalRadii
+          const baseRadii = modifyMode.tempRadii ?? modifyMode.originalRadii;
+          if (!modifyMode.isCreating && baseRadii && modifyMode.dragStartPos) {
+            // Modification mode: compute delta from drag start
+            const dragDx = modifyMode.dragStartPos.x - modifyMode.tempCenter.x;
+            const dragDy = modifyMode.dragStartPos.y - modifyMode.tempCenter.y;
+            const dragLocalX = dragDx * cosR - dragDy * sinR;
+            const dragLocalY = dragDx * sinR + dragDy * cosR;
+            currentRadii = {
+              rx: Math.max(baseRadii.rx + (Math.abs(localX) - Math.abs(dragLocalX)), 1),
+              ry: Math.max(baseRadii.ry + (Math.abs(localY) - Math.abs(dragLocalY)), 1),
+            };
+          } else if (currentRadii) {
+            // Creation mode with existing radii
+            currentRadii = {
+              rx: Math.max(Math.abs(localX), 1),
+              ry: Math.max(Math.abs(localY), 1),
+            };
+          }
         }
         // Store offset between current mouse position and center so ellipse doesn't snap to cursor
         const centerOffset = modifyMouseImagePos && modifyMode.tempCenter
@@ -337,7 +381,9 @@
           ...modifyMode,
           phase: 'ellipse-center',
           tempRotation: currentRotation,
+          tempRadii: currentRadii,
           tempCenterOffset: centerOffset,
+          dragStartPos: undefined, // Reset for center phase
         };
         showHudNotification('Adjusting position (W=size, E=rotation)');
       } else if (modifyMode.phase === 'ellipse-center') {
@@ -350,16 +396,28 @@
         modifyMode = {
           ...modifyMode,
           phase: 'ellipse-radii',
+          tempCenterOffset: undefined, // Clear center offset
+          dragStartPos: undefined, // Reset for radii phase (will be set on mouse move)
         };
         showHudNotification('Adjusting size (Q=position, E=rotation)');
       } else if (modifyMode.phase === 'ellipse-angle' && modifyMode.tempCenter && modifyMouseImagePos) {
         // Capture current rotation before switching to radii
-        const rawAngle = Math.atan2(modifyMouseImagePos.y - modifyMode.tempCenter.y, modifyMouseImagePos.x - modifyMode.tempCenter.x);
-        const currentRotation = rawAngle - (modifyMode.tempAngleOffset ?? 0);
+        let currentRotation = modifyMode.tempRotation;
+        if (!modifyMode.isCreating && modifyMode.dragStartPos && modifyMode.tempRotation !== undefined) {
+          // Modification mode: compute rotation from delta
+          const rawAngle = Math.atan2(modifyMouseImagePos.y - modifyMode.tempCenter.y, modifyMouseImagePos.x - modifyMode.tempCenter.x);
+          const dragAngle = Math.atan2(modifyMode.dragStartPos.y - modifyMode.tempCenter.y, modifyMode.dragStartPos.x - modifyMode.tempCenter.x);
+          currentRotation = modifyMode.tempRotation + (rawAngle - dragAngle);
+        } else {
+          // Creation mode
+          const rawAngle = Math.atan2(modifyMouseImagePos.y - modifyMode.tempCenter.y, modifyMouseImagePos.x - modifyMode.tempCenter.x);
+          currentRotation = rawAngle - (modifyMode.tempAngleOffset ?? 0);
+        }
         modifyMode = {
           ...modifyMode,
           phase: 'ellipse-radii',
           tempRotation: currentRotation,
+          dragStartPos: undefined, // Reset for radii phase
         };
         showHudNotification('Adjusting size (Q=position, E=rotation)');
       } else if (modifyMode.phase === 'ellipse-radii') {
@@ -380,6 +438,8 @@
               ...modifyMode,
               phase: 'ellipse-angle',
               tempAngleOffset: rawAngle - desiredRotation,
+              tempCenterOffset: undefined,
+              dragStartPos: undefined, // Reset for angle phase
             };
             showHudNotification('Adjusting rotation (Q=position, W=size)');
           }
@@ -400,6 +460,8 @@
             phase: 'ellipse-angle',
             tempRadii: { rx: Math.max(rx, 1), ry: Math.max(ry, 1) },
             tempAngleOffset: initialAngle,
+            tempCenterOffset: undefined,
+            dragStartPos: undefined, // Reset for angle phase
           };
           showHudNotification('Adjusting rotation (Q=position, W=size)');
         }
@@ -413,16 +475,33 @@
         const sinR = Math.sin(-currentRotation);
         const localX = dx * cosR - dy * sinR;
         const localY = dx * sinR + dy * cosR;
-        const rx = Math.abs(localX);
-        const ry = Math.abs(localY);
+        
+        let rx: number, ry: number;
+        // Use tempRadii as base (current working value), fallback to originalRadii
+        const baseRadii = modifyMode.tempRadii ?? modifyMode.originalRadii;
+        if (!modifyMode.isCreating && baseRadii && modifyMode.dragStartPos) {
+          // Modification mode: compute delta from drag start, apply to base radii
+          const dragDx = modifyMode.dragStartPos.x - modifyMode.tempCenter.x;
+          const dragDy = modifyMode.dragStartPos.y - modifyMode.tempCenter.y;
+          const dragLocalX = dragDx * cosR - dragDy * sinR;
+          const dragLocalY = dragDx * sinR + dragDy * cosR;
+          rx = Math.max(baseRadii.rx + (Math.abs(localX) - Math.abs(dragLocalX)), 1);
+          ry = Math.max(baseRadii.ry + (Math.abs(localY) - Math.abs(dragLocalY)), 1);
+        } else {
+          // Creation mode
+          rx = Math.max(Math.abs(localX), 1);
+          ry = Math.max(Math.abs(localY), 1);
+        }
+        
         // Compute angle offset to preserve existing rotation if any
         const rawAngle = Math.atan2(dy, dx);
         const desiredRotation = modifyMode.tempRotation ?? 0;
         modifyMode = {
           ...modifyMode,
           phase: 'ellipse-angle',
-          tempRadii: { rx: Math.max(rx, 1), ry: Math.max(ry, 1) },
+          tempRadii: { rx, ry },
           tempAngleOffset: rawAngle - desiredRotation,
+          dragStartPos: undefined, // Reset for angle phase
         };
         showHudNotification('Adjusting rotation (Q=position, W=size)');
       } else if (modifyMode.phase === 'ellipse-angle') {
@@ -948,7 +1027,26 @@
   function handleMouseMove(e: MouseEvent) {
     // Track mouse position for modify mode preview
     if (modifyMode.phase !== 'idle') {
-      modifyMouseImagePos = screenToImage(e.clientX, e.clientY);
+      const newMousePos = screenToImage(e.clientX, e.clientY);
+      modifyMouseImagePos = newMousePos;
+      
+      // For modification mode (not creation): set initial offsets/dragStartPos on first mouse move
+      if (!modifyMode.isCreating && modifyMode.originalCenter) {
+        // Set centerOffset if not yet set (for ellipse-center phase)
+        if (modifyMode.phase === 'ellipse-center' && !modifyMode.tempCenterOffset) {
+          modifyMode = {
+            ...modifyMode,
+            tempCenterOffset: { x: newMousePos.x - modifyMode.originalCenter.x, y: newMousePos.y - modifyMode.originalCenter.y },
+          };
+        }
+        // Set dragStartPos if not yet set (for radii/angle phases)
+        if ((modifyMode.phase === 'ellipse-radii' || modifyMode.phase === 'ellipse-angle') && !modifyMode.dragStartPos) {
+          modifyMode = {
+            ...modifyMode,
+            dragStartPos: newMousePos,
+          };
+        }
+      }
     }
 
     // Handle measurement mode (both drag and toggle)
@@ -1182,8 +1280,26 @@
       modifyMode = { phase: 'point-position', annotation, isCreating: false };
       showHudNotification('Click to set new position');
     } else if (annotation.kind === 'ellipse') {
-      modifyMode = { phase: 'ellipse-center', annotation, isCreating: false };
-      showHudNotification('Click to set center');
+      // For modification, store original values so edits are relative
+      const geo = annotation.geometry as EllipseGeometry;
+      const originalCenter = { x: geo.cx_level0, y: geo.cy_level0 };
+      const originalRadii = { rx: geo.radius_x, ry: geo.radius_y };
+      const originalRotation = geo.rotation_radians;
+      // Initialize tempCenter/tempRadii/tempRotation to original values
+      // dragStartPos will be set when we know the mouse position
+      modifyMode = {
+        phase: 'ellipse-center',
+        annotation,
+        isCreating: false,
+        tempCenter: originalCenter,
+        tempRadii: originalRadii,
+        tempRotation: originalRotation,
+        originalCenter,
+        originalRadii,
+        originalRotation,
+        // tempCenterOffset will be computed from first mouse position
+      };
+      showHudNotification('Drag to adjust position (W=size, E=rotation)');
     }
   }
 
@@ -1292,6 +1408,7 @@
           phase: 'ellipse-angle',
           tempCenter: newCenter,
           tempCenterOffset: undefined, // Clear offset after applying
+          dragStartPos: undefined, // Reset drag start for next phase
         };
         showHudNotification('Adjust rotation, then click to confirm');
       } else if (modifyMode.tempRadii) {
@@ -1300,14 +1417,18 @@
           phase: 'ellipse-radii',
           tempCenter: newCenter,
           tempCenterOffset: undefined, // Clear offset after applying
+          dragStartPos: undefined, // Reset drag start for next phase
         };
         showHudNotification('Adjust size, then click (W=size, E=rotation)');
       } else {
+        // For creation mode (no original values), start fresh radii phase
+        // For modification mode, preserve original values
         modifyMode = {
+          ...modifyMode,
           phase: 'ellipse-radii',
-          annotation,
-          isCreating: modifyMode.isCreating,
           tempCenter: newCenter,
+          tempCenterOffset: undefined,
+          dragStartPos: undefined, // Will be set on first mouse move
         };
         showHudNotification('Move mouse to set width & height, then click');
       }
@@ -1322,18 +1443,33 @@
       const sinR = Math.sin(-currentRotation);
       const localX = dx * cosR - dy * sinR;
       const localY = dx * sinR + dy * cosR;
-      const rx = Math.abs(localX);
-      const ry = Math.abs(localY);
+      
+      let rx: number, ry: number;
+      // Use tempRadii as base (current working value), fallback to originalRadii
+      const baseRadii = modifyMode.tempRadii ?? modifyMode.originalRadii;
+      if (!modifyMode.isCreating && baseRadii && modifyMode.dragStartPos) {
+        // Modification mode: compute delta from drag start, apply to base radii
+        const dragDx = modifyMode.dragStartPos.x - center.x;
+        const dragDy = modifyMode.dragStartPos.y - center.y;
+        const dragLocalX = dragDx * cosR - dragDy * sinR;
+        const dragLocalY = dragDx * sinR + dragDy * cosR;
+        rx = Math.max(baseRadii.rx + (Math.abs(localX) - Math.abs(dragLocalX)), 1);
+        ry = Math.max(baseRadii.ry + (Math.abs(localY) - Math.abs(dragLocalY)), 1);
+      } else {
+        // Creation mode: use absolute mouse distance as radii
+        rx = Math.max(Math.abs(localX), 1);
+        ry = Math.max(Math.abs(localY), 1);
+      }
+      
       // If we already have an angle offset (user went back to adjust size), preserve it
       // Otherwise, create a new one based on current mouse position
       const initialAngle = modifyMode.tempAngleOffset ?? Math.atan2(dy, dx);
       modifyMode = {
+        ...modifyMode,
         phase: 'ellipse-angle',
-        annotation,
-        isCreating: modifyMode.isCreating,
-        tempCenter: center,
-        tempRadii: { rx: Math.max(rx, 1), ry: Math.max(ry, 1) }, // Minimum radius of 1 to avoid zero-size
+        tempRadii: { rx, ry },
         tempAngleOffset: initialAngle,
+        dragStartPos: undefined, // Reset for angle phase
       };
       showHudNotification('Move mouse to set rotation, then click');
     } else if (modifyMode.phase === 'ellipse-angle') {
@@ -1342,7 +1478,18 @@
       const dx = imagePos.x - center.x;
       const dy = imagePos.y - center.y;
       const rawAngle = Math.atan2(dy, dx);
-      const angle = rawAngle - (modifyMode.tempAngleOffset ?? 0);
+      
+      let angle: number;
+      if (!modifyMode.isCreating && modifyMode.dragStartPos && modifyMode.tempRotation !== undefined) {
+        // Modification mode: compute angle delta from drag start, add to current rotation
+        const dragDx = modifyMode.dragStartPos.x - center.x;
+        const dragDy = modifyMode.dragStartPos.y - center.y;
+        const dragAngle = Math.atan2(dragDy, dragDx);
+        angle = modifyMode.tempRotation + (rawAngle - dragAngle);
+      } else {
+        // Creation mode: use angle offset from when entering this phase
+        angle = rawAngle - (modifyMode.tempAngleOffset ?? 0);
+      }
       
       const geometry = {
         cx_level0: center.x,
@@ -1541,6 +1688,9 @@
       modifyAngleOffset={modifyMode.tempAngleOffset ?? 0}
       modifyRotation={modifyMode.tempRotation ?? 0}
       modifyCenterOffset={modifyMode.tempCenterOffset ?? null}
+      modifyIsCreating={modifyMode.isCreating}
+      modifyOriginalRadii={modifyMode.originalRadii ?? null}
+      modifyDragStartPos={modifyMode.dragStartPos ?? null}
     />
     
     <!-- Viewer HUD overlay (top-left) -->

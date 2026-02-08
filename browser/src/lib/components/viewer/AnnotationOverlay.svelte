@@ -26,12 +26,15 @@
     modifyAngleOffset?: number;
     modifyRotation?: number;
     modifyCenterOffset?: { x: number; y: number } | null;
+    modifyIsCreating?: boolean;
+    modifyOriginalRadii?: { rx: number; ry: number } | null;
+    modifyDragStartPos?: { x: number; y: number } | null;
   }
 
   let { 
     viewportX, viewportY, viewportZoom, containerWidth, containerHeight, 
     onAnnotationClick, onAnnotationRightClick,
-    modifyPhase = 'idle', modifyAnnotationId = null, modifyCenter = null, modifyRadii = null, modifyMousePos = null, modifyAngleOffset = 0, modifyRotation = 0, modifyCenterOffset = null
+    modifyPhase = 'idle', modifyAnnotationId = null, modifyCenter = null, modifyRadii = null, modifyMousePos = null, modifyAngleOffset = 0, modifyRotation = 0, modifyCenterOffset = null, modifyIsCreating = true, modifyOriginalRadii = null, modifyDragStartPos = null
   }: Props = $props();
 
   // Settings: global annotation visibility
@@ -414,19 +417,27 @@
       {:else if modifyPhase === 'ellipse-radii' && modifyCenter}
         <!-- Show ellipse preview with mouse offset transformed by rotation for rx/ry -->
         {@const centerScreen = imageToScreen(modifyCenter.x, modifyCenter.y)}
+        {@const angleDeg = modifyRotation * (180 / Math.PI)}
+        {@const cosA = Math.cos(modifyRotation)}
+        {@const sinA = Math.sin(modifyRotation)}
+        <!-- For modification mode: compute radii relative to current tempRadii, for creation: from mouse distance -->
         {@const dx = modifyMousePos.x - modifyCenter.x}
         {@const dy = modifyMousePos.y - modifyCenter.y}
         {@const cosR = Math.cos(-modifyRotation)}
         {@const sinR = Math.sin(-modifyRotation)}
         {@const localX = dx * cosR - dy * sinR}
         {@const localY = dx * sinR + dy * cosR}
-        {@const rxImage = Math.abs(localX)}
-        {@const ryImage = Math.abs(localY)}
-        {@const rx = getScreenRadius(Math.max(rxImage, 1))}
-        {@const ry = getScreenRadius(Math.max(ryImage, 1))}
-        {@const angleDeg = modifyRotation * (180 / Math.PI)}
-        {@const cosA = Math.cos(modifyRotation)}
-        {@const sinA = Math.sin(modifyRotation)}
+        <!-- In modification mode with radii and drag start: compute delta from drag start, apply to current radii -->
+        <!-- Use modifyRadii (tempRadii) as the base since it's the current working value -->
+        {@const baseRadii = modifyRadii ?? modifyOriginalRadii}
+        {@const rxImage = !modifyIsCreating && baseRadii && modifyDragStartPos
+          ? Math.max(baseRadii.rx + (Math.abs(localX) - Math.abs((modifyDragStartPos.x - modifyCenter.x) * cosR - (modifyDragStartPos.y - modifyCenter.y) * sinR)), 1)
+          : Math.max(Math.abs(localX), 1)}
+        {@const ryImage = !modifyIsCreating && baseRadii && modifyDragStartPos
+          ? Math.max(baseRadii.ry + (Math.abs(localY) - Math.abs((modifyDragStartPos.x - modifyCenter.x) * sinR + (modifyDragStartPos.y - modifyCenter.y) * cosR)), 1)
+          : Math.max(Math.abs(localY), 1)}
+        {@const rx = getScreenRadius(rxImage)}
+        {@const ry = getScreenRadius(ryImage)}
         <g class="preview-ellipse">
           <ellipse 
             cx={centerScreen.x} 
@@ -451,7 +462,10 @@
         {@const dx = modifyMousePos.x - modifyCenter.x}
         {@const dy = modifyMousePos.y - modifyCenter.y}
         {@const rawAngleRad = Math.atan2(dy, dx)}
-        {@const angleRad = rawAngleRad - modifyAngleOffset}
+        <!-- For modification mode with dragStartPos: compute angle delta from drag start, add to current rotation -->
+        {@const angleRad = !modifyIsCreating && modifyDragStartPos
+          ? modifyRotation + (rawAngleRad - Math.atan2(modifyDragStartPos.y - modifyCenter.y, modifyDragStartPos.x - modifyCenter.x))
+          : rawAngleRad - modifyAngleOffset}
         {@const angleDeg = angleRad * (180 / Math.PI)}
         {@const rx = getScreenRadius(modifyRadii.rx)}
         {@const ry = getScreenRadius(modifyRadii.ry)}
