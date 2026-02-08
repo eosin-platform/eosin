@@ -28,7 +28,8 @@
   import AnnotationOverlay from '$lib/components/viewer/AnnotationOverlay.svelte';
   import ViewportContextMenu from '$lib/components/ViewportContextMenu.svelte';
   import AnnotationContextMenu from '$lib/components/AnnotationContextMenu.svelte';
-  import { annotationStore } from '$lib/stores/annotations';
+  import { annotationStore, activeAnnotationSet } from '$lib/stores/annotations';
+  import { authStore } from '$lib/stores/auth';
   import { navigationTarget } from '$lib/stores/navigation';
   import type { Annotation, PointGeometry, EllipseGeometry } from '$lib/api/annotations';
   import { tabStore, type Tab } from '$lib/stores/tabs';
@@ -273,6 +274,34 @@
         };
       }
     }
+    // '1' key starts point creation
+    if (e.key === '1') {
+      if (!canCreate) {
+        if (!isLoggedIn) {
+          showHudNotification('Log in to create annotations');
+        } else if (!currentActiveSet) {
+          showHudNotification('Select an annotation layer first');
+        } else if (currentActiveSet.locked) {
+          showHudNotification('Layer is locked');
+        }
+        return;
+      }
+      handleStartPointCreation();
+    }
+    // '2' key starts ellipse creation
+    if (e.key === '2') {
+      if (!canCreate) {
+        if (!isLoggedIn) {
+          showHudNotification('Log in to create annotations');
+        } else if (!currentActiveSet) {
+          showHudNotification('Select an annotation layer first');
+        } else if (currentActiveSet.locked) {
+          showHudNotification('Layer is locked');
+        }
+        return;
+      }
+      handleStartEllipseCreation();
+    }
     // Escape closes help and cancels measurement and modify mode
     if (e.key === 'Escape') {
       if ($helpMenuOpen) {
@@ -512,6 +541,21 @@
       centerOnPoint(target.x, target.y);
     }
   });
+
+  // Subscribe to auth state for annotation creation permission
+  let isLoggedIn = $state(false);
+  const unsubAuth = authStore.subscribe((state) => {
+    isLoggedIn = state.user !== null;
+  });
+
+  // Subscribe to active annotation set for creation permission
+  let currentActiveSet = $state<typeof $activeAnnotationSet>(null);
+  const unsubActiveSet = activeAnnotationSet.subscribe((v) => {
+    currentActiveSet = v;
+  });
+
+  // Can create annotations if logged in and have an unlocked active set
+  let canCreate = $derived(isLoggedIn && currentActiveSet !== null && !currentActiveSet.locked);
 
   $effect(() => {
     if (!paneActiveTab) {
@@ -1214,6 +1258,8 @@
   onDestroy(() => {
     unsubSplit();
     unsubNavigation();
+    unsubAuth();
+    unsubActiveSet();
     onUnregisterTileHandler(paneId);
     closeCurrentSlide();
     if (activeSlideId) {
