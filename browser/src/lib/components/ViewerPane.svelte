@@ -198,6 +198,16 @@
   let maskAllTiles = $derived.by(() => {
     return Array.from(maskTiles.values());
   });
+  // Collect annotation IDs that are being edited (to hide from normal rendering)
+  let maskEditingAnnotationIds = $derived.by(() => {
+    const ids = new Set<string>();
+    for (const tile of maskTiles.values()) {
+      if (tile.annotationId) {
+        ids.add(tile.annotationId);
+      }
+    }
+    return ids;
+  });
 
   // Undo/Redo system for annotations
   // Each undo step stores a snapshot of all tiles before a brush stroke
@@ -2870,6 +2880,7 @@
       maskTileOrigin={maskTileOrigin}
       maskAllTiles={maskAllTiles}
       maskBrushSize={maskBrushSize}
+      maskEditingAnnotationIds={maskEditingAnnotationIds}
     />
     
     <!-- Viewer HUD overlay (top-left) -->

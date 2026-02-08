@@ -52,6 +52,8 @@
     maskTileOrigin?: { x: number; y: number } | null;
     maskAllTiles?: Array<{ origin: { x: number; y: number }; data: Uint8Array }>;
     maskBrushSize?: number;
+    /** Annotation IDs being edited in mask-paint mode (to hide from normal rendering) */
+    maskEditingAnnotationIds?: Set<string>;
   }
 
   let { 
@@ -60,7 +62,8 @@
     onAnnotationClick, onAnnotationRightClick,
     modifyPhase = 'idle', modifyAnnotationId = null, modifyCenter = null, modifyRadii = null, modifyMousePos = null, modifyAngleOffset = 0, modifyRotation = 0, modifyCenterOffset = null, modifyIsCreating = true, modifyOriginalRadii = null, modifyDragStartPos = null,
     modifyPolygonVertices = null, modifyFreehandPath = null, modifyEditingVertexIndex = null,
-    maskPaintData = null, maskTileOrigin = null, maskAllTiles = [], maskBrushSize = 20
+    maskPaintData = null, maskTileOrigin = null, maskAllTiles = [], maskBrushSize = 20,
+    maskEditingAnnotationIds = new Set()
   }: Props = $props();
 
   // Settings: global annotation visibility
@@ -286,8 +289,8 @@
     // Guard against invalid visible annotations
     if (!Array.isArray(visibleAnnotations)) return;
     
-    // Get visible mask annotations
-    const masks = visibleAnnotations.filter(a => a && a.annotation && a.annotation.kind === 'mask_patch' && isInView(a.annotation));
+    // Get visible mask annotations (excluding those being edited in mask-paint mode)
+    const masks = visibleAnnotations.filter(a => a && a.annotation && a.annotation.kind === 'mask_patch' && isInView(a.annotation) && !maskEditingAnnotationIds.has(a.annotation.id));
     
     // Render stored masks using cached ImageBitmaps
     for (const { annotation, color } of masks) {
