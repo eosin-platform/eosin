@@ -377,9 +377,17 @@
             showHudNotification('Adjusting rotation (Q=position, W=size)');
           }
         } else if (modifyMouseImagePos) {
-          const rx = Math.abs(modifyMouseImagePos.x - modifyMode.tempCenter.x);
-          const ry = Math.abs(modifyMouseImagePos.y - modifyMode.tempCenter.y);
-          const initialAngle = Math.atan2(modifyMouseImagePos.y - modifyMode.tempCenter.y, modifyMouseImagePos.x - modifyMode.tempCenter.x);
+          // No radii yet - compute from mouse position, accounting for any existing rotation
+          const dx = modifyMouseImagePos.x - modifyMode.tempCenter.x;
+          const dy = modifyMouseImagePos.y - modifyMode.tempCenter.y;
+          const currentRotation = modifyMode.tempRotation ?? 0;
+          const cosR = Math.cos(-currentRotation);
+          const sinR = Math.sin(-currentRotation);
+          const localX = dx * cosR - dy * sinR;
+          const localY = dx * sinR + dy * cosR;
+          const rx = Math.abs(localX);
+          const ry = Math.abs(localY);
+          const initialAngle = Math.atan2(dy, dx);
           modifyMode = {
             ...modifyMode,
             phase: 'ellipse-angle',
@@ -390,10 +398,18 @@
         }
       } else if (modifyMode.phase === 'ellipse-radii' && modifyMode.tempCenter && modifyMouseImagePos) {
         // Capture current radii from mouse position and switch to angle
-        const rx = Math.abs(modifyMouseImagePos.x - modifyMode.tempCenter.x);
-        const ry = Math.abs(modifyMouseImagePos.y - modifyMode.tempCenter.y);
+        // Account for existing rotation when computing radii
+        const dx = modifyMouseImagePos.x - modifyMode.tempCenter.x;
+        const dy = modifyMouseImagePos.y - modifyMode.tempCenter.y;
+        const currentRotation = modifyMode.tempRotation ?? 0;
+        const cosR = Math.cos(-currentRotation);
+        const sinR = Math.sin(-currentRotation);
+        const localX = dx * cosR - dy * sinR;
+        const localY = dx * sinR + dy * cosR;
+        const rx = Math.abs(localX);
+        const ry = Math.abs(localY);
         // Compute angle offset to preserve existing rotation if any
-        const rawAngle = Math.atan2(modifyMouseImagePos.y - modifyMode.tempCenter.y, modifyMouseImagePos.x - modifyMode.tempCenter.x);
+        const rawAngle = Math.atan2(dy, dx);
         const desiredRotation = modifyMode.tempRotation ?? 0;
         modifyMode = {
           ...modifyMode,
@@ -1272,13 +1288,21 @@
         showHudNotification('Move mouse to set width & height, then click');
       }
     } else if (modifyMode.phase === 'ellipse-radii') {
-      // Store radii based on mouse offset from center
+      // Store radii based on mouse offset from center, accounting for existing rotation
       const center = modifyMode.tempCenter!;
-      const rx = Math.abs(imagePos.x - center.x);
-      const ry = Math.abs(imagePos.y - center.y);
+      const dx = imagePos.x - center.x;
+      const dy = imagePos.y - center.y;
+      // Transform mouse offset into ellipse's local coordinate system
+      const currentRotation = modifyMode.tempRotation ?? 0;
+      const cosR = Math.cos(-currentRotation);
+      const sinR = Math.sin(-currentRotation);
+      const localX = dx * cosR - dy * sinR;
+      const localY = dx * sinR + dy * cosR;
+      const rx = Math.abs(localX);
+      const ry = Math.abs(localY);
       // If we already have an angle offset (user went back to adjust size), preserve it
       // Otherwise, create a new one based on current mouse position
-      const initialAngle = modifyMode.tempAngleOffset ?? Math.atan2(imagePos.y - center.y, imagePos.x - center.x);
+      const initialAngle = modifyMode.tempAngleOffset ?? Math.atan2(dy, dx);
       modifyMode = {
         phase: 'ellipse-angle',
         annotation,

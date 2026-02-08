@@ -403,10 +403,16 @@
           </g>
         {/if}
       {:else if modifyPhase === 'ellipse-radii' && modifyCenter}
-        <!-- Show ellipse preview with horizontal/vertical mouse offset for rx/ry -->
+        <!-- Show ellipse preview with mouse offset transformed by rotation for rx/ry -->
         {@const centerScreen = imageToScreen(modifyCenter.x, modifyCenter.y)}
-        {@const rxImage = Math.abs(modifyMousePos.x - modifyCenter.x)}
-        {@const ryImage = Math.abs(modifyMousePos.y - modifyCenter.y)}
+        {@const dx = modifyMousePos.x - modifyCenter.x}
+        {@const dy = modifyMousePos.y - modifyCenter.y}
+        {@const cosR = Math.cos(-modifyRotation)}
+        {@const sinR = Math.sin(-modifyRotation)}
+        {@const localX = dx * cosR - dy * sinR}
+        {@const localY = dx * sinR + dy * cosR}
+        {@const rxImage = Math.abs(localX)}
+        {@const ryImage = Math.abs(localY)}
         {@const rx = getScreenRadius(Math.max(rxImage, 1))}
         {@const ry = getScreenRadius(Math.max(ryImage, 1))}
         {@const angleDeg = modifyRotation * (180 / Math.PI)}
