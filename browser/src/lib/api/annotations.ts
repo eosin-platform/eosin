@@ -51,7 +51,7 @@ export interface MaskGeometry {
   y0_level0: number;
   width: number;
   height: number;
-  mask_base64: string;
+  data_base64: string;
 }
 
 /** Union type for all geometry types */

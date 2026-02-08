@@ -77,7 +77,7 @@
     dispatchToolCommand({ type: 'measure' });
   }
   
-  function handleAnnotationTool(tool: 'point' | 'ellipse' | 'polygon' | 'mask') {
+  function handleAnnotationTool(tool: 'point' | 'ellipse' | 'polygon' | 'lasso' | 'mask') {
     // Toggle off if already active, otherwise activate
     if (tools.annotationTool === tool) {
       dispatchToolCommand({ type: 'annotation', tool: null });
@@ -201,9 +201,23 @@
         </button>
         <button 
           class="tool-btn"
+          class:active={tools.annotationTool === 'lasso'}
+          onclick={() => handleAnnotationTool('lasso')}
+          title="Lasso Annotation (hold 3)"
+          aria-label="Lasso annotation"
+        >
+          <!-- Lasso/blob icon - Photoshop-style freehand selection -->
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 12c0-4 3-8 8-8 4 0 7 2.5 8 6 .5 2-.5 4-2 5.5-1.5 1.5-3.5 2.5-6 2.5-3 0-5.5-1-7-3"></path>
+            <path d="M4 12c-.5 2 0 4 2 5.5 1 .8 2.5 1.5 4 1.5"></path>
+            <circle cx="10" cy="19" r="2"></circle>
+          </svg>
+        </button>
+        <button 
+          class="tool-btn"
           class:active={tools.annotationTool === 'polygon'}
           onclick={() => handleAnnotationTool('polygon')}
-          title="Polygon Annotation (3)"
+          title="Polygon Annotation (tap 3)"
           aria-label="Polygon annotation"
         >
           <!-- Pentagon/polygon icon -->

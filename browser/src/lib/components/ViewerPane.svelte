@@ -939,8 +939,10 @@
           if (canCreate) handleStartMultiPointCreation();
         } else if (cmd.tool === 'ellipse') {
           if (canCreate) handleStartEllipseCreation();
-        } else if (cmd.tool === 'polygon') {
+        } else if (cmd.tool === 'lasso') {
           if (canCreate) handleStartFreehandLasso();
+        } else if (cmd.tool === 'polygon') {
+          if (canCreate) handleStartPolygonCreation();
         } else if (cmd.tool === 'mask') {
           if (canCreate) handleStartMaskPainting();
         }
@@ -956,7 +958,8 @@
         annotationTool: 
           modifyMode.phase === 'multi-point' ? 'point' :
           modifyMode.phase === 'ellipse-center' || modifyMode.phase === 'ellipse-radii' || modifyMode.phase === 'ellipse-angle' ? 'ellipse' :
-          modifyMode.phase === 'polygon-vertices' || modifyMode.phase === 'polygon-edit' || modifyMode.phase === 'polygon-freehand' ? 'polygon' :
+          modifyMode.phase === 'polygon-freehand' ? 'lasso' :
+          modifyMode.phase === 'polygon-vertices' || modifyMode.phase === 'polygon-edit' ? 'polygon' :
           modifyMode.phase === 'mask-paint' ? 'mask' : null,
         measurementActive: measurement.active,
         measurementMode: measurement.mode,
@@ -2126,7 +2129,7 @@
       y0_level0: maskTileOrigin.y,
       width: MASK_TILE_SIZE,
       height: MASK_TILE_SIZE,
-      mask_base64: base64,
+      data_base64: base64,
     };
     
     try {

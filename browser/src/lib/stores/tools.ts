@@ -9,7 +9,7 @@
 import { writable, derived } from 'svelte/store';
 
 // Tool types that can be active
-export type AnnotationTool = 'point' | 'ellipse' | 'polygon' | 'mask' | null;
+export type AnnotationTool = 'point' | 'ellipse' | 'polygon' | 'lasso' | 'mask' | null;
 export type MeasurementMode = 'drag' | 'toggle' | 'pending' | null;
 
 export interface ToolState {
