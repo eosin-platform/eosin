@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
+  import { browser } from '$app/environment';
   import { settingsModalOpen, helpMenuOpen, settings, type StainEnhancementMode } from '$lib/stores/settings';
   import { authStore, loginModalOpen } from '$lib/stores/auth';
   import { logout } from '$lib/auth/client';
@@ -86,12 +87,35 @@
     }
   }
   
-  // Stain enhancement and annotations handlers
-  function handleStainEnhancementChange(e: Event) {
-    const target = e.target as HTMLSelectElement;
-    stainEnhancement = target.value as StainEnhancementMode;
-    settings.setSetting('image', 'stainEnhancement', stainEnhancement);
+  // Stain enhancement dropdown state
+  let enhancementDropdownOpen = $state(false);
+  let enhancementDropdownEl = $state<HTMLDivElement>();
+  
+  function toggleEnhancementDropdown() {
+    enhancementDropdownOpen = !enhancementDropdownOpen;
   }
+  
+  function selectEnhancement(mode: StainEnhancementMode) {
+    stainEnhancement = mode;
+    settings.setSetting('image', 'stainEnhancement', mode);
+    enhancementDropdownOpen = false;
+  }
+  
+  function handleEnhancementClickOutside(e: MouseEvent) {
+    if (enhancementDropdownEl && !enhancementDropdownEl.contains(e.target as Node)) {
+      enhancementDropdownOpen = false;
+    }
+  }
+  
+  // Set up click-outside handler for enhancement dropdown
+  $effect(() => {
+    if (browser && enhancementDropdownOpen) {
+      document.addEventListener('click', handleEnhancementClickOutside, true);
+      return () => {
+        document.removeEventListener('click', handleEnhancementClickOutside, true);
+      };
+    }
+  });
   
   function toggleAnnotations() {
     annotationsVisible = !annotationsVisible;
@@ -242,17 +266,42 @@
       
       <div class="tool-separator"></div>
       
-      <!-- Stain enhancement selector -->
-      <select
-        value={stainEnhancement}
-        onchange={handleStainEnhancementChange}
-        class="stain-select"
-        title="Stain Enhancement"
-      >
-        {#each stainEnhancementOptions as mode}
-          <option value={mode.value}>{mode.label}</option>
-        {/each}
-      </select>
+      <!-- Stain enhancement selector (custom dropdown) -->
+      <div class="enhancement-dropdown" bind:this={enhancementDropdownEl}>
+        <button 
+          class="enhancement-trigger"
+          class:open={enhancementDropdownOpen}
+          onclick={toggleEnhancementDropdown}
+          title="Stain Enhancement"
+          aria-haspopup="listbox"
+          aria-expanded={enhancementDropdownOpen}
+        >
+          <span class="enhancement-label">{stainEnhancementOptions.find(o => o.value === stainEnhancement)?.label ?? 'None'}</span>
+          <svg class="enhancement-chevron" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </button>
+        {#if enhancementDropdownOpen}
+          <div class="enhancement-menu" role="listbox">
+            {#each stainEnhancementOptions as mode}
+              <button
+                class="enhancement-option"
+                class:selected={stainEnhancement === mode.value}
+                onclick={() => selectEnhancement(mode.value)}
+                role="option"
+                aria-selected={stainEnhancement === mode.value}
+              >
+                {mode.label}
+                {#if stainEnhancement === mode.value}
+                  <svg class="check-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                  </svg>
+                {/if}
+              </button>
+            {/each}
+          </div>
+        {/if}
+      </div>
       
       <!-- Toggle annotations visibility -->
       <button
@@ -452,9 +501,17 @@
     margin: 0 4px;
   }
 
-  .stain-select {
+  /* Custom enhancement dropdown */
+  .enhancement-dropdown {
+    position: relative;
+  }
+  
+  .enhancement-trigger {
+    display: flex;
+    align-items: center;
+    gap: 6px;
     height: 32px;
-    padding: 0 8px;
+    padding: 0 10px;
     background: rgba(255, 255, 255, 0.08);
     border: 1px solid rgba(255, 255, 255, 0.15);
     border-radius: 4px;
@@ -464,19 +521,80 @@
     outline: none;
     transition: background-color 0.15s, border-color 0.15s;
   }
-
-  .stain-select:hover {
+  
+  .enhancement-trigger:hover {
     background: rgba(255, 255, 255, 0.12);
     border-color: rgba(255, 255, 255, 0.25);
   }
-
-  .stain-select:focus {
+  
+  .enhancement-trigger:focus,
+  .enhancement-trigger.open {
     border-color: #0088ff;
   }
-
-  .stain-select option {
-    background: #1a1a1a;
+  
+  .enhancement-label {
+    min-width: 40px;
+  }
+  
+  .enhancement-chevron {
+    transition: transform 0.15s;
+  }
+  
+  .enhancement-trigger.open .enhancement-chevron {
+    transform: rotate(180deg);
+  }
+  
+  .enhancement-menu {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    min-width: 100%;
+    background: #222;
+    border: 1px solid #444;
+    border-radius: 6px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+    padding: 4px 0;
+    z-index: 1000;
+    animation: dropdownFadeIn 0.1s ease-out;
+  }
+  
+  @keyframes dropdownFadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(-4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  
+  .enhancement-option {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding: 8px 12px;
+    background: transparent;
+    border: none;
+    color: #ccc;
+    font-size: 0.85rem;
+    text-align: left;
+    cursor: pointer;
+    transition: background-color 0.1s, color 0.1s;
+  }
+  
+  .enhancement-option:hover {
+    background: rgba(255, 255, 255, 0.1);
     color: #fff;
+  }
+  
+  .enhancement-option.selected {
+    color: #0088ff;
+  }
+  
+  .check-icon {
+    color: #0088ff;
   }
 
   .tool-btn {
