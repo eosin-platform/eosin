@@ -27,6 +27,9 @@
   import MeasurementOverlay from '$lib/components/viewer/MeasurementOverlay.svelte';
   import AnnotationOverlay from '$lib/components/viewer/AnnotationOverlay.svelte';
   import ViewportContextMenu from '$lib/components/ViewportContextMenu.svelte';
+  import AnnotationContextMenu from '$lib/components/AnnotationContextMenu.svelte';
+  import { annotationStore } from '$lib/stores/annotations';
+  import type { Annotation, PointGeometry, EllipseGeometry } from '$lib/api/annotations';
   import { tabStore, type Tab } from '$lib/stores/tabs';
   import { acquireCache, releaseCache } from '$lib/stores/slideCache';
   import { updatePerformanceMetrics } from '$lib/stores/metrics';
@@ -119,6 +122,21 @@
   let contextMenuVisible = $state(false);
   let contextMenuX = $state(0);
   let contextMenuY = $state(0);
+
+  // Annotation context menu state
+  let annotationMenuVisible = $state(false);
+  let annotationMenuX = $state(0);
+  let annotationMenuY = $state(0);
+  let annotationMenuTarget = $state<Annotation | null>(null);
+
+  // Annotation modification mode state
+  type ModifyPhase = 'idle' | 'point-position' | 'ellipse-center' | 'ellipse-radii' | 'ellipse-angle';
+  let modifyMode = $state<{
+    phase: ModifyPhase;
+    annotation: Annotation | null;
+    tempCenter?: { x: number; y: number };
+    tempRadii?: { rx: number; ry: number };
+  }>({ phase: 'idle', annotation: null });
 
   // Long press state for mobile context menu
   let longPressTimer: ReturnType<typeof setTimeout> | null = null;
@@ -250,13 +268,17 @@
         };
       }
     }
-    // Escape closes help and cancels measurement
+    // Escape closes help and cancels measurement and modify mode
     if (e.key === 'Escape') {
       if ($helpMenuOpen) {
         helpMenuOpen.set(false);
       }
       if (measurement.active) {
         cancelMeasurement();
+      }
+      if (modifyMode.phase !== 'idle') {
+        cancelModifyMode();
+        showHudNotification('Modification cancelled');
       }
     }
   }
@@ -666,6 +688,14 @@
 
   // Mouse event handlers
   function handleMouseDown(e: MouseEvent) {
+    // Handle annotation modification mode clicks
+    if (modifyMode.phase !== 'idle' && e.button === 0) {
+      e.preventDefault();
+      e.stopPropagation();
+      handleModifyClick(e);
+      return;
+    }
+
     // Middle mouse button (button 1) - start drag measurement
     if (e.button === 1) {
       e.preventDefault();
@@ -909,6 +939,108 @@
     contextMenuImageY = undefined;
   }
 
+  // Annotation context menu handlers
+  function handleAnnotationRightClick(annotation: Annotation, screenX: number, screenY: number) {
+    annotationMenuX = screenX;
+    annotationMenuY = screenY;
+    annotationMenuTarget = annotation;
+    annotationMenuVisible = true;
+  }
+
+  function handleAnnotationMenuClose() {
+    annotationMenuVisible = false;
+    annotationMenuTarget = null;
+  }
+
+  function handleAnnotationModify(annotation: Annotation) {
+    // Start modification mode based on annotation kind
+    if (annotation.kind === 'point') {
+      modifyMode = { phase: 'point-position', annotation };
+      showHudNotification('Click to set new position');
+    } else if (annotation.kind === 'ellipse') {
+      modifyMode = { phase: 'ellipse-center', annotation };
+      showHudNotification('Click to set center');
+    }
+  }
+
+  function cancelModifyMode() {
+    modifyMode = { phase: 'idle', annotation: null };
+  }
+
+  async function handleModifyClick(e: MouseEvent) {
+    if (!modifyMode.annotation) return;
+    
+    const imagePos = screenToImage(e.clientX, e.clientY);
+    const annotation = modifyMode.annotation;
+
+    if (modifyMode.phase === 'point-position') {
+      // Update point position
+      try {
+        await annotationStore.updateAnnotation(annotation.id, {
+          geometry: {
+            x_level0: imagePos.x,
+            y_level0: imagePos.y,
+          },
+        });
+        showHudNotification('Point updated');
+      } catch (err) {
+        console.error('Failed to update point:', err);
+        showHudNotification('Failed to update point');
+      }
+      cancelModifyMode();
+    } else if (modifyMode.phase === 'ellipse-center') {
+      // Store center and move to radii phase
+      modifyMode = {
+        phase: 'ellipse-radii',
+        annotation,
+        tempCenter: { x: imagePos.x, y: imagePos.y },
+      };
+      showHudNotification('Move mouse to set size, then click');
+    } else if (modifyMode.phase === 'ellipse-radii') {
+      // Store radii and move to angle phase
+      const center = modifyMode.tempCenter!;
+      const dx = imagePos.x - center.x;
+      const dy = imagePos.y - center.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      modifyMode = {
+        phase: 'ellipse-angle',
+        annotation,
+        tempCenter: center,
+        tempRadii: { rx: distance, ry: distance * 0.6 }, // Slightly elliptical by default
+      };
+      showHudNotification('Move mouse to set rotation, then click');
+    } else if (modifyMode.phase === 'ellipse-angle') {
+      // Calculate final angle and update
+      const center = modifyMode.tempCenter!;
+      const dx = imagePos.x - center.x;
+      const dy = imagePos.y - center.y;
+      const angle = Math.atan2(dy, dx);
+      
+      try {
+        await annotationStore.updateAnnotation(annotation.id, {
+          geometry: {
+            cx_level0: center.x,
+            cy_level0: center.y,
+            radius_x: modifyMode.tempRadii!.rx,
+            radius_y: modifyMode.tempRadii!.ry,
+            rotation_radians: angle,
+          },
+        });
+        showHudNotification('Ellipse updated');
+      } catch (err) {
+        console.error('Failed to update ellipse:', err);
+        showHudNotification('Failed to update ellipse');
+      }
+      cancelModifyMode();
+    }
+  }
+
+  // Get current modify preview position (for rendering in overlay)
+  function getModifyPreview(): { x: number; y: number; rx?: number; ry?: number; rotation?: number } | null {
+    if (modifyMode.phase === 'idle') return null;
+    return null; // Preview is handled in overlay via props
+  }
+
   function cancelLongPress() {
     if (longPressTimer) {
       clearTimeout(longPressTimer);
@@ -1024,6 +1156,7 @@
   class="viewer-container"
   class:measuring={measurement.active}
   class:measuring-toggle={measurement.active && measurement.mode === 'toggle'}
+  class:modifying={modifyMode.phase !== 'idle'}
   bind:this={container}
   onmousedown={handleMouseDown}
   onmousemove={handleMouseMove}
@@ -1055,6 +1188,7 @@
       viewportZoom={viewport.zoom}
       containerWidth={viewport.width}
       containerHeight={viewport.height}
+      onAnnotationRightClick={handleAnnotationRightClick}
     />
     
     <!-- Viewer HUD overlay (top-left) -->
@@ -1149,6 +1283,16 @@
     onCopyImage={handleCopyImage}
     onClose={handleContextMenuClose}
   />
+
+  <!-- Annotation context menu (right-click on annotation) -->
+  <AnnotationContextMenu
+    x={annotationMenuX}
+    y={annotationMenuY}
+    visible={annotationMenuVisible}
+    annotation={annotationMenuTarget}
+    onClose={handleAnnotationMenuClose}
+    onModify={handleAnnotationModify}
+  />
 </div>
 
 <style>
@@ -1177,6 +1321,15 @@
   }
 
   .viewer-container.measuring-toggle {
+    cursor: crosshair;
+  }
+
+  /* Modify mode cursor */
+  .viewer-container.modifying {
+    cursor: crosshair;
+  }
+
+  .viewer-container.modifying:active {
     cursor: crosshair;
   }
 

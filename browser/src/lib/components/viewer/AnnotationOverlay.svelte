@@ -15,9 +15,11 @@
     containerHeight: number;
     /** Callback when an annotation is clicked */
     onAnnotationClick?: (annotation: Annotation, screenX: number, screenY: number) => void;
+    /** Callback when an annotation is right-clicked */
+    onAnnotationRightClick?: (annotation: Annotation, screenX: number, screenY: number) => void;
   }
 
-  let { viewportX, viewportY, viewportZoom, containerWidth, containerHeight, onAnnotationClick }: Props = $props();
+  let { viewportX, viewportY, viewportZoom, containerWidth, containerHeight, onAnnotationClick, onAnnotationRightClick }: Props = $props();
 
   // Settings: global annotation visibility
   let globalVisible = $state(true);
@@ -155,6 +157,15 @@
     }
   }
 
+  // Handle annotation right-click
+  function handleContextMenu(e: MouseEvent, annotation: Annotation) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (onAnnotationRightClick) {
+      onAnnotationRightClick(annotation, e.clientX, e.clientY);
+    }
+  }
+
   // Handle annotation hover
   function handleMouseEnter(annotation: Annotation) {
     annotationStore.setHighlightedAnnotation(annotation.id);
@@ -225,6 +236,7 @@
             class:highlighted={isHighlighted}
             class:selected={isSelected}
             onclick={(e) => handleClick(e, annotation)}
+            oncontextmenu={(e) => handleContextMenu(e, annotation)}
             onmouseenter={() => handleMouseEnter(annotation)}
             onmouseleave={handleMouseLeave}
           >
@@ -253,6 +265,7 @@
             class:highlighted={isHighlighted}
             class:selected={isSelected}
             onclick={(e) => handleClick(e, annotation)}
+            oncontextmenu={(e) => handleContextMenu(e, annotation)}
             onmouseenter={() => handleMouseEnter(annotation)}
             onmouseleave={handleMouseLeave}
           >
@@ -286,6 +299,7 @@
             class:highlighted={isHighlighted}
             class:selected={isSelected}
             onclick={(e) => handleClick(e, annotation)}
+            oncontextmenu={(e) => handleContextMenu(e, annotation)}
             onmouseenter={() => handleMouseEnter(annotation)}
             onmouseleave={handleMouseLeave}
           >
@@ -309,6 +323,7 @@
             class:highlighted={isHighlighted}
             class:selected={isSelected}
             onclick={(e) => handleClick(e, annotation)}
+            oncontextmenu={(e) => handleContextMenu(e, annotation)}
             onmouseenter={() => handleMouseEnter(annotation)}
             onmouseleave={handleMouseLeave}
           >
@@ -336,6 +351,7 @@
             class:highlighted={isHighlighted}
             class:selected={isSelected}
             onclick={(e) => handleClick(e, annotation)}
+            oncontextmenu={(e) => handleContextMenu(e, annotation)}
             onmouseenter={() => handleMouseEnter(annotation)}
             onmouseleave={handleMouseLeave}
           >
