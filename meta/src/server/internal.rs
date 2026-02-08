@@ -1,31 +1,316 @@
-//! HTTP handlers for slide annotations.
+//! Internal HTTP server for service-to-service communication.
+//!
+//! This server does not require authentication. The user_id is passed in
+//! request bodies for operations that need it.
 
+use anyhow::{Context, Result};
 use axum::{
-    Json,
+    Json, Router,
     extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
+    routing::{get, put},
 };
-use eosin_common::rbac::UserId;
+use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
+use tokio::net::TcpListener;
+use tokio_util::sync::CancellationToken;
+use tower_http::cors::{Any, CorsLayer};
 use uuid::Uuid;
 
 use crate::{
     annotation_db,
     annotation_models::{
-        AnnotationKind, CreateAnnotationRequest, CreateAnnotationSetRequest, ListAnnotationsQuery,
-        PolygonPath, UpdateAnnotationRequest, UpdateAnnotationSetRequest,
+        AnnotationKind, ListAnnotationsQuery, PolygonPath,
     },
     bitmask::Bitmask,
-    server::AppState,
+    db,
+    models::{
+        CreateSlideRequest, ListSlidesRequest, UpdateSlideProgressRequest, UpdateSlideRequest,
+    },
 };
+
+use super::AppState;
+
+// =============================================================================
+// Internal Request Types (include user_id where needed)
+// =============================================================================
+
+/// Request to create a new annotation set (internal).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateAnnotationSetRequest {
+    pub name: String,
+    pub task_type: String,
+    #[serde(default)]
+    pub metadata: Option<serde_json::Value>,
+    #[serde(default)]
+    pub locked: Option<bool>,
+    /// User ID who created this annotation set
+    #[serde(default)]
+    pub created_by: Option<Uuid>,
+}
+
+/// Request to create a new annotation (internal).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateAnnotationRequest {
+    pub kind: AnnotationKind,
+    pub label_id: String,
+    #[serde(default)]
+    pub metadata: Option<serde_json::Value>,
+    #[serde(default)]
+    pub source: Option<String>,
+    pub geometry: serde_json::Value,
+    /// User ID who created this annotation
+    #[serde(default)]
+    pub created_by: Option<Uuid>,
+}
+
+/// Request to update an annotation set.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateAnnotationSetRequest {
+    pub name: Option<String>,
+    pub task_type: Option<String>,
+    pub metadata: Option<serde_json::Value>,
+    pub locked: Option<bool>,
+}
+
+/// Request to update an annotation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateAnnotationRequest {
+    pub label_id: Option<String>,
+    pub metadata: Option<serde_json::Value>,
+    pub geometry: Option<serde_json::Value>,
+}
+
+// =============================================================================
+// Server Setup
+// =============================================================================
+
+pub async fn run_server(cancel: CancellationToken, port: u16, state: AppState) -> Result<()> {
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods(Any)
+        .allow_headers(Any);
+
+    let app = Router::new()
+        // Health checks
+        .route("/readyz", get(health))
+        .route("/healthz", get(health))
+        // Slide routes
+        .route("/slides", get(list_slides).post(create_slide))
+        .route(
+            "/slides/{id}",
+            get(get_slide).patch(update_slide).delete(delete_slide),
+        )
+        .route("/slides/{id}/progress", put(update_slide_progress))
+        // Annotation set routes
+        .route(
+            "/slides/{slide_id}/annotation-sets",
+            get(list_annotation_sets).post(create_annotation_set),
+        )
+        .route(
+            "/annotation-sets/{id}",
+            get(get_annotation_set)
+                .patch(update_annotation_set)
+                .delete(delete_annotation_set),
+        )
+        // Annotation routes
+        .route(
+            "/annotation-sets/{annotation_set_id}/annotations",
+            get(list_annotations).post(create_annotation),
+        )
+        .route(
+            "/annotations/{id}",
+            get(get_annotation)
+                .patch(update_annotation)
+                .delete(delete_annotation),
+        )
+        .layer(cors)
+        .with_state(state);
+
+    let addr = format!("0.0.0.0:{}", port);
+    let listener = TcpListener::bind(&addr)
+        .await
+        .context("failed to bind internal server")?;
+    tracing::info!(%addr, "starting internal meta HTTP server");
+
+    axum::serve(listener, app)
+        .with_graceful_shutdown(async move {
+            cancel.cancelled().await;
+        })
+        .await
+        .context("internal server failed")?;
+
+    tracing::info!("internal server stopped gracefully");
+    Ok(())
+}
+
+// =============================================================================
+// Slide Handlers
+// =============================================================================
+
+/// Health check endpoint
+pub async fn health() -> impl IntoResponse {
+    "OK"
+}
+
+/// Create a new slide
+pub async fn create_slide(
+    State(state): State<AppState>,
+    Json(req): Json<CreateSlideRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let slide = db::insert_slide(
+        &state.pool,
+        req.id,
+        req.width,
+        req.height,
+        &req.url,
+        &req.filename,
+        req.full_size,
+    )
+    .await
+    .map_err(|e| {
+        tracing::error!("failed to create slide: {:?}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("failed to create slide: {}", e),
+        )
+    })?;
+
+    Ok((StatusCode::CREATED, Json(slide)))
+}
+
+/// Get a slide by ID
+pub async fn get_slide(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let slide = db::get_slide(&state.pool, id).await.map_err(|e| {
+        tracing::error!("failed to get slide: {:?}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("failed to get slide: {}", e),
+        )
+    })?;
+
+    match slide {
+        Some(s) => Ok(Json(s)),
+        None => Err((StatusCode::NOT_FOUND, format!("slide {} not found", id))),
+    }
+}
+
+/// Update a slide by ID
+pub async fn update_slide(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Json(req): Json<UpdateSlideRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let slide = db::update_slide(
+        &state.pool,
+        id,
+        req.width,
+        req.height,
+        req.url.as_deref(),
+        req.filename.as_deref(),
+        req.full_size,
+    )
+    .await
+    .map_err(|e| {
+        tracing::error!("failed to update slide: {:?}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("failed to update slide: {}", e),
+        )
+    })?;
+
+    match slide {
+        Some(s) => Ok(Json(s)),
+        None => Err((StatusCode::NOT_FOUND, format!("slide {} not found", id))),
+    }
+}
+
+/// Delete a slide by ID
+pub async fn delete_slide(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let deleted = db::delete_slide(&state.pool, id).await.map_err(|e| {
+        tracing::error!("failed to delete slide: {:?}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("failed to delete slide: {}", e),
+        )
+    })?;
+
+    if deleted {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err((StatusCode::NOT_FOUND, format!("slide {} not found", id)))
+    }
+}
+
+/// List slides with pagination
+pub async fn list_slides(
+    State(state): State<AppState>,
+    Query(req): Query<ListSlidesRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    if req.limit <= 0 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "limit must be positive".to_string(),
+        ));
+    }
+    if req.offset < 0 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "offset must be non-negative".to_string(),
+        ));
+    }
+
+    let limit = req.limit.min(1000);
+
+    let response = db::list_slides(&state.pool, req.offset, limit)
+        .await
+        .map_err(|e| {
+            tracing::error!("failed to list slides: {:?}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("failed to list slides: {}", e),
+            )
+        })?;
+
+    Ok(Json(response))
+}
+
+/// Update slide progress by ID
+pub async fn update_slide_progress(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Json(req): Json<UpdateSlideProgressRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let updated =
+        db::update_slide_progress(&state.pool, id, req.progress_steps, req.progress_total)
+            .await
+            .map_err(|e| {
+                tracing::error!("failed to update slide progress: {:?}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("failed to update slide progress: {}", e),
+                )
+            })?;
+
+    if updated {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err((StatusCode::NOT_FOUND, format!("slide {} not found", id)))
+    }
+}
 
 // =============================================================================
 // Annotation Set Handlers
 // =============================================================================
 
 /// List all annotation sets for a slide.
-/// GET /slides/{slide_id}/annotation-sets
 pub async fn list_annotation_sets(
     State(state): State<AppState>,
     Path(slide_id): Path<Uuid>,
@@ -44,10 +329,8 @@ pub async fn list_annotation_sets(
 }
 
 /// Create a new annotation set for a slide.
-/// POST /slides/{slide_id}/annotation-sets
 pub async fn create_annotation_set(
     State(state): State<AppState>,
-    UserId(user_id): UserId,
     Path(slide_id): Path<Uuid>,
     Json(req): Json<CreateAnnotationSetRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
@@ -59,7 +342,7 @@ pub async fn create_annotation_set(
         slide_id,
         &req.name,
         &req.task_type,
-        None, // TODO: Get created_by from auth context
+        req.created_by, // passed from request
         locked,
         &metadata,
     )
@@ -76,7 +359,6 @@ pub async fn create_annotation_set(
 }
 
 /// Get a single annotation set by ID.
-/// GET /annotation-sets/{id}
 pub async fn get_annotation_set(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
@@ -101,10 +383,8 @@ pub async fn get_annotation_set(
 }
 
 /// Update an annotation set.
-/// PATCH /annotation-sets/{id}
 pub async fn update_annotation_set(
     State(state): State<AppState>,
-    UserId(user_id): UserId,
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateAnnotationSetRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
@@ -135,10 +415,8 @@ pub async fn update_annotation_set(
 }
 
 /// Delete an annotation set.
-/// DELETE /annotation-sets/{id}
 pub async fn delete_annotation_set(
     State(state): State<AppState>,
-    UserId(user_id): UserId,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     let deleted = annotation_db::delete_annotation_set(&state.pool, id)
@@ -166,7 +444,6 @@ pub async fn delete_annotation_set(
 // =============================================================================
 
 /// List annotations in a set with optional filters.
-/// GET /annotation-sets/{annotation_set_id}/annotations
 pub async fn list_annotations(
     State(state): State<AppState>,
     Path(annotation_set_id): Path<Uuid>,
@@ -186,10 +463,8 @@ pub async fn list_annotations(
 }
 
 /// Create a new annotation with geometry.
-/// POST /annotation-sets/{annotation_set_id}/annotations
 pub async fn create_annotation(
     State(state): State<AppState>,
-    UserId(user_id): UserId,
     Path(annotation_set_id): Path<Uuid>,
     Json(req): Json<CreateAnnotationRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
@@ -203,7 +478,7 @@ pub async fn create_annotation(
                 &state.pool,
                 annotation_set_id,
                 &req.label_id,
-                None, // TODO: Get created_by from auth context
+                req.created_by, // passed from request
                 &metadata,
                 source,
                 geom.0,
@@ -218,7 +493,7 @@ pub async fn create_annotation(
                 annotation_set_id,
                 req.kind,
                 &req.label_id,
-                None,
+                req.created_by,
                 &metadata,
                 source,
                 &path,
@@ -231,7 +506,7 @@ pub async fn create_annotation(
                 &state.pool,
                 annotation_set_id,
                 &req.label_id,
-                None,
+                req.created_by,
                 &metadata,
                 source,
                 geom.0,
@@ -248,7 +523,7 @@ pub async fn create_annotation(
                 &state.pool,
                 annotation_set_id,
                 &req.label_id,
-                None,
+                req.created_by,
                 &metadata,
                 source,
                 x0,
@@ -271,7 +546,6 @@ pub async fn create_annotation(
 }
 
 /// Get a single annotation by ID.
-/// GET /annotations/{id}
 pub async fn get_annotation(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
@@ -296,11 +570,9 @@ pub async fn get_annotation(
 }
 
 /// Update an annotation.
-/// PATCH /annotations/{id}
 pub async fn update_annotation(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
-    UserId(user_id): UserId,
     Json(req): Json<UpdateAnnotationRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     let annotation = annotation_db::update_annotation(
@@ -329,10 +601,8 @@ pub async fn update_annotation(
 }
 
 /// Delete an annotation.
-/// DELETE /annotations/{id}
 pub async fn delete_annotation(
     State(state): State<AppState>,
-    UserId(user_id): UserId,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     let deleted = annotation_db::delete_annotation(&state.pool, id)
@@ -360,7 +630,6 @@ pub async fn delete_annotation(
 // =============================================================================
 
 /// Parse point geometry from JSON.
-/// Returns (x_level0, y_level0).
 fn parse_point_geometry(geom: &JsonValue) -> Result<(f64, f64), (StatusCode, String)> {
     let x = geom["x_level0"].as_f64().ok_or_else(|| {
         (
@@ -428,7 +697,6 @@ fn parse_polygon_geometry(geom: &JsonValue) -> Result<PolygonPath, (StatusCode, 
 }
 
 /// Parse ellipse geometry from JSON.
-/// Returns (cx_level0, cy_level0, radius_x, radius_y, rotation_radians).
 fn parse_ellipse_geometry(
     geom: &JsonValue,
 ) -> Result<(f64, f64, f64, f64, f64), (StatusCode, String)> {
@@ -474,7 +742,6 @@ fn parse_ellipse_geometry(
 }
 
 /// Parse mask geometry from JSON.
-/// Returns (x0_level0, y0_level0, Bitmask).
 fn parse_mask_geometry(geom: &JsonValue) -> Result<(f64, f64, Bitmask), (StatusCode, String)> {
     let x0 = geom["x0_level0"].as_f64().ok_or_else(|| {
         (

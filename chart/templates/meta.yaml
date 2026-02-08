@@ -28,12 +28,17 @@ spec:
         command:
           - eosin-meta
           - server
-          - --port
+          - --internal-port
           - "80"
+          - --public-port
+          - "3000"
         ports:
+        - containerPort: 3000
+          protocol: TCP
+          name: public
         - containerPort: 80
           protocol: TCP
-          name: http
+          name: internal
 {{- if .Values.prometheus.enabled }}
         - containerPort: 2112
           protocol: TCP
@@ -56,6 +61,7 @@ spec:
           value: {{ .Values.meta.logLevel }}
 {{ include "eosin.metrics-env" . | indent 8 }}
 {{ include "eosin.postgres-env" . | indent 8 }}
+{{ include "eosin.keycloak-env" . | indent 8 }}
 ---
 {{- if .Values.prometheus.enabled }}
 apiVersion: monitoring.coreos.com/v1
@@ -83,5 +89,7 @@ spec:
   selector:
     app: {{ .Release.Name }}-meta
   ports:
-  - name: http
+  - name: internal
     port: 80
+  - name: public
+    port: 3000

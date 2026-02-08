@@ -6,8 +6,8 @@ use serde_json::Value as JsonValue;
 use uuid::Uuid;
 
 use crate::annotation_models::{
-    AnnotationKind, AnnotationResponse, AnnotationSet, ListAnnotationsQuery,
-    ListAnnotationsResponse, ListAnnotationSetsResponse, Metadata, PolygonPath,
+    AnnotationKind, AnnotationResponse, AnnotationSet, ListAnnotationSetsResponse,
+    ListAnnotationsQuery, ListAnnotationsResponse, Metadata, PolygonPath,
 };
 use crate::bitmask::Bitmask;
 
@@ -24,7 +24,7 @@ pub async fn init_annotation_schema(pool: &Pool) -> Result<()> {
                 slide_id UUID NOT NULL REFERENCES slides(id) ON DELETE CASCADE,
                 name TEXT NOT NULL,
                 task_type TEXT NOT NULL DEFAULT 'other',
-                created_by TEXT,
+                created_by UUID,
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                 locked BOOLEAN NOT NULL DEFAULT FALSE,
                 metadata JSONB NOT NULL DEFAULT '{}'::jsonb
@@ -67,7 +67,7 @@ pub async fn init_annotation_schema(pool: &Pool) -> Result<()> {
                 annotation_set_id UUID NOT NULL REFERENCES annotation_sets(id) ON DELETE CASCADE,
                 kind TEXT NOT NULL,
                 label_id TEXT NOT NULL DEFAULT '',
-                created_by TEXT,
+                created_by UUID,
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                 updated_at TIMESTAMPTZ,
                 metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -229,7 +229,7 @@ pub async fn create_annotation_set(
     slide_id: Uuid,
     name: &str,
     task_type: &str,
-    created_by: Option<&str>,
+    created_by: Option<Uuid>,
     locked: bool,
     metadata: &Metadata,
 ) -> Result<AnnotationSet> {
@@ -270,7 +270,10 @@ pub async fn get_annotation_set(pool: &Pool, id: Uuid) -> Result<Option<Annotati
 }
 
 /// List annotation sets for a slide.
-pub async fn list_annotation_sets(pool: &Pool, slide_id: Uuid) -> Result<ListAnnotationSetsResponse> {
+pub async fn list_annotation_sets(
+    pool: &Pool,
+    slide_id: Uuid,
+) -> Result<ListAnnotationSetsResponse> {
     let client = pool.get().await.context("failed to get db connection")?;
 
     let rows = client
@@ -392,7 +395,7 @@ pub async fn create_point_annotation(
     pool: &Pool,
     annotation_set_id: Uuid,
     label_id: &str,
-    created_by: Option<&str>,
+    created_by: Option<Uuid>,
     metadata: &Metadata,
     source: Option<&str>,
     x_level0: f64,
@@ -443,7 +446,7 @@ pub async fn create_polygon_annotation(
     annotation_set_id: Uuid,
     kind: AnnotationKind,
     label_id: &str,
-    created_by: Option<&str>,
+    created_by: Option<Uuid>,
     metadata: &Metadata,
     source: Option<&str>,
     path: &PolygonPath,
@@ -492,7 +495,7 @@ pub async fn create_ellipse_annotation(
     pool: &Pool,
     annotation_set_id: Uuid,
     label_id: &str,
-    created_by: Option<&str>,
+    created_by: Option<Uuid>,
     metadata: &Metadata,
     source: Option<&str>,
     cx_level0: f64,
@@ -546,7 +549,7 @@ pub async fn create_mask_annotation(
     pool: &Pool,
     annotation_set_id: Uuid,
     label_id: &str,
-    created_by: Option<&str>,
+    created_by: Option<Uuid>,
     metadata: &Metadata,
     source: Option<&str>,
     x0_level0: f64,
@@ -795,7 +798,10 @@ pub async fn delete_annotation(pool: &Pool, id: Uuid) -> Result<bool> {
     Ok(rows_affected > 0)
 }
 
-fn row_to_annotation_response(row: &tokio_postgres::Row, geometry: JsonValue) -> AnnotationResponse {
+fn row_to_annotation_response(
+    row: &tokio_postgres::Row,
+    geometry: JsonValue,
+) -> AnnotationResponse {
     AnnotationResponse {
         id: row.get("id"),
         annotation_set_id: row.get("annotation_set_id"),
@@ -882,8 +888,8 @@ async fn fetch_geometry(
                 let data: Vec<u8> = row.get("data");
                 let width: i32 = row.get("width");
                 let height: i32 = row.get("height");
-                let bitmask = Bitmask::from_data(width, height, data)
-                    .context("failed to parse mask data")?;
+                let bitmask =
+                    Bitmask::from_data(width, height, data).context("failed to parse mask data")?;
                 json["data_base64"] = serde_json::Value::String(bitmask.to_base64());
             }
 
@@ -973,8 +979,8 @@ async fn update_geometry(
                 .as_str()
                 .context("data_base64 required for mask")?;
 
-            let bitmask = Bitmask::from_base64(width, height, data_base64)
-                .context("invalid bitmask data")?;
+            let bitmask =
+                Bitmask::from_base64(width, height, data_base64).context("invalid bitmask data")?;
 
             client
                 .execute(

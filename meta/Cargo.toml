@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 eosin-common = { path = "../common" }
 tokio = { workspace = true }
+tokio-util = { workspace = true }
 tokio-postgres-rustls = "0.13"
 tokio-postgres = { version = "0.7.14", features = [
     "with-chrono-0_4",

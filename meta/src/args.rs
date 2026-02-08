@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use eosin_common::args::PostgresArgs;
+use eosin_common::args::{KeycloakArgs, PostgresArgs};
 
 #[derive(Parser, Debug)]
 #[command(name = "eosin-meta")]
@@ -35,9 +35,13 @@ pub enum Commands {
 
 #[derive(Parser, Debug, Clone)]
 pub struct ServerArgs {
-    /// Port to listen on
-    #[arg(long, env = "META_PORT", default_value_t = 8080)]
-    pub port: u16,
+    /// Internal port to listen on (no auth required)
+    #[arg(long, env = "INTERNAL_PORT", required = true)]
+    pub internal_port: u16,
+
+    /// Public port to listen on (auth required)
+    #[arg(long, env = "PUBLIC_PORT", required = true)]
+    pub public_port: u16,
 
     #[clap(flatten)]
     pub postgres: PostgresArgs,
