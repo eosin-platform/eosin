@@ -1459,6 +1459,11 @@
     lastMouseX = e.clientX;
     lastMouseY = e.clientY;
 
+    // Close context menu when panning starts
+    if (contextMenuVisible) {
+      contextMenuVisible = false;
+    }
+
     // If panning during toggle measurement, cancel the measurement
     if (measurement.active && measurement.mode === 'toggle') {
       cancelMeasurement();
