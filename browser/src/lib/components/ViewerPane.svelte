@@ -35,7 +35,7 @@
   import { tabStore, type Tab } from '$lib/stores/tabs';
   import { acquireCache, releaseCache } from '$lib/stores/slideCache';
   import { updatePerformanceMetrics } from '$lib/stores/metrics';
-  import { settings, navigationSettings, imageSettings, helpMenuOpen, type StainNormalization, type StainEnhancementMode } from '$lib/stores/settings';
+  import { settings, navigationSettings, imageSettings, performanceSettings, helpMenuOpen, type StainNormalization, type StainEnhancementMode } from '$lib/stores/settings';
 
   interface Props {
     /** The pane ID this viewer belongs to */
@@ -169,6 +169,21 @@
   let maskBrushDragStart = $state<{ y: number } | null>(null); // Y position where middle-mouse drag started
   let maskBrushDragStartSize = $state<number>(20); // Brush size when middle-mouse drag started
 
+  // Undo/Redo system for annotations
+  // Each undo step stores a snapshot of the mask data before a brush stroke
+  interface UndoStep {
+    type: 'mask-stroke';
+    maskData: Uint8Array; // Snapshot of mask before the stroke
+    tileOrigin: { x: number; y: number };
+    annotationId: string | null;
+    description: string; // e.g., "Brush stroke" or "Erase stroke"
+  }
+  let undoStack = $state<UndoStep[]>([]);
+  let redoStack = $state<UndoStep[]>([]);
+  let undoBufferSize = $derived($performanceSettings.undoBufferSize);
+  let maskStateBeforeStroke = $state<Uint8Array | null>(null); // Snapshot before current brush stroke
+  let strokeWasErase = $state(false); // Track if current stroke is erasing
+
   // Track if '1' key is being held for multi-point mode
   let oneKeyHeld = $state(false);
 
@@ -268,6 +283,20 @@
     // Ignore if user is typing in an input field
     const target = e.target as HTMLElement;
     if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+      return;
+    }
+    
+    // Undo: Ctrl+Z (and Cmd+Z on Mac)
+    if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+      e.preventDefault();
+      performUndo();
+      return;
+    }
+    
+    // Redo: Ctrl+Y or Ctrl+Shift+Z (and Cmd+Shift+Z on Mac)
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey) || (e.key === 'Z' && e.shiftKey))) {
+      e.preventDefault();
+      performRedo();
       return;
     }
     
@@ -1132,6 +1161,9 @@
         e.preventDefault();
         e.stopPropagation();
         const imagePos = screenToImage(e.clientX, e.clientY);
+        // Capture mask state before stroke for undo
+        captureUndoState();
+        strokeWasErase = e.altKey;
         isMaskPainting = true;
         paintMaskBrush(imagePos.x, imagePos.y, e.altKey);
         return;
@@ -1293,6 +1325,8 @@
     // Stop mask painting on left button release
     if (e && e.button === 0 && modifyMode.phase === 'mask-paint' && isMaskPainting) {
       isMaskPainting = false;
+      // Commit the brush stroke to the undo stack
+      commitUndoStep();
       return;
     }
     
@@ -1746,6 +1780,11 @@
     maskDirty = false;
     isMaskPainting = false;
     
+    // Clear undo/redo stacks for new mask session
+    undoStack = [];
+    redoStack = [];
+    maskStateBeforeStroke = null;
+    
     modifyMode = {
       phase: 'mask-paint',
       annotation: null,
@@ -1772,6 +1811,113 @@
     const byteIndex = Math.floor((y * MASK_TILE_SIZE + x) / 8);
     const bitIndex = (y * MASK_TILE_SIZE + x) % 8;
     return (data[byteIndex] & (1 << bitIndex)) !== 0;
+  }
+
+  // Undo/Redo functions
+  function pushUndoStep(step: UndoStep) {
+    // Limit buffer size
+    while (undoStack.length >= undoBufferSize) {
+      undoStack.shift();
+    }
+    undoStack = [...undoStack, step];
+    // Clear redo stack on new action
+    redoStack = [];
+  }
+
+  function captureUndoState() {
+    if (maskPaintData && maskTileOrigin) {
+      maskStateBeforeStroke = new Uint8Array(maskPaintData);
+    }
+  }
+
+  function commitUndoStep() {
+    if (maskStateBeforeStroke && maskPaintData && maskTileOrigin) {
+      // Only push if mask actually changed
+      let hasChanges = false;
+      for (let i = 0; i < maskStateBeforeStroke.length; i++) {
+        if (maskStateBeforeStroke[i] !== maskPaintData[i]) {
+          hasChanges = true;
+          break;
+        }
+      }
+      if (hasChanges) {
+        pushUndoStep({
+          type: 'mask-stroke',
+          maskData: maskStateBeforeStroke,
+          tileOrigin: { ...maskTileOrigin },
+          annotationId: maskAnnotationId,
+          description: strokeWasErase ? 'Erase stroke' : 'Brush stroke',
+        });
+      }
+    }
+    maskStateBeforeStroke = null;
+    strokeWasErase = false;
+  }
+
+  function performUndo() {
+    if (undoStack.length === 0) {
+      showHudNotification('No Undo Available');
+      return;
+    }
+    
+    const step = undoStack[undoStack.length - 1];
+    undoStack = undoStack.slice(0, -1);
+    
+    if (step.type === 'mask-stroke') {
+      // Save current state to redo stack before restoring
+      if (maskPaintData && maskTileOrigin) {
+        const currentStep: UndoStep = {
+          type: 'mask-stroke',
+          maskData: new Uint8Array(maskPaintData),
+          tileOrigin: { ...maskTileOrigin },
+          annotationId: maskAnnotationId,
+          description: step.description,
+        };
+        redoStack = [...redoStack, currentStep];
+      }
+      
+      // Restore the mask state
+      maskPaintData = new Uint8Array(step.maskData);
+      maskTileOrigin = { ...step.tileOrigin };
+      maskAnnotationId = step.annotationId;
+      maskDirty = true;
+      scheduleMaskSync();
+      
+      showHudNotification(`Undo: ${step.description}`);
+    }
+  }
+
+  function performRedo() {
+    if (redoStack.length === 0) {
+      showHudNotification('No Redo Available');
+      return;
+    }
+    
+    const step = redoStack[redoStack.length - 1];
+    redoStack = redoStack.slice(0, -1);
+    
+    if (step.type === 'mask-stroke') {
+      // Save current state to undo stack before restoring
+      if (maskPaintData && maskTileOrigin) {
+        const currentStep: UndoStep = {
+          type: 'mask-stroke',
+          maskData: new Uint8Array(maskPaintData),
+          tileOrigin: { ...maskTileOrigin },
+          annotationId: maskAnnotationId,
+          description: step.description,
+        };
+        undoStack = [...undoStack, currentStep];
+      }
+      
+      // Restore the mask state
+      maskPaintData = new Uint8Array(step.maskData);
+      maskTileOrigin = { ...step.tileOrigin };
+      maskAnnotationId = step.annotationId;
+      maskDirty = true;
+      scheduleMaskSync();
+      
+      showHudNotification(`Redo: ${step.description}`);
+    }
   }
 
   // Paint a circle brush stroke at given image coordinates

@@ -81,6 +81,7 @@ export interface PerformanceSettings {
   prefetchLevel: PrefetchLevel;
   streamingQuality: StreamingQuality;
   hardwareAccelerationEnabled: boolean;
+  undoBufferSize: number; // Number of undo steps to keep (default 50)
 }
 
 export interface PrivacySettings {
@@ -162,6 +163,7 @@ export const DEFAULT_SETTINGS: Settings = {
     prefetchLevel: 'medium',
     streamingQuality: 'auto',
     hardwareAccelerationEnabled: false,
+    undoBufferSize: 50,
   },
   privacy: {
     phiMaskingEnabled: false,

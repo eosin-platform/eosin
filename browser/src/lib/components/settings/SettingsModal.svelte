@@ -35,6 +35,7 @@
 	let prefetchLevel = $state<PrefetchLevel>($settings.performance.prefetchLevel);
 	let streamingQuality = $state<StreamingQuality>($settings.performance.streamingQuality);
 	let hardwareAccelerationEnabled = $state($settings.performance.hardwareAccelerationEnabled);
+	let undoBufferSize = $state($settings.performance.undoBufferSize);
 
 	// Annotation settings
 	let showLabels = $state($settings.annotations.showLabels);
@@ -64,6 +65,7 @@
 		prefetchLevel = $settings.performance.prefetchLevel;
 		streamingQuality = $settings.performance.streamingQuality;
 		hardwareAccelerationEnabled = $settings.performance.hardwareAccelerationEnabled;
+		undoBufferSize = $settings.performance.undoBufferSize;
 		showLabels = $settings.annotations.showLabels;
 		autoClosePolygons = $settings.annotations.autoClosePolygons;
 		defaultColorPalette = [...$settings.annotations.defaultColorPalette];
@@ -168,6 +170,11 @@
 	function toggleHardwareAcceleration() {
 		hardwareAccelerationEnabled = !hardwareAccelerationEnabled;
 		settings.setSetting('performance', 'hardwareAccelerationEnabled', hardwareAccelerationEnabled);
+	}
+
+	function handleUndoBufferSizeChange(e: Event) {
+		undoBufferSize = parseInt((e.target as HTMLInputElement).value);
+		settings.setSetting('performance', 'undoBufferSize', undoBufferSize);
 	}
 
 	// --- Annotation tab handlers ---
@@ -504,6 +511,25 @@
 							</div>
 							<p class="setting-hint">
 								Uses GPU for rendering when available. Disable if you experience visual glitches.
+							</p>
+						</div>
+
+						<div class="setting-group">
+							<h3>Undo Buffer Size</h3>
+							<div class="slider-row">
+								<input
+									type="range"
+									min="10"
+									max="200"
+									step="10"
+									value={undoBufferSize}
+									oninput={handleUndoBufferSizeChange}
+									class="slider"
+								/>
+								<span class="slider-value">{undoBufferSize} steps</span>
+							</div>
+							<p class="setting-hint">
+								Maximum number of undo steps to keep. Higher values use more memory.
 							</p>
 						</div>
 
