@@ -1128,11 +1128,6 @@
       font-size: 0.875rem;
       min-height: 44px;
     }
-
-    /* Safe area for mobile browser toolbars */
-    .sidebar {
-      padding-bottom: env(safe-area-inset-bottom, 0px);
-    }
   }
 
   /* Section styles for VS Code-like split view */

@@ -334,7 +334,6 @@
   .connection-bar {
     display: flex;
     padding: 0.25rem 0.75rem;
-    padding-bottom: max(0.25rem, env(safe-area-inset-bottom, 0px));
     background: #111;
     border-top: 1px solid #222;
     align-items: center;

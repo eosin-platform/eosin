@@ -216,6 +216,7 @@
   let undoBufferSize = $derived($performanceSettings.undoBufferSize);
   let tilesBeforeStroke = $state<Map<string, UndoTileSnapshot>>(new Map()); // Snapshot before current stroke
   let strokeWasErase = $state(false); // Track if current stroke is erasing
+  let lastPaintPos = $state<{ x: number; y: number } | null>(null); // Last brush position for interpolation
 
   // Track if '1' key is being held for multi-point mode
   let oneKeyHeld = $state(false);
@@ -1291,6 +1292,7 @@
         captureUndoState();
         strokeWasErase = e.altKey;
         isMaskPainting = true;
+        lastPaintPos = imagePos; // Initialize for interpolation
         paintMaskBrush(imagePos.x, imagePos.y, e.altKey);
         return;
       }
@@ -1380,7 +1382,13 @@
       const imagePos = screenToImage(e.clientX, e.clientY);
       modifyMouseImagePos = imagePos; // Update for brush cursor preview
       isMaskPainting = true; // Ensure flag is set
-      paintMaskBrush(imagePos.x, imagePos.y, e.altKey);
+      // Interpolate from last position for smooth strokes
+      if (lastPaintPos) {
+        paintMaskBrushLine(lastPaintPos.x, lastPaintPos.y, imagePos.x, imagePos.y, e.altKey);
+      } else {
+        paintMaskBrush(imagePos.x, imagePos.y, e.altKey);
+      }
+      lastPaintPos = imagePos;
       return;
     }
     
@@ -1487,6 +1495,7 @@
     // Stop mask painting on left button release
     if (e && e.button === 0 && modifyMode.phase === 'mask-paint' && isMaskPainting) {
       isMaskPainting = false;
+      lastPaintPos = null; // Reset for next stroke
       // Commit the brush stroke to the undo stack
       commitUndoStep();
       // Sync to backend after stroke completes
@@ -2382,6 +2391,25 @@
     // Force reactivity by creating a new Map reference
     if (anyPixelsPainted) {
       maskTiles = new Map(maskTiles);
+    }
+  }
+
+  // Paint an interpolated line of brush strokes between two points
+  function paintMaskBrushLine(fromX: number, fromY: number, toX: number, toY: number, erase: boolean) {
+    const dx = toX - fromX;
+    const dy = toY - fromY;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    
+    // Step size based on brush radius - smaller steps for smoother lines
+    const radius = maskBrushSize / 2;
+    const stepSize = Math.max(1, radius * 0.3); // Step at 30% of radius for overlap
+    const steps = Math.max(1, Math.ceil(distance / stepSize));
+    
+    for (let i = 0; i <= steps; i++) {
+      const t = steps === 0 ? 1 : i / steps;
+      const x = fromX + dx * t;
+      const y = fromY + dy * t;
+      paintMaskBrush(x, y, erase);
     }
   }
 
