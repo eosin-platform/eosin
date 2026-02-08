@@ -332,10 +332,10 @@
     }
     
     if (e.key === 'n' || e.key === 'N') {
-      cycleNormalization();
+      if (isPaneFocused) cycleNormalization();
     }
     if (e.key === 'm' || e.key === 'M') {
-      cycleEnhancement();
+      if (isPaneFocused) cycleEnhancement();
     }
     if (e.key === 'h' || e.key === 'H') {
       e.preventDefault();
@@ -1479,6 +1479,8 @@
       isMaskPainting = false;
       // Commit the brush stroke to the undo stack
       commitUndoStep();
+      // Sync to backend after stroke completes
+      scheduleMaskSync();
       return;
     }
     
@@ -2280,8 +2282,6 @@
     if (anyPixelsPainted) {
       maskTiles = new Map(maskTiles);
     }
-    
-    scheduleMaskSync();
   }
 
   // Debounced sync to backend
