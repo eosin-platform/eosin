@@ -784,8 +784,9 @@
     openSlide();
   }
 
-  // Subscribe to this pane's active tab
+  // Subscribe to this pane's active tab and focus state
   let paneActiveTab = $state<Tab | null>(null);
+  let isPaneFocused = $state(false);
 
   const unsubSplit = tabStore.splitState.subscribe((s) => {
     const pane = s.panes.find((p) => p.paneId === paneId);
@@ -794,6 +795,7 @@
     } else {
       paneActiveTab = pane.tabs.find((t) => t.tabId === pane.activeTabId) ?? null;
     }
+    isPaneFocused = s.focusedPaneId === paneId;
   });
 
   // Subscribe to navigation requests from other components (e.g., Sidebar annotation clicks)
@@ -2038,8 +2040,8 @@
       isPanning={isDragging}
     />
     
-    <!-- Keyboard shortcut notification (center) -->
-    {#if hudNotification}
+    <!-- Keyboard shortcut notification (bottom center) - only show for focused pane -->
+    {#if hudNotification && isPaneFocused}
       <div class="hud-notification" class:fading={hudNotificationFading}>
         {@html hudNotification}
       </div>
