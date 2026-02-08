@@ -43,6 +43,16 @@
   });
 
   let menuElement: HTMLDivElement;
+  let menuMaxHeight = $state<string>('calc(100vh - 120px)');
+
+  // Calculate available height based on menu's actual position
+  function updateMenuHeight() {
+    if (menuElement && browser) {
+      const rect = menuElement.getBoundingClientRect();
+      const availableHeight = window.innerHeight - rect.top - 16; // 16px bottom margin
+      menuMaxHeight = `${Math.max(200, availableHeight)}px`;
+    }
+  }
 
   // Close menu on outside click or Escape
   function handleClickOutside(e: MouseEvent) {
@@ -65,6 +75,8 @@
     if (browser) {
       document.addEventListener('click', handleClickOutside, true);
       document.addEventListener('keydown', handleKeydown);
+      // Calculate initial max-height after menu is mounted
+      requestAnimationFrame(() => updateMenuHeight());
     }
   });
 
@@ -251,6 +263,7 @@
   bind:this={menuElement} 
   role="menu" 
   tabindex="-1"
+  style="max-height: {menuMaxHeight};"
   onmousedown={stopPropagation}
   ontouchstart={stopPropagation}
   onwheel={stopPropagation}
@@ -458,7 +471,6 @@
     top: calc(100% + 0.5rem);
     left: 0;
     min-width: 240px;
-    max-height: calc(100vh - 120px);
     overflow-y: auto;
     background: rgba(20, 20, 20, 0.95);
     backdrop-filter: blur(12px);
