@@ -229,7 +229,7 @@
   // Long press state for mobile context menu
   let longPressTimer: ReturnType<typeof setTimeout> | null = null;
   const LONG_PRESS_MS = 500;
-  const LONG_PRESS_MOVE_THRESHOLD = 90; // Pixels of movement allowed before canceling long press (3x normal for touch)
+  const LONG_PRESS_MOVE_THRESHOLD = 10; // Pixels of movement allowed before canceling long press
   let longPressStartX = 0;
   let longPressStartY = 0;
 
