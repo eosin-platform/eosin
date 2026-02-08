@@ -259,6 +259,59 @@
     
     return runs;
   }
+
+  // Get pixelated brush outline for cursor display
+  // Returns an SVG path string for the outline of pixels that would be painted
+  function getPixelatedBrushPath(centerX: number, centerY: number, brushSize: number): string {
+    const radius = brushSize / 2;
+    const minPx = Math.floor(centerX - radius);
+    const maxPx = Math.ceil(centerX + radius);
+    const minPy = Math.floor(centerY - radius);
+    const maxPy = Math.ceil(centerY + radius);
+    
+    // Build a set of pixel coordinates that are inside the brush
+    const pixels = new Set<string>();
+    for (let py = minPy; py <= maxPy; py++) {
+      for (let px = minPx; px <= maxPx; px++) {
+        // Check if pixel center is within brush radius
+        const dx = (px + 0.5) - centerX;
+        const dy = (py + 0.5) - centerY;
+        if (dx * dx + dy * dy <= radius * radius) {
+          pixels.add(`${px},${py}`);
+        }
+      }
+    }
+    
+    if (pixels.size === 0) return '';
+    
+    // Build outline path by checking each pixel's edges
+    const segments: string[] = [];
+    for (const key of pixels) {
+      const [px, py] = key.split(',').map(Number);
+      const topLeft = imageToScreen(px, py);
+      const size = viewportZoom;
+      
+      // Check each edge - if neighbor is not in set, draw that edge
+      // Top edge
+      if (!pixels.has(`${px},${py - 1}`)) {
+        segments.push(`M${topLeft.x},${topLeft.y} L${topLeft.x + size},${topLeft.y}`);
+      }
+      // Bottom edge
+      if (!pixels.has(`${px},${py + 1}`)) {
+        segments.push(`M${topLeft.x},${topLeft.y + size} L${topLeft.x + size},${topLeft.y + size}`);
+      }
+      // Left edge
+      if (!pixels.has(`${px - 1},${py}`)) {
+        segments.push(`M${topLeft.x},${topLeft.y} L${topLeft.x},${topLeft.y + size}`);
+      }
+      // Right edge
+      if (!pixels.has(`${px + 1},${py}`)) {
+        segments.push(`M${topLeft.x + size},${topLeft.y} L${topLeft.x + size},${topLeft.y + size}`);
+      }
+    }
+    
+    return segments.join(' ');
+  }
 </script>
 
 {#if globalVisible}
@@ -688,24 +741,19 @@
         {/each}
       </g>
       
-      <!-- Brush cursor -->
+      <!-- Brush cursor (pixelated) -->
       {#if modifyMousePos}
-        {@const brushScreen = imageToScreen(modifyMousePos.x, modifyMousePos.y)}
-        {@const brushScreenSize = maskBrushSize * viewportZoom}
+        {@const brushPath = getPixelatedBrushPath(modifyMousePos.x, modifyMousePos.y, maskBrushSize)}
         <g class="brush-cursor">
-          <circle 
-            cx={brushScreen.x} 
-            cy={brushScreen.y}
-            r={brushScreenSize / 2}
+          <path 
+            d={brushPath}
             fill="none"
             stroke="white"
             stroke-width="2"
-            opacity="0.8"
+            opacity="0.9"
           />
-          <circle 
-            cx={brushScreen.x} 
-            cy={brushScreen.y}
-            r={brushScreenSize / 2}
+          <path 
+            d={brushPath}
             fill="none"
             stroke="black"
             stroke-width="1"
@@ -717,22 +765,17 @@
 
     <!-- Mask brush cursor (shows even before first paint) -->
     {#if modifyPhase === 'mask-paint' && modifyMousePos && !maskTileOrigin}
-      {@const brushScreen = imageToScreen(modifyMousePos.x, modifyMousePos.y)}
-      {@const brushScreenSize = maskBrushSize * viewportZoom}
+      {@const brushPath = getPixelatedBrushPath(modifyMousePos.x, modifyMousePos.y, maskBrushSize)}
       <g class="brush-cursor">
-        <circle 
-          cx={brushScreen.x} 
-          cy={brushScreen.y}
-          r={brushScreenSize / 2}
+        <path 
+          d={brushPath}
           fill="none"
           stroke="white"
           stroke-width="2"
-          opacity="0.8"
+          opacity="0.9"
         />
-        <circle 
-          cx={brushScreen.x} 
-          cy={brushScreen.y}
-          r={brushScreenSize / 2}
+        <path 
+          d={brushPath}
           fill="none"
           stroke="black"
           stroke-width="1"
