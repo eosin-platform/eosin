@@ -1702,6 +1702,8 @@
 
   // Annotation context menu handlers
   function handleAnnotationRightClick(annotation: Annotation, screenX: number, screenY: number) {
+    // Clear rightClickStart so viewport context menu doesn't also appear
+    rightClickStart = null;
     annotationMenuX = screenX;
     annotationMenuY = screenY;
     annotationMenuTarget = annotation;

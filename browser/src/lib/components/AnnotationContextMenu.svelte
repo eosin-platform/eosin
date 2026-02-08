@@ -22,6 +22,7 @@
   let { x, y, visible, annotation, onClose, onModify }: Props = $props();
 
   let menuEl = $state<HTMLDivElement>();
+  let modalEl = $state<HTMLDivElement>();
   let isDeleting = $state(false);
   let showMaskDeleteConfirm = $state(false);
 
@@ -67,14 +68,21 @@
   }
 
   function handleClickOutside(e: MouseEvent) {
-    if (menuEl && !menuEl.contains(e.target as Node)) {
-      onClose();
-    }
+    // Don't close if clicking inside menu or modal
+    if (menuEl && menuEl.contains(e.target as Node)) return;
+    if (modalEl && modalEl.contains(e.target as Node)) return;
+    if (showMaskDeleteConfirm) return; // Don't close while modal is showing
+    onClose();
   }
 
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === 'Escape') {
-      onClose();
+      if (showMaskDeleteConfirm) {
+        // Close modal first
+        showMaskDeleteConfirm = false;
+      } else {
+        onClose();
+      }
     }
   }
 
@@ -149,7 +157,7 @@
   <div class="modal-overlay" onclick={handleMaskDeleteCancel}>
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="modal-dialog" onclick={(e) => e.stopPropagation()}>
+    <div class="modal-dialog" bind:this={modalEl} onclick={(e) => e.stopPropagation()}>
       <div class="modal-header">
         <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2">
           <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
@@ -159,7 +167,7 @@
         <h3>Delete Mask Tile</h3>
       </div>
       <p class="modal-message">
-        This will erase all mask annotations in this tile. This action is <strong>undoable</strong>.
+        This will erase all mask annotations in this tile. This action <strong>cannot be undone</strong>.
       </p>
       <div class="modal-actions">
         <button class="modal-btn cancel" onclick={handleMaskDeleteCancel}>Cancel</button>
