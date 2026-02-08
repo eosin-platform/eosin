@@ -164,28 +164,55 @@
   const MASK_TILE_SIZE = 512;
   const MASK_BYTES = (MASK_TILE_SIZE * MASK_TILE_SIZE) / 8; // 32768 bytes
   let maskBrushSize = $state(20); // Brush size in image pixels
-  let maskPaintData = $state<Uint8Array | null>(null); // Current mask tile data
-  let maskTileOrigin = $state<{ x: number; y: number } | null>(null); // Top-left of 512x512 tile in level-0 coords
+  
+  // Multi-tile mask state: Map from "x,y" key to tile state
+  interface MaskTileState {
+    origin: { x: number; y: number };
+    data: Uint8Array;
+    annotationId: string | null;
+    dirty: boolean;
+  }
+  let maskTiles = $state<Map<string, MaskTileState>>(new Map());
+  
+  // Helper to generate tile key from origin
+  function getTileKey(x: number, y: number): string {
+    return `${x},${y}`;
+  }
+  
   let isMaskPainting = $state(false); // Whether actively painting (mouse held down)
-  let maskAnnotationId = $state<string | null>(null); // ID of existing mask annotation being edited
   let maskSyncTimeout = $state<ReturnType<typeof setTimeout> | null>(null); // Debounce timer
-  let maskDirty = $state(false); // Whether mask has unsaved changes
   let maskBrushDragStart = $state<{ y: number } | null>(null); // Y position where middle-mouse drag started
   let maskBrushDragStartSize = $state<number>(20); // Brush size when middle-mouse drag started
+  
+  // Derived state for AnnotationOverlay (first tile for backward compatibility + all tiles)
+  let maskPaintData = $derived.by(() => {
+    if (maskTiles.size === 0) return null;
+    return maskTiles.values().next().value?.data ?? null;
+  });
+  let maskTileOrigin = $derived.by(() => {
+    if (maskTiles.size === 0) return null;
+    return maskTiles.values().next().value?.origin ?? null;
+  });
+  let maskAllTiles = $derived.by(() => {
+    return Array.from(maskTiles.values());
+  });
 
   // Undo/Redo system for annotations
-  // Each undo step stores a snapshot of the mask data before a brush stroke
+  // Each undo step stores a snapshot of all tiles before a brush stroke
+  interface UndoTileSnapshot {
+    origin: { x: number; y: number };
+    data: Uint8Array;
+    annotationId: string | null;
+  }
   interface UndoStep {
     type: 'mask-stroke';
-    maskData: Uint8Array; // Snapshot of mask before the stroke
-    tileOrigin: { x: number; y: number };
-    annotationId: string | null;
+    tiles: UndoTileSnapshot[]; // Snapshot of all tiles before the stroke
     description: string; // e.g., "Brush stroke" or "Erase stroke"
   }
   let undoStack = $state<UndoStep[]>([]);
   let redoStack = $state<UndoStep[]>([]);
   let undoBufferSize = $derived($performanceSettings.undoBufferSize);
-  let maskStateBeforeStroke = $state<Uint8Array | null>(null); // Snapshot before current brush stroke
+  let tilesBeforeStroke = $state<Map<string, UndoTileSnapshot>>(new Map()); // Snapshot before current stroke
   let strokeWasErase = $state(false); // Track if current stroke is erasing
 
   // Track if '1' key is being held for multi-point mode
@@ -1344,7 +1371,7 @@
     
     // Handle continuous mask painting - use e.buttons to check if left button is held
     // e.buttons is a bitmask: 1 = left button, 2 = right button, 4 = middle button
-    if (modifyMode.phase === 'mask-paint' && (e.buttons & 1) && maskPaintData) {
+    if (modifyMode.phase === 'mask-paint' && (e.buttons & 1)) {
       const imagePos = screenToImage(e.clientX, e.clientY);
       modifyMouseImagePos = imagePos; // Update for brush cursor preview
       isMaskPainting = true; // Ensure flag is set
@@ -1922,17 +1949,14 @@
 
   function handleStartMaskPainting() {
     // Start mask painting mode
-    // Initialize empty mask tile data
-    maskPaintData = new Uint8Array(MASK_BYTES);
-    maskTileOrigin = null; // Will be set on first brush stroke
-    maskAnnotationId = null;
-    maskDirty = false;
+    // Initialize empty tile map
+    maskTiles = new Map();
     isMaskPainting = false;
     
     // Clear undo/redo stacks for new mask session
     undoStack = [];
     redoStack = [];
-    maskStateBeforeStroke = null;
+    tilesBeforeStroke = new Map();
     
     modifyMode = {
       phase: 'mask-paint',
@@ -2015,34 +2039,61 @@
   }
 
   function captureUndoState() {
-    // Capture mask data before stroke. On the first stroke, maskTileOrigin may be null
-    // but it will be set during paintMaskBrush, so we just capture the data.
-    if (maskPaintData) {
-      maskStateBeforeStroke = new Uint8Array(maskPaintData);
+    // Capture snapshot of all current tiles before stroke
+    tilesBeforeStroke = new Map();
+    for (const [key, tile] of maskTiles) {
+      tilesBeforeStroke.set(key, {
+        origin: { ...tile.origin },
+        data: new Uint8Array(tile.data),
+        annotationId: tile.annotationId,
+      });
     }
   }
 
   function commitUndoStep() {
-    if (maskStateBeforeStroke && maskPaintData && maskTileOrigin) {
-      // Only push if mask actually changed
-      let hasChanges = false;
-      for (let i = 0; i < maskStateBeforeStroke.length; i++) {
-        if (maskStateBeforeStroke[i] !== maskPaintData[i]) {
+    if (tilesBeforeStroke.size === 0 && maskTiles.size === 0) {
+      strokeWasErase = false;
+      return;
+    }
+    
+    // Check if any tile actually changed
+    let hasChanges = false;
+    
+    // Check tiles that existed before
+    for (const [key, before] of tilesBeforeStroke) {
+      const after = maskTiles.get(key);
+      if (!after) {
+        hasChanges = true; // tile was removed
+        break;
+      }
+      for (let i = 0; i < before.data.length; i++) {
+        if (before.data[i] !== after.data[i]) {
           hasChanges = true;
           break;
         }
       }
-      if (hasChanges) {
-        pushUndoStep({
-          type: 'mask-stroke',
-          maskData: maskStateBeforeStroke,
-          tileOrigin: { ...maskTileOrigin },
-          annotationId: maskAnnotationId,
-          description: strokeWasErase ? 'Erase stroke' : 'Brush stroke',
-        });
+      if (hasChanges) break;
+    }
+    
+    // Check for new tiles
+    if (!hasChanges) {
+      for (const key of maskTiles.keys()) {
+        if (!tilesBeforeStroke.has(key)) {
+          hasChanges = true;
+          break;
+        }
       }
     }
-    maskStateBeforeStroke = null;
+    
+    if (hasChanges) {
+      pushUndoStep({
+        type: 'mask-stroke',
+        tiles: Array.from(tilesBeforeStroke.values()),
+        description: strokeWasErase ? 'Erase stroke' : 'Brush stroke',
+      });
+    }
+    
+    tilesBeforeStroke = new Map();
     strokeWasErase = false;
   }
 
@@ -2057,22 +2108,33 @@
     
     if (step.type === 'mask-stroke') {
       // Save current state to redo stack before restoring
-      if (maskPaintData && maskTileOrigin) {
-        const currentStep: UndoStep = {
-          type: 'mask-stroke',
-          maskData: new Uint8Array(maskPaintData),
-          tileOrigin: { ...maskTileOrigin },
-          annotationId: maskAnnotationId,
-          description: step.description,
-        };
-        redoStack = [...redoStack, currentStep];
+      const currentTiles: UndoTileSnapshot[] = [];
+      for (const tile of maskTiles.values()) {
+        currentTiles.push({
+          origin: { ...tile.origin },
+          data: new Uint8Array(tile.data),
+          annotationId: tile.annotationId,
+        });
       }
+      const currentStep: UndoStep = {
+        type: 'mask-stroke',
+        tiles: currentTiles,
+        description: step.description,
+      };
+      redoStack = [...redoStack, currentStep];
       
-      // Restore the mask state
-      maskPaintData = new Uint8Array(step.maskData);
-      maskTileOrigin = { ...step.tileOrigin };
-      maskAnnotationId = step.annotationId;
-      maskDirty = true;
+      // Restore the mask state from step
+      const newTiles = new Map<string, MaskTileState>();
+      for (const tileSn of step.tiles) {
+        const key = getTileKey(tileSn.origin.x, tileSn.origin.y);
+        newTiles.set(key, {
+          origin: { ...tileSn.origin },
+          data: new Uint8Array(tileSn.data),
+          annotationId: tileSn.annotationId,
+          dirty: true,
+        });
+      }
+      maskTiles = newTiles;
       scheduleMaskSync();
       
       showHudNotification(`Undo: ${step.description}`);
@@ -2090,77 +2152,135 @@
     
     if (step.type === 'mask-stroke') {
       // Save current state to undo stack before restoring
-      if (maskPaintData && maskTileOrigin) {
-        const currentStep: UndoStep = {
-          type: 'mask-stroke',
-          maskData: new Uint8Array(maskPaintData),
-          tileOrigin: { ...maskTileOrigin },
-          annotationId: maskAnnotationId,
-          description: step.description,
-        };
-        undoStack = [...undoStack, currentStep];
+      const currentTiles: UndoTileSnapshot[] = [];
+      for (const tile of maskTiles.values()) {
+        currentTiles.push({
+          origin: { ...tile.origin },
+          data: new Uint8Array(tile.data),
+          annotationId: tile.annotationId,
+        });
       }
+      const currentStep: UndoStep = {
+        type: 'mask-stroke',
+        tiles: currentTiles,
+        description: step.description,
+      };
+      undoStack = [...undoStack, currentStep];
       
-      // Restore the mask state
-      maskPaintData = new Uint8Array(step.maskData);
-      maskTileOrigin = { ...step.tileOrigin };
-      maskAnnotationId = step.annotationId;
-      maskDirty = true;
+      // Restore the mask state from step
+      const newTiles = new Map<string, MaskTileState>();
+      for (const tileSn of step.tiles) {
+        const key = getTileKey(tileSn.origin.x, tileSn.origin.y);
+        newTiles.set(key, {
+          origin: { ...tileSn.origin },
+          data: new Uint8Array(tileSn.data),
+          annotationId: tileSn.annotationId,
+          dirty: true,
+        });
+      }
+      maskTiles = newTiles;
       scheduleMaskSync();
       
       showHudNotification(`Redo: ${step.description}`);
     }
   }
 
-  // Paint a circle brush stroke at given image coordinates
-  function paintMaskBrush(imageX: number, imageY: number, erase: boolean) {
-    if (!maskPaintData) return;
-    
-    // Set tile origin on first stroke if not set
-    if (!maskTileOrigin) {
-      // Align tile to 512x512 grid
-      const tileX = Math.floor(imageX / MASK_TILE_SIZE) * MASK_TILE_SIZE;
-      const tileY = Math.floor(imageY / MASK_TILE_SIZE) * MASK_TILE_SIZE;
-      maskTileOrigin = { x: tileX, y: tileY };
+  // Helper: Get or create a mask tile at given origin
+  function getOrCreateTile(tileX: number, tileY: number): MaskTileState {
+    const key = getTileKey(tileX, tileY);
+    let tile = maskTiles.get(key);
+    if (!tile) {
+      // Create new tile
+      tile = {
+        origin: { x: tileX, y: tileY },
+        data: new Uint8Array(MASK_BYTES),
+        annotationId: null,
+        dirty: false,
+      };
       
       // Check for existing mask annotation at this tile location
       const existing = findExistingMaskAtTile(tileX, tileY);
       if (existing) {
-        // Load existing mask data - copy to our buffer
-        maskPaintData.set(existing.data);
-        maskAnnotationId = existing.id;
+        tile.data.set(existing.data);
+        tile.annotationId = existing.id;
       }
+      
+      // Capture snapshot for undo before modifying
+      if (!tilesBeforeStroke.has(key)) {
+        tilesBeforeStroke.set(key, {
+          origin: { x: tileX, y: tileY },
+          data: new Uint8Array(tile.data), // copy before modification
+          annotationId: tile.annotationId,
+        });
+      }
+      
+      maskTiles.set(key, tile);
     }
-    
-    // Convert to tile-local coordinates
-    const localX = imageX - maskTileOrigin.x;
-    const localY = imageY - maskTileOrigin.y;
-    
-    // Paint circle brush
+    return tile;
+  }
+
+  // Paint a circle brush stroke at given image coordinates - supports multiple tiles
+  function paintMaskBrush(imageX: number, imageY: number, erase: boolean) {
     const radius = maskBrushSize / 2;
-    const minX = Math.max(0, Math.floor(localX - radius));
-    const maxX = Math.min(MASK_TILE_SIZE - 1, Math.ceil(localX + radius));
-    const minY = Math.max(0, Math.floor(localY - radius));
-    const maxY = Math.min(MASK_TILE_SIZE - 1, Math.ceil(localY + radius));
     
-    let pixelsPainted = 0;
-    for (let py = minY; py <= maxY; py++) {
-      for (let px = minX; px <= maxX; px++) {
-        const dx = px - localX;
-        const dy = py - localY;
-        if (dx * dx + dy * dy <= radius * radius) {
-          setMaskPixel(maskPaintData, px, py, !erase);
-          pixelsPainted++;
+    // Calculate bounding box of the brush in image coords
+    const minImageX = Math.floor(imageX - radius);
+    const maxImageX = Math.ceil(imageX + radius);
+    const minImageY = Math.floor(imageY - radius);
+    const maxImageY = Math.ceil(imageY + radius);
+    
+    // Determine which tiles are affected
+    const minTileX = Math.floor(minImageX / MASK_TILE_SIZE) * MASK_TILE_SIZE;
+    const maxTileX = Math.floor(maxImageX / MASK_TILE_SIZE) * MASK_TILE_SIZE;
+    const minTileY = Math.floor(minImageY / MASK_TILE_SIZE) * MASK_TILE_SIZE;
+    const maxTileY = Math.floor(maxImageY / MASK_TILE_SIZE) * MASK_TILE_SIZE;
+    
+    let anyPixelsPainted = false;
+    
+    // Iterate over all affected tiles
+    for (let tileX = minTileX; tileX <= maxTileX; tileX += MASK_TILE_SIZE) {
+      for (let tileY = minTileY; tileY <= maxTileY; tileY += MASK_TILE_SIZE) {
+        const tile = getOrCreateTile(tileX, tileY);
+        
+        // Convert to tile-local coordinates
+        const localCenterX = imageX - tileX;
+        const localCenterY = imageY - tileY;
+        
+        // Clamp to this tile's bounds
+        const localMinX = Math.max(0, Math.floor(localCenterX - radius));
+        const localMaxX = Math.min(MASK_TILE_SIZE - 1, Math.ceil(localCenterX + radius));
+        const localMinY = Math.max(0, Math.floor(localCenterY - radius));
+        const localMaxY = Math.min(MASK_TILE_SIZE - 1, Math.ceil(localCenterY + radius));
+        
+        // Skip if brush doesn't overlap this tile
+        if (localMinX > MASK_TILE_SIZE - 1 || localMaxX < 0 || localMinY > MASK_TILE_SIZE - 1 || localMaxY < 0) {
+          continue;
+        }
+        
+        let pixelsPainted = 0;
+        for (let py = localMinY; py <= localMaxY; py++) {
+          for (let px = localMinX; px <= localMaxX; px++) {
+            const dx = px - localCenterX;
+            const dy = py - localCenterY;
+            if (dx * dx + dy * dy <= radius * radius) {
+              setMaskPixel(tile.data, px, py, !erase);
+              pixelsPainted++;
+            }
+          }
+        }
+        
+        if (pixelsPainted > 0) {
+          tile.dirty = true;
+          anyPixelsPainted = true;
         }
       }
     }
     
-    // Force reactivity by creating a new reference to the Uint8Array
-    if (pixelsPainted > 0) {
-      maskPaintData = new Uint8Array(maskPaintData);
+    // Force reactivity by creating a new Map reference
+    if (anyPixelsPainted) {
+      maskTiles = new Map(maskTiles);
     }
     
-    maskDirty = true;
     scheduleMaskSync();
   }
 
@@ -2174,41 +2294,44 @@
     }, 350);
   }
 
-  // Sync mask to backend
+  // Sync all dirty mask tiles to backend
   async function syncMaskToBackend() {
-    if (!maskPaintData || !maskTileOrigin || !maskDirty) return;
+    const dirtyTiles = Array.from(maskTiles.values()).filter(t => t.dirty);
+    if (dirtyTiles.length === 0) return;
     
-    // Encode mask to base64 - build binary string byte by byte
-    let binaryString = '';
-    for (let i = 0; i < maskPaintData.length; i++) {
-      binaryString += String.fromCharCode(maskPaintData[i]);
-    }
-    const base64 = btoa(binaryString);
-    
-    const geometry: MaskGeometry = {
-      x0_level0: maskTileOrigin.x,
-      y0_level0: maskTileOrigin.y,
-      width: MASK_TILE_SIZE,
-      height: MASK_TILE_SIZE,
-      data_base64: base64,
-    };
-    
-    try {
-      if (maskAnnotationId) {
-        // Update existing annotation
-        await annotationStore.updateAnnotation(maskAnnotationId, { geometry });
-      } else {
-        // Create new annotation
-        const result = await annotationStore.createAnnotation({
-          kind: 'mask_patch',
-          geometry,
-          label_id: 'unlabeled',
-        });
-        maskAnnotationId = result.id;
+    for (const tile of dirtyTiles) {
+      // Encode mask to base64 - build binary string byte by byte
+      let binaryString = '';
+      for (let i = 0; i < tile.data.length; i++) {
+        binaryString += String.fromCharCode(tile.data[i]);
       }
-      maskDirty = false;
-    } catch (err) {
-      console.error('Failed to sync mask:', err);
+      const base64 = btoa(binaryString);
+      
+      const geometry: MaskGeometry = {
+        x0_level0: tile.origin.x,
+        y0_level0: tile.origin.y,
+        width: MASK_TILE_SIZE,
+        height: MASK_TILE_SIZE,
+        data_base64: base64,
+      };
+      
+      try {
+        if (tile.annotationId) {
+          // Update existing annotation
+          await annotationStore.updateAnnotation(tile.annotationId, { geometry });
+        } else {
+          // Create new annotation
+          const result = await annotationStore.createAnnotation({
+            kind: 'mask_patch',
+            geometry,
+            label_id: 'unlabeled',
+          });
+          tile.annotationId = result.id;
+        }
+        tile.dirty = false;
+      } catch (err) {
+        console.error('Failed to sync mask tile:', err, tile.origin);
+      }
     }
   }
 
@@ -2220,10 +2343,7 @@
     }
     
     // Reset mask state
-    maskPaintData = null;
-    maskTileOrigin = null;
-    maskAnnotationId = null;
-    maskDirty = false;
+    maskTiles = new Map();
     isMaskPainting = false;
   }
 
@@ -2235,15 +2355,13 @@
     }
     
     // Immediately sync any unsaved changes
-    if (maskDirty) {
+    const hasDirty = Array.from(maskTiles.values()).some(t => t.dirty);
+    if (hasDirty) {
       await syncMaskToBackend();
     }
     
     // Reset mask state
-    maskPaintData = null;
-    maskTileOrigin = null;
-    maskAnnotationId = null;
-    maskDirty = false;
+    maskTiles = new Map();
     isMaskPainting = false;
     
     // Clear undo/redo stacks
@@ -2619,6 +2737,7 @@
       modifyEditingVertexIndex={modifyMode.editingVertexIndex ?? null}
       maskPaintData={maskPaintData}
       maskTileOrigin={maskTileOrigin}
+      maskAllTiles={maskAllTiles}
       maskBrushSize={maskBrushSize}
     />
     

@@ -35,9 +35,10 @@
     modifyPolygonVertices?: Array<{ x: number; y: number }> | null;
     modifyFreehandPath?: Array<{ x: number; y: number }> | null;
     modifyEditingVertexIndex?: number | null;
-    /** Mask painting state */
+    /** Mask painting state - multi-tile support */
     maskPaintData?: Uint8Array | null;
     maskTileOrigin?: { x: number; y: number } | null;
+    maskAllTiles?: Array<{ origin: { x: number; y: number }; data: Uint8Array }>;
     maskBrushSize?: number;
   }
 
@@ -47,7 +48,7 @@
     onAnnotationClick, onAnnotationRightClick,
     modifyPhase = 'idle', modifyAnnotationId = null, modifyCenter = null, modifyRadii = null, modifyMousePos = null, modifyAngleOffset = 0, modifyRotation = 0, modifyCenterOffset = null, modifyIsCreating = true, modifyOriginalRadii = null, modifyDragStartPos = null,
     modifyPolygonVertices = null, modifyFreehandPath = null, modifyEditingVertexIndex = null,
-    maskPaintData = null, maskTileOrigin = null, maskBrushSize = 20
+    maskPaintData = null, maskTileOrigin = null, maskAllTiles = [], maskBrushSize = 20
   }: Props = $props();
 
   // Settings: global annotation visibility
@@ -739,41 +740,43 @@
       {/if}
     {/if}
 
-    <!-- Mask painting preview -->
-    {#if modifyPhase === 'mask-paint' && maskPaintData && maskTileOrigin}
-      {@const tileScreen = imageToScreen(maskTileOrigin.x, maskTileOrigin.y)}
+    <!-- Mask painting preview - renders all tiles -->
+    {#if modifyPhase === 'mask-paint' && maskAllTiles && maskAllTiles.length > 0}
       {@const tileSize = 512 * viewportZoom}
       {@const previewColor = '#3b82f6'}
       
-      <!-- Tile boundary -->
-      <rect 
-        x={tileScreen.x} 
-        y={tileScreen.y}
-        width={tileSize} 
-        height={tileSize}
-        fill="none"
-        stroke={previewColor}
-        stroke-width="1"
-        stroke-dasharray="4 2"
-        opacity="0.5"
-        style="pointer-events: none;"
-      />
-      
-      <!-- Render painted pixels - simplified approach using rects -->
-      <!-- For performance, we skip rendering individual pixels and show a summary -->
-      <g class="mask-preview">
-        {#each getMaskRuns(maskPaintData) as run}
-          {@const runScreen = imageToScreen(maskTileOrigin.x + run.startCol, maskTileOrigin.y + run.row)}
-          <rect 
-            x={runScreen.x} 
-            y={runScreen.y}
-            width={run.length * viewportZoom}
-            height={viewportZoom}
-            fill={previewColor}
-            fill-opacity="0.5"
-          />
-        {/each}
-      </g>
+      {#each maskAllTiles as tile}
+        {@const tileScreen = imageToScreen(tile.origin.x, tile.origin.y)}
+        
+        <!-- Tile boundary -->
+        <rect 
+          x={tileScreen.x} 
+          y={tileScreen.y}
+          width={tileSize} 
+          height={tileSize}
+          fill="none"
+          stroke={previewColor}
+          stroke-width="1"
+          stroke-dasharray="4 2"
+          opacity="0.5"
+          style="pointer-events: none;"
+        />
+        
+        <!-- Render painted pixels -->
+        <g class="mask-preview">
+          {#each getMaskRuns(tile.data) as run}
+            {@const runScreen = imageToScreen(tile.origin.x + run.startCol, tile.origin.y + run.row)}
+            <rect 
+              x={runScreen.x} 
+              y={runScreen.y}
+              width={run.length * viewportZoom}
+              height={viewportZoom}
+              fill={previewColor}
+              fill-opacity="0.5"
+            />
+          {/each}
+        </g>
+      {/each}
       
       <!-- Brush cursor (pixelated) -->
       {#if modifyMousePos}
@@ -798,7 +801,7 @@
     {/if}
 
     <!-- Mask brush cursor (shows even before first paint) -->
-    {#if modifyPhase === 'mask-paint' && modifyMousePos && !maskTileOrigin}
+    {#if modifyPhase === 'mask-paint' && modifyMousePos && (!maskAllTiles || maskAllTiles.length === 0)}
       {@const brushPath = getPixelatedBrushPath(modifyMousePos.x, modifyMousePos.y, maskBrushSize)}
       <g class="brush-cursor">
         <path 
