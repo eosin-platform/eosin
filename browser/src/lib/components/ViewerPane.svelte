@@ -893,6 +893,12 @@
     currentActiveSet = v;
   });
 
+  // Subscribe to annotation store to access annotations per slide
+  let annotationsBySlide = $state<Map<string, Map<string, import('$lib/api/annotations').Annotation[]>>>(new Map());
+  const unsubAnnotationsStore = annotationStore.subscribe((state) => {
+    annotationsBySlide = state.annotationsBySlide;
+  });
+
   // Can create annotations if logged in and have an unlocked active set
   let canCreate = $derived(isLoggedIn && currentActiveSet !== null && !currentActiveSet.locked);
 
@@ -1954,6 +1960,47 @@
     return (data[byteIndex] & (1 << bitIndex)) !== 0;
   }
 
+  // Helper: Decode base64 mask data to Uint8Array
+  function decodeMaskData(base64: string): Uint8Array | null {
+    try {
+      const binaryString = atob(base64);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      return bytes;
+    } catch (e) {
+      console.error('Failed to decode mask data:', e);
+      return null;
+    }
+  }
+
+  // Helper: Find existing mask annotation at a tile location
+  function findExistingMaskAtTile(tileX: number, tileY: number): { id: string; data: Uint8Array } | null {
+    if (!activeSlideId || !currentActiveSet) return null;
+    
+    const slideAnnotations = annotationsBySlide.get(activeSlideId);
+    if (!slideAnnotations) return null;
+    
+    const setAnnotations = slideAnnotations.get(currentActiveSet.id);
+    if (!setAnnotations) return null;
+    
+    for (const annotation of setAnnotations) {
+      if (annotation.kind !== 'mask_patch') continue;
+      const geo = annotation.geometry as MaskGeometry;
+      // Check if this mask is at the same tile origin
+      if (geo.x0_level0 === tileX && geo.y0_level0 === tileY) {
+        if (geo.data_base64) {
+          const data = decodeMaskData(geo.data_base64);
+          if (data) {
+            return { id: annotation.id, data };
+          }
+        }
+      }
+    }
+    return null;
+  }
+
   // Undo/Redo functions
   function pushUndoStep(step: UndoStep) {
     // Limit buffer size
@@ -2073,6 +2120,14 @@
       const tileX = Math.floor(imageX / MASK_TILE_SIZE) * MASK_TILE_SIZE;
       const tileY = Math.floor(imageY / MASK_TILE_SIZE) * MASK_TILE_SIZE;
       maskTileOrigin = { x: tileX, y: tileY };
+      
+      // Check for existing mask annotation at this tile location
+      const existing = findExistingMaskAtTile(tileX, tileY);
+      if (existing) {
+        // Load existing mask data - copy to our buffer
+        maskPaintData.set(existing.data);
+        maskAnnotationId = existing.id;
+      }
     }
     
     // Convert to tile-local coordinates
@@ -2482,6 +2537,7 @@
     unsubNavigation();
     unsubAuth();
     unsubActiveSet();
+    unsubAnnotationsStore();
     unsubToolCommand();
     onUnregisterTileHandler(paneId);
     closeCurrentSlide();
