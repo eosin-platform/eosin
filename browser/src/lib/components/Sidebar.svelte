@@ -820,11 +820,11 @@
   .slide-item {
     display: flex;
     flex-direction: column;
-    padding: 0.75rem;
+    padding: 0.5rem 0.625rem;
     border-radius: 6px;
     color: #ccc;
     transition: background-color 0.15s, color 0.15s;
-    gap: 0.25rem;
+    gap: 0.125rem;
     cursor: pointer;
     user-select: none;
     -webkit-user-select: none;
@@ -1073,19 +1073,34 @@
 
     /* Larger slide items for easier tapping */
     .slide-item {
-      padding: 1rem;
+      padding: 0.625rem 0.75rem;
       gap: 0.375rem;
-      min-height: 60px;
+      min-height: 56px;
     }
 
     .slide-name {
-      font-size: 1rem;
+      font-size: 0.9375rem;
+    }
+
+    .slide-meta {
+      flex-wrap: nowrap;
+      min-height: 1.25rem;
+    }
+
+    .slide-dimensions,
+    .slide-size {
+      white-space: nowrap;
+      flex-shrink: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     .slide-dimensions,
     .slide-size,
     .slide-progress {
-      font-size: 0.875rem;
+      font-size: 0.8125rem;
+      line-height: 1.25;
     }
 
     .slide-icon {
