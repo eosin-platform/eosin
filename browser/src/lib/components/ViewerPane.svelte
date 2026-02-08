@@ -758,8 +758,9 @@
   });
 
   // Subscribe to navigation requests from other components (e.g., Sidebar annotation clicks)
+  // Only navigate if this pane is displaying the target slide
   const unsubNavigation = navigationTarget.subscribe((target) => {
-    if (target) {
+    if (target && target.slideId === activeSlideId) {
       centerOnPoint(target.x, target.y);
     }
   });

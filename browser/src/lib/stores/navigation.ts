@@ -8,6 +8,8 @@ export interface NavigationTarget {
   x: number;
   /** Y coordinate in image space (level 0) */
   y: number;
+  /** Slide ID to navigate - only the pane displaying this slide will respond */
+  slideId: string;
   /** Optional annotation ID that triggered the navigation */
   annotationId?: string;
   /** Timestamp to trigger navigation even if coordinates are the same */
@@ -22,11 +24,13 @@ export const navigationTarget = writable<NavigationTarget | null>(null);
 
 /**
  * Navigate to a specific point in image coordinates.
+ * @param slideId - The slide ID to navigate (only the pane showing this slide will respond)
  */
-export function navigateToPoint(x: number, y: number, annotationId?: string) {
+export function navigateToPoint(slideId: string, x: number, y: number, annotationId?: string) {
   navigationTarget.set({
     x,
     y,
+    slideId,
     annotationId,
     timestamp: Date.now(),
   });

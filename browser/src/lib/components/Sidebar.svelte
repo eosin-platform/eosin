@@ -384,7 +384,9 @@
 
   // Handle annotation navigation - center viewport on annotation
   function handleAnnotationClick(annotationId: string, x: number, y: number) {
-    navigateToPoint(x, y, annotationId);
+    if (activeSlideId) {
+      navigateToPoint(activeSlideId, x, y, annotationId);
+    }
   }
 
   // --- Pull-to-refresh ---
