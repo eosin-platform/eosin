@@ -1008,5 +1008,10 @@
       min-width: auto;
       width: calc(100% - 2rem);
     }
+
+    /* Safe area for mobile browser toolbars */
+    .annotation-list {
+      padding-bottom: max(0.25rem, env(safe-area-inset-bottom, 0px));
+    }
   }
 </style>
