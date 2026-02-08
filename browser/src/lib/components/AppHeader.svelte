@@ -495,7 +495,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0.5rem 1rem;
+    padding: 0 1rem;
     background: #141414;
     border-bottom: 1px solid #333;
     flex-shrink: 0;

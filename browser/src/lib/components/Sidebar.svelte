@@ -754,15 +754,14 @@
   .sidebar-header {
     display: flex;
     align-items: center;
-    padding: 0.75rem;
+    padding: 0 0.75rem;
     border-bottom: 1px solid #333;
     position: sticky;
     top: 0;
     background: #141414;
     z-index: 10;
     gap: 0.5rem;
-    min-height: 48px;
-    box-sizing: border-box;
+    height: 48px;
   }
 
   .sidebar-header.collapsed {
@@ -1070,6 +1069,12 @@
 
   /* Touch device adaptations - larger touch targets */
   @media (pointer: coarse) {
+    .sidebar-header {
+      height: 72px;
+      min-height: 72px;
+      max-height: 72px;
+    }
+
     .toggle-btn {
       width: 44px;
       height: 44px;
