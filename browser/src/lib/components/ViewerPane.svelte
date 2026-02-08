@@ -319,9 +319,7 @@
     // Enter finishes multi-point mode
     if (e.key === 'Enter') {
       if (modifyMode.phase === 'multi-point') {
-        const count = modifyMode.pointsCreated || 0;
         cancelModifyMode();
-        showHudNotification(count > 0 ? `Created ${count} point${count === 1 ? '' : 's'}` : 'No points created');
       }
     }
     // Q/W/E keys switch ellipse modification phases
@@ -524,11 +522,8 @@
       if (modifyMode.phase !== 'idle') {
         const wasCreating = modifyMode.isCreating;
         const wasMultiPoint = modifyMode.phase === 'multi-point';
-        const pointsCreated = modifyMode.pointsCreated || 0;
         cancelModifyMode();
-        if (wasMultiPoint) {
-          showHudNotification(pointsCreated > 0 ? `Created ${pointsCreated} point${pointsCreated === 1 ? '' : 's'}` : 'Multi-point cancelled');
-        } else {
+        if (!wasMultiPoint) {
           showHudNotification(wasCreating ? 'Creation cancelled' : 'Modification cancelled');
         }
       }
@@ -540,9 +535,7 @@
     if (e.key === '1') {
       oneKeyHeld = false;
       if (modifyMode.phase === 'multi-point') {
-        const pointsCreated = modifyMode.pointsCreated || 0;
         cancelModifyMode();
-        showHudNotification(pointsCreated > 0 ? `Created ${pointsCreated} point${pointsCreated === 1 ? '' : 's'}` : 'Multi-point cancelled');
       }
     }
   }
@@ -1336,7 +1329,6 @@
       isCreating: true,
       pointsCreated: 0,
     };
-    showHudNotification('Click to place points, Enter/Esc to finish');
   }
 
   function cancelModifyMode() {
@@ -1394,7 +1386,6 @@
         });
         const count = (modifyMode.pointsCreated || 0) + 1;
         modifyMode = { ...modifyMode, pointsCreated: count };
-        showHudNotification(`Point ${count} created (Enter/Esc to finish)`);
       } catch (err) {
         console.error('Failed to save point:', err);
         showHudNotification('Failed to save point');
