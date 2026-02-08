@@ -282,8 +282,9 @@
         cancelMeasurement();
       }
       if (modifyMode.phase !== 'idle') {
+        const wasCreating = modifyMode.isCreating;
         cancelModifyMode();
-        showHudNotification('Modification cancelled');
+        showHudNotification(wasCreating ? 'Creation cancelled' : 'Modification cancelled');
       }
     }
   }
