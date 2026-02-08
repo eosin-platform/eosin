@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
   import { settings } from '$lib/stores/settings';
-  import { annotationStore } from '$lib/stores/annotations';
+  import { annotationStore, getLayerColor } from '$lib/stores/annotations';
   import { authStore } from '$lib/stores/auth';
   import type { Annotation, AnnotationKind, PointGeometry, EllipseGeometry, PolygonGeometry, MaskGeometry } from '$lib/api/annotations';
 
@@ -83,23 +83,6 @@
     
     return result;
   });
-
-  // Color palette for layers
-  const layerColors = [
-    '#0099ff', // blue
-    '#ff6b6b', // red
-    '#51cf66', // green
-    '#ffd43b', // yellow
-    '#cc5de8', // purple
-    '#ff922b', // orange
-    '#20c997', // teal
-    '#f06595', // pink
-  ];
-
-  function getLayerColor(setId: string): string {
-    const idx = annotationSets.findIndex((s) => s.id === setId);
-    return layerColors[idx % layerColors.length];
-  }
 
   // Convert image coordinates to screen coordinates
   function imageToScreen(imageX: number, imageY: number): { x: number; y: number } {

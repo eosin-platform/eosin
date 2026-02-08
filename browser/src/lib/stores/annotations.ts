@@ -531,3 +531,29 @@ export const getLayerVisibility = (annotationSetId: string): boolean => {
   const state = get(annotationStore);
   return state.layerVisibility.get(annotationSetId) ?? true;
 };
+
+// ============================================================================
+// Layer Colors
+// ============================================================================
+
+/** Color palette for annotation layers */
+export const LAYER_COLORS = [
+  '#0099ff', // blue
+  '#ff6b6b', // red
+  '#51cf66', // green
+  '#ffd43b', // yellow
+  '#cc5de8', // purple
+  '#ff922b', // orange
+  '#20c997', // teal
+  '#f06595', // pink
+];
+
+/** Get the color for an annotation layer by its index or set ID */
+export function getLayerColor(setIdOrIndex: string | number): string {
+  if (typeof setIdOrIndex === 'number') {
+    return LAYER_COLORS[setIdOrIndex % LAYER_COLORS.length];
+  }
+  const state = get(annotationStore);
+  const idx = state.annotationSets.findIndex((s) => s.id === setIdOrIndex);
+  return LAYER_COLORS[Math.max(0, idx) % LAYER_COLORS.length];
+}

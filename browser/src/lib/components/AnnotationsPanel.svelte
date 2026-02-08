@@ -8,6 +8,7 @@
     activeAnnotations,
     isAnnotationLoading,
     annotationError,
+    getLayerColor,
   } from '$lib/stores/annotations';
   import { getAnnotationLabel, type AnnotationKind } from '$lib/api/annotations';
 
@@ -366,7 +367,7 @@
                   onclick={(e) => e.stopPropagation()}
                 />
               {:else}
-                <span class="layer-name">{set.name}</span>
+                <span class="layer-name" style="color: {getLayerColor(set.id)}">{set.name}</span>
               {/if}
 
               <!-- Lock indicator -->
@@ -455,7 +456,7 @@
                 role="button"
                 tabindex="0"
               >
-                <span class="annotation-icon" title={annotation.kind}>
+                <span class="annotation-icon" title={annotation.kind} style="color: {activeSet ? getLayerColor(activeSet.id) : 'inherit'}">
                   {getKindIcon(annotation.kind as AnnotationKind)}
                 </span>
                 <span class="annotation-label">
@@ -685,7 +686,15 @@
     color: #555;
   }
 
-  .layer-name,
+  .layer-name {
+    flex: 1;
+    min-width: 0;
+    font-size: 0.8125rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   .annotation-label {
     flex: 1;
     min-width: 0;
@@ -755,7 +764,6 @@
 
   .annotation-icon {
     font-size: 0.875rem;
-    color: #0099ff;
     width: 18px;
     text-align: center;
     flex-shrink: 0;
