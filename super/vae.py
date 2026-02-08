@@ -1623,13 +1623,13 @@ def parse_args() -> argparse.Namespace:
     # Model (~8M params with defaults: base=32, mults=1,2,4,8)
     parser.add_argument("--base-channels", type=int, default=32,
                         help="Base channel count (default: 32 for ~8M params)")
-    parser.add_argument("--latent-channels", type=int, default=4,
+    parser.add_argument("--latent-channels", type=int, default=32,
                         help="Number of latent channels")
-    parser.add_argument("--channel-multipliers", type=str, default="1,2,4,8",
+    parser.add_argument("--channel-multipliers", type=str, default="1,2,4",
                         help="Channel multipliers (comma-separated)")
     parser.add_argument("--num-res-blocks", type=int, default=2,
                         help="Residual blocks per stage")
-    parser.add_argument("--use-attention-at", type=str, default="16",
+    parser.add_argument("--use-attention-at", type=str, default="32",
                         help="Spatial sizes for attention (comma-separated)")
 
     # Training
@@ -1639,9 +1639,9 @@ def parse_args() -> argparse.Namespace:
                         help="Learning rate")
     parser.add_argument("--weight-decay", type=float, default=0.01,
                         help="Weight decay")
-    parser.add_argument("--beta", type=float, default=1.0,
+    parser.add_argument("--beta", type=float, default=0.3,
                         help="Maximum KL weight (beta-VAE)")
-    parser.add_argument("--kl-warmup-steps", type=int, default=5000,
+    parser.add_argument("--kl-warmup-steps", type=int, default=8000,
                         help="Steps for KL warmup")
     parser.add_argument("--max-grad-norm", type=float, default=1.0,
                         help="Max gradient norm (0 to disable)")

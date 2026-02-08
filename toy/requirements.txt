@@ -1,3 +1,5 @@
 openslide-python 
 Pillow
 tk
+histoplus
+
