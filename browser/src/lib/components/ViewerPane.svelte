@@ -31,7 +31,7 @@
   import { annotationStore, activeAnnotationSet } from '$lib/stores/annotations';
   import { authStore } from '$lib/stores/auth';
   import { navigationTarget } from '$lib/stores/navigation';
-  import type { Annotation, PointGeometry, EllipseGeometry, PolygonGeometry } from '$lib/api/annotations';
+  import type { Annotation, PointGeometry, EllipseGeometry, PolygonGeometry, MaskGeometry } from '$lib/api/annotations';
   import { tabStore, type Tab } from '$lib/stores/tabs';
   import { acquireCache, releaseCache } from '$lib/stores/slideCache';
   import { updatePerformanceMetrics } from '$lib/stores/metrics';
@@ -132,7 +132,7 @@
   let annotationMenuTarget = $state<Annotation | null>(null);
 
   // Annotation modification mode state
-  type ModifyPhase = 'idle' | 'point-position' | 'multi-point' | 'ellipse-center' | 'ellipse-radii' | 'ellipse-angle' | 'polygon-vertices' | 'polygon-freehand' | 'polygon-edit';
+  type ModifyPhase = 'idle' | 'point-position' | 'multi-point' | 'ellipse-center' | 'ellipse-radii' | 'ellipse-angle' | 'polygon-vertices' | 'polygon-freehand' | 'polygon-edit' | 'mask-paint';
   let modifyMode = $state<{
     pointsCreated?: number; // Track count for multi-point mode
     phase: ModifyPhase;
@@ -155,6 +155,19 @@
     isDraggingPolygon?: boolean; // Whether dragging the entire polygon
     polygonDragStart?: { x: number; y: number }; // Mouse position when polygon drag started
   }>({ phase: 'idle', annotation: null, isCreating: false });
+
+  // Mask painting state
+  const MASK_TILE_SIZE = 512;
+  const MASK_BYTES = (MASK_TILE_SIZE * MASK_TILE_SIZE) / 8; // 32768 bytes
+  let maskBrushSize = $state(20); // Brush size in image pixels
+  let maskPaintData = $state<Uint8Array | null>(null); // Current mask tile data
+  let maskTileOrigin = $state<{ x: number; y: number } | null>(null); // Top-left of 512x512 tile in level-0 coords
+  let isMaskPainting = $state(false); // Whether actively painting (mouse held down)
+  let maskAnnotationId = $state<string | null>(null); // ID of existing mask annotation being edited
+  let maskSyncTimeout = $state<ReturnType<typeof setTimeout> | null>(null); // Debounce timer
+  let maskDirty = $state(false); // Whether mask has unsaved changes
+  let maskBrushDragStart = $state<{ y: number } | null>(null); // Y position where middle-mouse drag started
+  let maskBrushDragStartSize = $state<number>(20); // Brush size when middle-mouse drag started
 
   // Track if '1' key is being held for multi-point mode
   let oneKeyHeld = $state(false);
@@ -340,6 +353,20 @@
       }
       threeKeyHeld = true;
       handleStartFreehandLasso();
+    }
+    // '4' key starts mask painting
+    if (e.key === '4') {
+      if (!canCreate) {
+        if (!isLoggedIn) {
+          showHudNotification('Log in to create annotations');
+        } else if (!currentActiveSet) {
+          showHudNotification('Select an annotation layer first');
+        } else if (currentActiveSet.locked) {
+          showHudNotification('Layer is locked');
+        }
+        return;
+      }
+      handleStartMaskPainting();
     }
     // Enter finishes multi-point mode or polygon creation
     if (e.key === 'Enter') {
@@ -550,9 +577,15 @@
       if (modifyMode.phase !== 'idle') {
         const wasCreating = modifyMode.isCreating;
         const wasMultiPoint = modifyMode.phase === 'multi-point';
+        const wasMaskPaint = modifyMode.phase === 'mask-paint';
+        if (wasMaskPaint) {
+          cancelMaskPainting();
+        }
         cancelModifyMode();
-        if (!wasMultiPoint) {
+        if (!wasMultiPoint && !wasMaskPaint) {
           showHudNotification(wasCreating ? 'Creation cancelled' : 'Modification cancelled');
+        } else if (wasMaskPaint) {
+          showHudNotification('Mask painting cancelled');
         }
       }
     }
@@ -1094,9 +1127,28 @@
         return;
       }
       
+      // For mask-paint mode, start painting
+      if (modifyMode.phase === 'mask-paint') {
+        e.preventDefault();
+        e.stopPropagation();
+        const imagePos = screenToImage(e.clientX, e.clientY);
+        isMaskPainting = true;
+        paintMaskBrush(imagePos.x, imagePos.y, e.altKey);
+        return;
+      }
+      
       e.preventDefault();
       e.stopPropagation();
       handleModifyClick(e);
+      return;
+    }
+
+    // Middle mouse button (button 1) - in mask-paint mode, adjust brush size
+    if (e.button === 1 && modifyMode.phase === 'mask-paint') {
+      e.preventDefault();
+      e.stopPropagation();
+      maskBrushDragStart = { y: e.clientY };
+      maskBrushDragStartSize = maskBrushSize;
       return;
     }
 
@@ -1131,7 +1183,25 @@
   }
 
   function handleMouseMove(e: MouseEvent) {
-    // Track mouse position for modify mode preview
+    // Handle mask brush size adjustment via middle-mouse drag
+    if (modifyMode.phase === 'mask-paint' && maskBrushDragStart !== null) {
+      const deltaY = maskBrushDragStart.y - e.clientY; // Up = increase, down = decrease
+      const newSize = Math.max(1, Math.min(200, maskBrushDragStartSize + deltaY));
+      maskBrushSize = Math.round(newSize);
+      return;
+    }
+    
+    // Handle continuous mask painting - use e.buttons to check if left button is held
+    // e.buttons is a bitmask: 1 = left button, 2 = right button, 4 = middle button
+    if (modifyMode.phase === 'mask-paint' && (e.buttons & 1) && maskPaintData) {
+      const imagePos = screenToImage(e.clientX, e.clientY);
+      modifyMouseImagePos = imagePos; // Update for brush cursor preview
+      isMaskPainting = true; // Ensure flag is set
+      paintMaskBrush(imagePos.x, imagePos.y, e.altKey);
+      return;
+    }
+    
+    // Track mouse position for modify mode preview (including mask-paint for brush cursor)
     if (modifyMode.phase !== 'idle') {
       const newMousePos = screenToImage(e.clientX, e.clientY);
       modifyMouseImagePos = newMousePos;
@@ -1225,6 +1295,18 @@
   }
 
   function handleMouseUp(e?: MouseEvent) {
+    // End mask brush size adjustment
+    if (e && e.button === 1 && maskBrushDragStart !== null) {
+      maskBrushDragStart = null;
+      return;
+    }
+    
+    // Stop mask painting on left button release
+    if (e && e.button === 0 && modifyMode.phase === 'mask-paint' && isMaskPainting) {
+      isMaskPainting = false;
+      return;
+    }
+    
     // Middle mouse button released - end drag measurement
     if (e && e.button === 1 && measurement.active && measurement.mode === 'drag') {
       cancelMeasurement();
@@ -1666,6 +1748,146 @@
     showHudNotification('Click and drag to draw, release to finish');
   }
 
+  function handleStartMaskPainting() {
+    // Start mask painting mode
+    // Initialize empty mask tile data
+    maskPaintData = new Uint8Array(MASK_BYTES);
+    maskTileOrigin = null; // Will be set on first brush stroke
+    maskAnnotationId = null;
+    maskDirty = false;
+    isMaskPainting = false;
+    
+    modifyMode = {
+      phase: 'mask-paint',
+      annotation: null,
+      isCreating: true,
+    };
+    showHudNotification('Paint mask, Alt = erase, Esc = cancel');
+  }
+
+  // Helper: Set a pixel in the mask data
+  function setMaskPixel(data: Uint8Array, x: number, y: number, value: boolean) {
+    if (x < 0 || x >= MASK_TILE_SIZE || y < 0 || y >= MASK_TILE_SIZE) return;
+    const byteIndex = Math.floor((y * MASK_TILE_SIZE + x) / 8);
+    const bitIndex = (y * MASK_TILE_SIZE + x) % 8;
+    if (value) {
+      data[byteIndex] |= (1 << bitIndex);
+    } else {
+      data[byteIndex] &= ~(1 << bitIndex);
+    }
+  }
+
+  // Helper: Get a pixel from the mask data
+  function getMaskPixel(data: Uint8Array, x: number, y: number): boolean {
+    if (x < 0 || x >= MASK_TILE_SIZE || y < 0 || y >= MASK_TILE_SIZE) return false;
+    const byteIndex = Math.floor((y * MASK_TILE_SIZE + x) / 8);
+    const bitIndex = (y * MASK_TILE_SIZE + x) % 8;
+    return (data[byteIndex] & (1 << bitIndex)) !== 0;
+  }
+
+  // Paint a circle brush stroke at given image coordinates
+  function paintMaskBrush(imageX: number, imageY: number, erase: boolean) {
+    if (!maskPaintData) return;
+    
+    // Set tile origin on first stroke if not set
+    if (!maskTileOrigin) {
+      // Align tile to 512x512 grid
+      const tileX = Math.floor(imageX / MASK_TILE_SIZE) * MASK_TILE_SIZE;
+      const tileY = Math.floor(imageY / MASK_TILE_SIZE) * MASK_TILE_SIZE;
+      maskTileOrigin = { x: tileX, y: tileY };
+    }
+    
+    // Convert to tile-local coordinates
+    const localX = imageX - maskTileOrigin.x;
+    const localY = imageY - maskTileOrigin.y;
+    
+    // Paint circle brush
+    const radius = maskBrushSize / 2;
+    const minX = Math.max(0, Math.floor(localX - radius));
+    const maxX = Math.min(MASK_TILE_SIZE - 1, Math.ceil(localX + radius));
+    const minY = Math.max(0, Math.floor(localY - radius));
+    const maxY = Math.min(MASK_TILE_SIZE - 1, Math.ceil(localY + radius));
+    
+    let pixelsPainted = 0;
+    for (let py = minY; py <= maxY; py++) {
+      for (let px = minX; px <= maxX; px++) {
+        const dx = px - localX;
+        const dy = py - localY;
+        if (dx * dx + dy * dy <= radius * radius) {
+          setMaskPixel(maskPaintData, px, py, !erase);
+          pixelsPainted++;
+        }
+      }
+    }
+    
+    // Force reactivity by creating a new reference to the Uint8Array
+    if (pixelsPainted > 0) {
+      maskPaintData = new Uint8Array(maskPaintData);
+    }
+    
+    maskDirty = true;
+    scheduleMaskSync();
+  }
+
+  // Debounced sync to backend
+  function scheduleMaskSync() {
+    if (maskSyncTimeout) {
+      clearTimeout(maskSyncTimeout);
+    }
+    maskSyncTimeout = setTimeout(() => {
+      syncMaskToBackend();
+    }, 350);
+  }
+
+  // Sync mask to backend
+  async function syncMaskToBackend() {
+    if (!maskPaintData || !maskTileOrigin || !maskDirty) return;
+    
+    // Encode mask to base64
+    const base64 = btoa(String.fromCharCode(...maskPaintData));
+    
+    const geometry: MaskGeometry = {
+      x0_level0: maskTileOrigin.x,
+      y0_level0: maskTileOrigin.y,
+      width: MASK_TILE_SIZE,
+      height: MASK_TILE_SIZE,
+      mask_base64: base64,
+    };
+    
+    try {
+      if (maskAnnotationId) {
+        // Update existing annotation
+        await annotationStore.updateAnnotation(maskAnnotationId, { geometry });
+      } else {
+        // Create new annotation
+        const result = await annotationStore.createAnnotation({
+          kind: 'mask_patch',
+          geometry,
+          label_id: 'unlabeled',
+        });
+        maskAnnotationId = result.id;
+      }
+      maskDirty = false;
+    } catch (err) {
+      console.error('Failed to sync mask:', err);
+    }
+  }
+
+  function cancelMaskPainting() {
+    // Cancel any pending sync
+    if (maskSyncTimeout) {
+      clearTimeout(maskSyncTimeout);
+      maskSyncTimeout = null;
+    }
+    
+    // Reset mask state
+    maskPaintData = null;
+    maskTileOrigin = null;
+    maskAnnotationId = null;
+    maskDirty = false;
+    isMaskPainting = false;
+  }
+
   function cancelModifyMode() {
     modifyMode = { phase: 'idle', annotation: null, isCreating: false };
     modifyMouseImagePos = null;
@@ -2030,6 +2252,9 @@
       modifyPolygonVertices={modifyMode.polygonVertices ?? null}
       modifyFreehandPath={modifyMode.freehandPath ?? null}
       modifyEditingVertexIndex={modifyMode.editingVertexIndex ?? null}
+      maskPaintData={maskPaintData}
+      maskTileOrigin={maskTileOrigin}
+      maskBrushSize={maskBrushSize}
     />
     
     <!-- Viewer HUD overlay (top-left) -->
@@ -2038,6 +2263,8 @@
       onZoomChange={handleHudZoomChange}
       onFitView={handleHudFitView}
       isPanning={isDragging}
+      isMaskPainting={modifyMode.phase === 'mask-paint' && isPaneFocused}
+      maskBrushSize={maskBrushSize}
     />
     
     <!-- Keyboard shortcut notification (bottom center) - only show for focused pane -->
@@ -2128,6 +2355,7 @@
     onStartEllipseCreation={handleStartEllipseCreation}
     onStartPolygonCreation={handleStartPolygonCreation}
     onStartFreehandLasso={handleStartFreehandLasso}
+    onStartMaskPainting={handleStartMaskPainting}
   />
 
   <!-- Annotation context menu (right-click on annotation) -->

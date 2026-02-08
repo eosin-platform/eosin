@@ -13,9 +13,13 @@
     magnification?: string;
     /** Whether panning is currently happening - closes menu immediately */
     isPanning?: boolean;
+    /** Whether mask painting mode is active */
+    isMaskPainting?: boolean;
+    /** Current brush size in pixels */
+    maskBrushSize?: number;
   }
 
-  let { zoom, onZoomChange, onFitView, magnification, isPanning = false }: Props = $props();
+  let { zoom, onZoomChange, onFitView, magnification, isPanning = false, isMaskPainting = false, maskBrushSize = 20 }: Props = $props();
 
   // Bind to settings store
   let stainEnhancement = $state<StainEnhancementMode>($settings.image.stainEnhancement);
@@ -241,6 +245,14 @@
   </button>
   </div>
 
+  <!-- Brush size HUD (separate visual island) -->
+  {#if isMaskPainting}
+    <div class="brush-hud">
+      <div class="brush-preview" style="width: {Math.min(maskBrushSize * 0.5, 24)}px; height: {Math.min(maskBrushSize * 0.5, 24)}px;"></div>
+      <span class="brush-size-label">{maskBrushSize}px</span>
+    </div>
+  {/if}
+
   <!-- More menu popover - rendered inside hud-container for proper positioning -->
   {#if moreMenuOpen}
     <div class="menu-wrapper">
@@ -256,6 +268,10 @@
     left: 1rem;
     z-index: 30;
     max-width: calc(100vw - 2rem);
+    display: flex;
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 0.5rem;
   }
 
   .viewer-hud {
@@ -283,6 +299,35 @@
   .icon {
     width: 1rem;
     height: 1rem;
+  }
+
+  .brush-hud {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.375rem 0.5rem;
+    background: rgba(20, 20, 20, 0.75);
+    backdrop-filter: blur(12px);
+    border-radius: 0.5rem;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  }
+
+  .brush-preview {
+    border: 1.5px solid rgba(255, 255, 255, 0.8);
+    border-radius: 50%;
+    background: rgba(59, 130, 246, 0.4);
+    min-width: 6px;
+    min-height: 6px;
+    max-width: 24px;
+    max-height: 24px;
+  }
+
+  .brush-size-label {
+    color: #fff;
+    font-size: 0.75rem;
+    font-weight: 500;
   }
 
   .stain-select {

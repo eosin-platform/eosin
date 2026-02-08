@@ -20,7 +20,7 @@
     /** Callback when an annotation is right-clicked */
     onAnnotationRightClick?: (annotation: Annotation, screenX: number, screenY: number) => void;
     /** Modification mode state */
-    modifyPhase?: 'idle' | 'point-position' | 'multi-point' | 'ellipse-center' | 'ellipse-radii' | 'ellipse-angle' | 'polygon-vertices' | 'polygon-freehand' | 'polygon-edit';
+    modifyPhase?: 'idle' | 'point-position' | 'multi-point' | 'ellipse-center' | 'ellipse-radii' | 'ellipse-angle' | 'polygon-vertices' | 'polygon-freehand' | 'polygon-edit' | 'mask-paint';
     modifyAnnotationId?: string | null;
     modifyCenter?: { x: number; y: number } | null;
     modifyRadii?: { rx: number; ry: number } | null;
@@ -35,6 +35,10 @@
     modifyPolygonVertices?: Array<{ x: number; y: number }> | null;
     modifyFreehandPath?: Array<{ x: number; y: number }> | null;
     modifyEditingVertexIndex?: number | null;
+    /** Mask painting state */
+    maskPaintData?: Uint8Array | null;
+    maskTileOrigin?: { x: number; y: number } | null;
+    maskBrushSize?: number;
   }
 
   let { 
@@ -42,7 +46,8 @@
     viewportX, viewportY, viewportZoom, containerWidth, containerHeight, 
     onAnnotationClick, onAnnotationRightClick,
     modifyPhase = 'idle', modifyAnnotationId = null, modifyCenter = null, modifyRadii = null, modifyMousePos = null, modifyAngleOffset = 0, modifyRotation = 0, modifyCenterOffset = null, modifyIsCreating = true, modifyOriginalRadii = null, modifyDragStartPos = null,
-    modifyPolygonVertices = null, modifyFreehandPath = null, modifyEditingVertexIndex = null
+    modifyPolygonVertices = null, modifyFreehandPath = null, modifyEditingVertexIndex = null,
+    maskPaintData = null, maskTileOrigin = null, maskBrushSize = 20
   }: Props = $props();
 
   // Settings: global annotation visibility
@@ -212,6 +217,48 @@
   
   // Ellipse stroke width
   const ELLIPSE_STROKE_WIDTH = 2;
+
+  // Convert bitmask to run-length encoded runs for efficient rendering
+  // Returns array of { row, startCol, length } for each horizontal run of set bits
+  function getMaskRuns(data: Uint8Array): Array<{ row: number; startCol: number; length: number }> {
+    const runs: Array<{ row: number; startCol: number; length: number }> = [];
+    const TILE_SIZE = 512;
+    
+    // Limit to visible area for performance - subsample when zoomed out
+    const step = viewportZoom < 0.5 ? Math.ceil(1 / viewportZoom) : 1;
+    
+    for (let row = 0; row < TILE_SIZE; row += step) {
+      let runStart: number | null = null;
+      
+      for (let col = 0; col < TILE_SIZE; col += step) {
+        const bitIndex = row * TILE_SIZE + col;
+        const byteIndex = Math.floor(bitIndex / 8);
+        const bitOffset = bitIndex % 8;
+        const isSet = byteIndex < data.length && (data[byteIndex] & (1 << bitOffset)) !== 0;
+        
+        if (isSet) {
+          if (runStart === null) {
+            runStart = col;
+          }
+        } else {
+          if (runStart !== null) {
+            runs.push({ row, startCol: runStart, length: col - runStart });
+            runStart = null;
+          }
+        }
+      }
+      
+      // Close run at end of row
+      if (runStart !== null) {
+        runs.push({ row, startCol: runStart, length: TILE_SIZE - runStart });
+      }
+      
+      // Limit total runs for performance
+      if (runs.length > 10000) break;
+    }
+    
+    return runs;
+  }
 </script>
 
 {#if globalVisible}
@@ -604,6 +651,95 @@
         </g>
       {/if}
     {/if}
+
+    <!-- Mask painting preview -->
+    {#if modifyPhase === 'mask-paint' && maskPaintData && maskTileOrigin}
+      {@const tileScreen = imageToScreen(maskTileOrigin.x, maskTileOrigin.y)}
+      {@const tileSize = 512 * viewportZoom}
+      {@const previewColor = '#3b82f6'}
+      
+      <!-- Tile boundary -->
+      <rect 
+        x={tileScreen.x} 
+        y={tileScreen.y}
+        width={tileSize} 
+        height={tileSize}
+        fill="none"
+        stroke={previewColor}
+        stroke-width="1"
+        stroke-dasharray="4 2"
+        opacity="0.5"
+        style="pointer-events: none;"
+      />
+      
+      <!-- Render painted pixels - simplified approach using rects -->
+      <!-- For performance, we skip rendering individual pixels and show a summary -->
+      <g class="mask-preview">
+        {#each getMaskRuns(maskPaintData) as run}
+          {@const runScreen = imageToScreen(maskTileOrigin.x + run.startCol, maskTileOrigin.y + run.row)}
+          <rect 
+            x={runScreen.x} 
+            y={runScreen.y}
+            width={run.length * viewportZoom}
+            height={viewportZoom}
+            fill={previewColor}
+            fill-opacity="0.5"
+          />
+        {/each}
+      </g>
+      
+      <!-- Brush cursor -->
+      {#if modifyMousePos}
+        {@const brushScreen = imageToScreen(modifyMousePos.x, modifyMousePos.y)}
+        {@const brushScreenSize = maskBrushSize * viewportZoom}
+        <g class="brush-cursor">
+          <circle 
+            cx={brushScreen.x} 
+            cy={brushScreen.y}
+            r={brushScreenSize / 2}
+            fill="none"
+            stroke="white"
+            stroke-width="2"
+            opacity="0.8"
+          />
+          <circle 
+            cx={brushScreen.x} 
+            cy={brushScreen.y}
+            r={brushScreenSize / 2}
+            fill="none"
+            stroke="black"
+            stroke-width="1"
+            opacity="0.5"
+          />
+        </g>
+      {/if}
+    {/if}
+
+    <!-- Mask brush cursor (shows even before first paint) -->
+    {#if modifyPhase === 'mask-paint' && modifyMousePos && !maskTileOrigin}
+      {@const brushScreen = imageToScreen(modifyMousePos.x, modifyMousePos.y)}
+      {@const brushScreenSize = maskBrushSize * viewportZoom}
+      <g class="brush-cursor">
+        <circle 
+          cx={brushScreen.x} 
+          cy={brushScreen.y}
+          r={brushScreenSize / 2}
+          fill="none"
+          stroke="white"
+          stroke-width="2"
+          opacity="0.8"
+        />
+        <circle 
+          cx={brushScreen.x} 
+          cy={brushScreen.y}
+          r={brushScreenSize / 2}
+          fill="none"
+          stroke="black"
+          stroke-width="1"
+          opacity="0.5"
+        />
+      </g>
+    {/if}
   </svg>
 {/if}
 
@@ -674,9 +810,16 @@
   .preview-ellipse,
   .preview-ellipse-rotated,
   .preview-polygon,
-  .preview-freehand {
+  .preview-freehand,
+  .mask-preview,
+  .brush-cursor {
     pointer-events: none;
     animation: previewPulse 1s ease-in-out infinite;
+  }
+
+  .mask-preview,
+  .brush-cursor {
+    animation: none;
   }
 
   .polygon-vertex-handle {

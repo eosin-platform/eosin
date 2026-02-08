@@ -30,9 +30,11 @@
     onStartPolygonCreation?: () => void;
     /** Callback to start freehand lasso creation */
     onStartFreehandLasso?: () => void;
+    /** Callback to start mask painting */
+    onStartMaskPainting?: () => void;
   }
 
-  let { x, y, visible, imageX, imageY, onSaveImage, onCopyImage, onClose, onAnnotationCreated, onStartPointCreation, onStartEllipseCreation, onStartPolygonCreation, onStartFreehandLasso }: Props = $props();
+  let { x, y, visible, imageX, imageY, onSaveImage, onCopyImage, onClose, onAnnotationCreated, onStartPointCreation, onStartEllipseCreation, onStartPolygonCreation, onStartFreehandLasso, onStartMaskPainting }: Props = $props();
 
   let menuEl = $state<HTMLDivElement>();
   let showAnnotationSubmenu = $state(false);
@@ -102,6 +104,16 @@
     // Start freehand lasso creation flow
     if (onStartFreehandLasso) {
       onStartFreehandLasso();
+    }
+    onClose();
+  }
+
+  function handleCreateMask() {
+    if (!canCreate) return;
+    
+    // Start mask painting flow
+    if (onStartMaskPainting) {
+      onStartMaskPainting();
     }
     onClose();
   }
@@ -202,6 +214,13 @@
               <polyline points="3 12 3 6 9 6"></polyline>
             </svg>
             Lasso
+          </button>
+          <button class="context-menu-item" role="menuitem" onclick={handleCreateMask}>
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="3" width="18" height="18" rx="2"></rect>
+              <circle cx="12" cy="12" r="4"></circle>
+            </svg>
+            Mask
           </button>
         </div>
       {/if}
