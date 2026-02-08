@@ -5,6 +5,7 @@
   import { newSlides, type NewSlide } from '$lib/stores/newSlides';
   import { tabStore } from '$lib/stores/tabs';
   import { sidebarLayoutStore } from '$lib/stores/annotations';
+  import { navigateToPoint } from '$lib/stores/navigation';
   import { authStore } from '$lib/stores/auth';
   import ActivityIndicator from './ActivityIndicator.svelte';
   import ContextMenu from './ContextMenu.svelte';
@@ -383,9 +384,7 @@
 
   // Handle annotation navigation - center viewport on annotation
   function handleAnnotationClick(annotationId: string, x: number, y: number) {
-    // This would need to communicate with ViewerPane to center on (x, y)
-    // For now, just log it - the actual implementation depends on how ViewerPane exposes navigation
-    console.log('Navigate to annotation:', annotationId, 'at', x, y);
+    navigateToPoint(x, y, annotationId);
   }
 
   // --- Pull-to-refresh ---

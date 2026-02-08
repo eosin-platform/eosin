@@ -113,7 +113,7 @@ export interface CreateAnnotationRequest {
   kind: AnnotationKind;
   geometry: AnnotationGeometry;
   label?: string;
-  label_id?: string;
+  label_id: string; // Required by API, use empty string for unlabeled
   description?: string;
   properties?: Record<string, unknown>;
 }

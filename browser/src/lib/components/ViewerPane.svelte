@@ -29,6 +29,7 @@
   import ViewportContextMenu from '$lib/components/ViewportContextMenu.svelte';
   import AnnotationContextMenu from '$lib/components/AnnotationContextMenu.svelte';
   import { annotationStore } from '$lib/stores/annotations';
+  import { navigationTarget } from '$lib/stores/navigation';
   import type { Annotation, PointGeometry, EllipseGeometry } from '$lib/api/annotations';
   import { tabStore, type Tab } from '$lib/stores/tabs';
   import { acquireCache, releaseCache } from '$lib/stores/slideCache';
@@ -404,6 +405,23 @@
   }
 
   /**
+   * Center the viewport on a specific point in image coordinates.
+   */
+  function centerOnPoint(imageX: number, imageY: number) {
+    if (!container) return;
+    const rect = container.getBoundingClientRect();
+    const visibleWidth = rect.width / viewport.zoom;
+    const visibleHeight = rect.height / viewport.zoom;
+    viewport = {
+      ...viewport,
+      x: imageX - visibleWidth / 2,
+      y: imageY - visibleHeight / 2,
+      width: rect.width,
+      height: rect.height,
+    };
+  }
+
+  /**
    * Close the currently open slide over the WebSocket, freeing the slot.
    */
   function closeCurrentSlide() {
@@ -484,6 +502,13 @@
       paneActiveTab = null;
     } else {
       paneActiveTab = pane.tabs.find((t) => t.tabId === pane.activeTabId) ?? null;
+    }
+  });
+
+  // Subscribe to navigation requests from other components (e.g., Sidebar annotation clicks)
+  const unsubNavigation = navigationTarget.subscribe((target) => {
+    if (target) {
+      centerOnPoint(target.x, target.y);
     }
   });
 
@@ -1054,6 +1079,7 @@
           await annotationStore.createAnnotation({
             kind: 'ellipse',
             geometry,
+            label_id: 'unlabeled',
           });
           showHudNotification('Ellipse created');
         } else {
@@ -1163,6 +1189,7 @@
 
   onDestroy(() => {
     unsubSplit();
+    unsubNavigation();
     onUnregisterTileHandler(paneId);
     closeCurrentSlide();
     if (activeSlideId) {
