@@ -218,12 +218,13 @@
     }
   });
   
-  // Pre-create hover bitmap when a mask is hovered (so color change is instant)
+  // Pre-create hover bitmap when a mask is hovered or highlighted (so color change is instant)
   $effect(() => {
-    if (!hoveredMaskId || !globalVisible || !Array.isArray(visibleAnnotations)) return;
+    const activeId = hoveredMaskId || highlightedId;
+    if (!activeId || !globalVisible || !Array.isArray(visibleAnnotations)) return;
     
     const maskEntry = visibleAnnotations.find(a => 
-      a && a.annotation && a.annotation.id === hoveredMaskId && a.annotation.kind === 'mask_patch'
+      a && a.annotation && a.annotation.id === activeId && a.annotation.kind === 'mask_patch'
     );
     if (!maskEntry) return;
     
@@ -293,7 +294,7 @@
       const geo = annotation.geometry as MaskGeometry;
       if (!geo || !geo.data_base64) continue;
       
-      const isHovered = hoveredMaskId === annotation.id;
+      const isHovered = hoveredMaskId === annotation.id || highlightedId === annotation.id;
       // Use hover color if hovered, otherwise normal layer color
       const renderColor = isHovered ? MASK_HOVER_COLOR : color;
       const bitmap = getMaskBitmap(annotation.id, renderColor);
@@ -776,6 +777,18 @@
               fill="transparent"
               stroke="none"
             />
+            <!-- Highlight ring (visible when highlighted/selected) -->
+            {#if isHighlighted || isSelected}
+              <circle 
+                cx={screen.x} 
+                cy={screen.y} 
+                r={POINT_RADIUS + 6}
+                fill="none"
+                stroke="white"
+                stroke-width="2"
+                stroke-opacity="0.8"
+              />
+            {/if}
             <circle 
               cx={screen.x} 
               cy={screen.y} 
