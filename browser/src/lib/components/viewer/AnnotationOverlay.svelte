@@ -260,6 +260,21 @@
     return runs;
   }
 
+  // Decode base64 mask data to Uint8Array
+  function decodeMaskData(base64: string): Uint8Array | null {
+    try {
+      const binaryString = atob(base64);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      return bytes;
+    } catch (e) {
+      console.error('Failed to decode mask data:', e);
+      return null;
+    }
+  }
+
   // Get pixelated brush outline for cursor display
   // Returns an SVG path string for the outline of pixels that would be painted
   // Must match the algorithm in ViewerPane.svelte paintMaskBrush()
@@ -458,9 +473,7 @@
         {:else if annotation.kind === 'mask_patch'}
           {@const geo = annotation.geometry as MaskGeometry}
           {@const screen = imageToScreen(geo.x0_level0, geo.y0_level0)}
-          {@const width = getScreenRadius(geo.width)}
-          {@const height = getScreenRadius(geo.height)}
-          <!-- Mask patch - render as colored rectangle for now (full bitmask rendering would need canvas) -->
+          {@const maskData = geo.data_base64 ? decodeMaskData(geo.data_base64) : null}
           <!-- svelte-ignore a11y_click_events_have_key_events -->
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <g 
@@ -473,18 +486,37 @@
             onmouseleave={handleMouseLeave}
           >
             <title>{setName}</title>
-            <rect 
-              x={screen.x} 
-              y={screen.y} 
-              width={width}
-              height={height}
-              fill={color}
-              fill-opacity="0.3"
-              stroke={color}
-              stroke-width="1"
-              stroke-dasharray="4 2"
-              filter={isHighlighted || isSelected ? 'url(#annotation-glow)' : undefined}
-            />
+            {#if maskData}
+              <!-- Render actual mask pixels using run-length encoding -->
+              {#each getMaskRuns(maskData) as run}
+                {@const runScreen = imageToScreen(geo.x0_level0 + run.startCol, geo.y0_level0 + run.row)}
+                <rect 
+                  x={runScreen.x} 
+                  y={runScreen.y}
+                  width={run.length * viewportZoom}
+                  height={viewportZoom}
+                  fill={color}
+                  fill-opacity="0.5"
+                  filter={isHighlighted || isSelected ? 'url(#annotation-glow)' : undefined}
+                />
+              {/each}
+            {:else}
+              <!-- Fallback: render as rectangle if mask data unavailable -->
+              {@const width = getScreenRadius(geo.width)}
+              {@const height = getScreenRadius(geo.height)}
+              <rect 
+                x={screen.x} 
+                y={screen.y} 
+                width={width}
+                height={height}
+                fill={color}
+                fill-opacity="0.3"
+                stroke={color}
+                stroke-width="1"
+                stroke-dasharray="4 2"
+                filter={isHighlighted || isSelected ? 'url(#annotation-glow)' : undefined}
+              />
+            {/if}
           </g>
         {/if}
       {/if}

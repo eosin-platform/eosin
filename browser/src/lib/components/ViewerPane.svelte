@@ -2121,8 +2121,14 @@
   async function syncMaskToBackend() {
     if (!maskPaintData || !maskTileOrigin || !maskDirty) return;
     
-    // Encode mask to base64
-    const base64 = btoa(String.fromCharCode(...maskPaintData));
+    // Encode mask to base64 using chunked approach to avoid stack overflow
+    let binaryString = '';
+    const chunkSize = 8192;
+    for (let i = 0; i < maskPaintData.length; i += chunkSize) {
+      const chunk = maskPaintData.subarray(i, Math.min(i + chunkSize, maskPaintData.length));
+      binaryString += String.fromCharCode.apply(null, chunk as unknown as number[]);
+    }
+    const base64 = btoa(binaryString);
     
     const geometry: MaskGeometry = {
       x0_level0: maskTileOrigin.x,
