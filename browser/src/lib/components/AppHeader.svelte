@@ -132,17 +132,17 @@
 </script>
 
 <header class="app-header">
+  {#if showMenuButton}
+    <button class="menu-btn" onclick={onMenuClick} aria-label="Open menu">
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="3" y1="12" x2="21" y2="12"></line>
+        <line x1="3" y1="6" x2="21" y2="6"></line>
+        <line x1="3" y1="18" x2="21" y2="18"></line>
+      </svg>
+    </button>
+  {/if}
+
   <div class="header-left">
-    {#if showMenuButton}
-      <button class="menu-btn" onclick={onMenuClick} aria-label="Open menu">
-        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <line x1="3" y1="12" x2="21" y2="12"></line>
-          <line x1="3" y1="6" x2="21" y2="6"></line>
-          <line x1="3" y1="18" x2="21" y2="18"></line>
-        </svg>
-      </button>
-    {/if}
-    
     <!-- Tool toolbar -->
     <div class="tool-toolbar">
       <!-- Undo/Redo group -->
@@ -478,6 +478,26 @@
     display: flex;
     align-items: center;
     gap: 0.75rem;
+    flex: 1;
+    min-width: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: thin;
+    scrollbar-color: #444 transparent;
+    padding-right: 0.75rem;
+  }
+
+  .header-left::-webkit-scrollbar {
+    height: 3px;
+  }
+
+  .header-left::-webkit-scrollbar-thumb {
+    background: #444;
+    border-radius: 2px;
+  }
+
+  .header-left::-webkit-scrollbar-track {
+    background: transparent;
   }
 
   /* Tool toolbar */
@@ -485,13 +505,14 @@
     display: flex;
     align-items: center;
     gap: 4px;
-    margin-left: auto;
+    flex-shrink: 0;
   }
 
   .tool-group {
     display: flex;
     align-items: center;
     gap: 2px;
+    flex-shrink: 0;
   }
 
   .tool-separator {
@@ -499,6 +520,7 @@
     height: 20px;
     background: rgba(255, 255, 255, 0.15);
     margin: 0 4px;
+    flex-shrink: 0;
   }
 
   /* Custom enhancement dropdown */
@@ -609,6 +631,7 @@
     color: #9ca3af;
     cursor: pointer;
     transition: background-color 0.15s, color 0.15s;
+    flex-shrink: 0;
   }
 
   .tool-btn:hover:not(.disabled) {
@@ -705,6 +728,9 @@
       padding: 0;
       width: 36px;
     }
+    .logout-btn {
+      display: none;
+    }
   }
 
   .menu-btn,
@@ -722,6 +748,7 @@
     cursor: pointer;
     border-radius: 0.5rem;
     transition: background-color 0.15s, color 0.15s, transform 0.15s, box-shadow 0.15s;
+    flex-shrink: 0;
   }
 
   .menu-btn:hover,
