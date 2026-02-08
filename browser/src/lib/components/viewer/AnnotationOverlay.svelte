@@ -380,10 +380,10 @@
       {:else if modifyPhase === 'ellipse-radii' && modifyCenter}
         <!-- Show ellipse preview with horizontal/vertical mouse offset for rx/ry -->
         {@const centerScreen = imageToScreen(modifyCenter.x, modifyCenter.y)}
-        {@const rxImage = Math.max(Math.abs(modifyMousePos.x - modifyCenter.x), 10)}
-        {@const ryImage = Math.max(Math.abs(modifyMousePos.y - modifyCenter.y), 10)}
-        {@const rx = getScreenRadius(rxImage)}
-        {@const ry = getScreenRadius(ryImage)}
+        {@const rxImage = Math.abs(modifyMousePos.x - modifyCenter.x)}
+        {@const ryImage = Math.abs(modifyMousePos.y - modifyCenter.y)}
+        {@const rx = getScreenRadius(Math.max(rxImage, 1))}
+        {@const ry = getScreenRadius(Math.max(ryImage, 1))}
         <g class="preview-ellipse">
           <ellipse 
             cx={centerScreen.x} 
