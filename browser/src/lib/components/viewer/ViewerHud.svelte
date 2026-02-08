@@ -217,6 +217,10 @@
     flex-direction: row;
     align-items: flex-start;
     gap: 0.5rem;
+    /* Prevent selection on touch devices */
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
   }
 
   .viewer-hud {

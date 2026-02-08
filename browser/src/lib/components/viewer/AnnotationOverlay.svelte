@@ -1267,6 +1267,10 @@
     top: 0;
     left: 0;
     pointer-events: none;
+    /* Prevent selection on touch devices */
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
   }
 
   .annotation-overlay {
@@ -1275,6 +1279,10 @@
     left: 0;
     pointer-events: none;
     overflow: visible;
+    /* Prevent selection on touch devices */
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
   }
 
   .annotation-point,

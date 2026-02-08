@@ -186,6 +186,10 @@
     pointer-events: none;
     z-index: 25;
     overflow: visible;
+    /* Prevent selection on touch devices */
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
   }
 
   .measurement-line {

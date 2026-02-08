@@ -87,6 +87,10 @@
     align-items: flex-start;
     gap: 0.25rem;
     pointer-events: none;
+    /* Prevent selection on touch devices */
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
   }
 
   .bar {

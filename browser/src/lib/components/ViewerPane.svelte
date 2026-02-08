@@ -2965,6 +2965,10 @@
     background: white;
     display: flex;
     flex-direction: column;
+    /* Prevent text selection on touch devices (fixes iPad longpress issue) */
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
   }
 
   .viewer-container:active {
@@ -2998,6 +3002,10 @@
     position: absolute;
     inset: 0;
     z-index: 0;
+    /* Prevent selection on touch devices */
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
   }
 
   .welcome-screen {

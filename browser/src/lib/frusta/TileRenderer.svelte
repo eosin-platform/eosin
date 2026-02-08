@@ -1199,5 +1199,9 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
   .tile-canvas {
     display: block;
     image-rendering: auto;
+    /* Prevent selection on touch devices (fixes iPad longpress issue) */
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
   }
 </style>
