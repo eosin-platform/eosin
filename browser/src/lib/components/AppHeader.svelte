@@ -1006,20 +1006,64 @@
     color: rgba(255, 255, 255, 0.35);
   }
 
-  /* Touch device adaptations - larger touch targets */
+  /* Touch device adaptations - larger touch targets (1.5x size) */
   @media (pointer: coarse) {
+    .tool-btn {
+      width: 48px;
+      height: 48px;
+    }
+
+    .tool-btn svg {
+      width: 27px;
+      height: 27px;
+    }
+
+    .tool-separator {
+      height: 30px;
+      margin: 0 6px;
+    }
+
     .menu-btn,
     .settings-btn,
-    .help-btn {
-      width: 44px;
-      height: 44px;
+    .help-btn,
+    .auth-btn {
+      width: 54px;
+      height: 54px;
     }
 
     .menu-btn .icon,
     .settings-btn .icon,
-    .help-btn .icon {
-      width: 1.5rem;
-      height: 1.5rem;
+    .help-btn .icon,
+    .auth-btn .icon {
+      width: 1.875rem;
+      height: 1.875rem;
+    }
+
+    .menu-btn svg,
+    .settings-btn svg,
+    .help-btn svg {
+      width: 30px;
+      height: 30px;
+    }
+
+    .app-header {
+      height: 72px;
+      padding: 0.5rem 0.75rem;
+    }
+
+    .enhancement-trigger {
+      height: 48px;
+      padding: 0 12px;
+      font-size: 0.9rem;
+    }
+
+    .enhancement-label {
+      min-width: 50px;
+    }
+
+    .enhancement-chevron {
+      width: 16px;
+      height: 16px;
     }
   }
 </style>
