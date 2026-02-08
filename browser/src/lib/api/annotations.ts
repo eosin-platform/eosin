@@ -85,6 +85,7 @@ export interface CreateAnnotationSetRequest {
 export interface UpdateAnnotationSetRequest {
   name?: string;
   description?: string;
+  task_type?: string;
   locked?: boolean;
 }
 
@@ -239,7 +240,7 @@ export async function updateAnnotationSet(
   const base = getMetaEndpoint();
   const url = `${base}/annotation-sets/${encodeURIComponent(setId)}`;
   const response = await fetch(url, {
-    method: 'PUT',
+    method: 'PATCH',
     headers: await createAuthHeaders(),
     body: JSON.stringify(request),
   });
@@ -308,7 +309,7 @@ export async function updateAnnotation(
   const base = getMetaEndpoint();
   const url = `${base}/annotations/${encodeURIComponent(annotationId)}`;
   const response = await fetch(url, {
-    method: 'PUT',
+    method: 'PATCH',
     headers: await createAuthHeaders(),
     body: JSON.stringify(request),
   });

@@ -78,6 +78,20 @@
   let editingLayerId = $state<string | null>(null);
   let editingLayerName = $state('');
 
+  // Edit layer dialog state
+  let showEditLayerDialog = $state(false);
+  let editLayerTarget = $state<typeof sets[0] | null>(null);
+  let editLayerName = $state('');
+  let editLayerTaskType = $state('other');
+
+  // Layer context menu state
+  let layerContextMenu = $state<{ visible: boolean; x: number; y: number; target: typeof sets[0] | null }>({
+    visible: false,
+    x: 0,
+    y: 0,
+    target: null,
+  });
+
   // Sync dialog state with prop
   $effect(() => {
     if (showNewLayerDialogProp) {
@@ -145,6 +159,62 @@
   function cancelEditingLayer() {
     editingLayerId = null;
     editingLayerName = '';
+  }
+
+  // Layer context menu handlers
+  function handleLayerContextMenu(e: MouseEvent, set: typeof sets[0]) {
+    e.preventDefault();
+    e.stopPropagation();
+    layerContextMenu = {
+      visible: true,
+      x: e.clientX,
+      y: e.clientY,
+      target: set,
+    };
+  }
+
+  function closeLayerContextMenu() {
+    layerContextMenu = { visible: false, x: 0, y: 0, target: null };
+  }
+
+  // Edit layer dialog handlers
+  function openEditLayerDialog(set: typeof sets[0]) {
+    editLayerTarget = set;
+    editLayerName = set.name;
+    editLayerTaskType = set.task_type ?? 'other';
+    showEditLayerDialog = true;
+    closeLayerContextMenu();
+  }
+
+  function closeEditLayerDialog() {
+    showEditLayerDialog = false;
+    editLayerTarget = null;
+    editLayerName = '';
+    editLayerTaskType = 'other';
+  }
+
+  async function handleSaveEditLayer() {
+    if (!editLayerTarget || !editLayerName.trim()) return;
+    try {
+      await annotationStore.updateSet(editLayerTarget.id, {
+        name: editLayerName.trim(),
+        task_type: editLayerTaskType,
+      });
+      closeEditLayerDialog();
+    } catch (err) {
+      console.error('Failed to update layer:', err);
+    }
+  }
+
+  function handleContextMenuDelete() {
+    if (!layerContextMenu.target) return;
+    const setId = layerContextMenu.target.id;
+    closeLayerContextMenu();
+    if (confirm('Delete this annotation layer? This will delete all annotations in it.')) {
+      annotationStore.deleteSet(setId).catch((err) => {
+        console.error('Failed to delete layer:', err);
+      });
+    }
   }
 
   async function handleDeleteLayer(e: MouseEvent, setId: string) {
@@ -257,6 +327,7 @@
               class="layer-item"
               class:active={activeSet?.id === set.id}
               onclick={() => handleSelectLayer(set.id)}
+              oncontextmenu={(e) => handleLayerContextMenu(e, set)}
               onkeydown={(e) => e.key === 'Enter' && handleSelectLayer(set.id)}
               role="button"
               tabindex="0"
@@ -444,6 +515,70 @@
       </div>
     </div>
   {/if}
+
+  <!-- Edit Layer Dialog -->
+  {#if showEditLayerDialog && editLayerTarget}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="dialog-overlay" onclick={closeEditLayerDialog} onkeydown={(e) => e.key === 'Escape' && closeEditLayerDialog()}>
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div class="dialog" onclick={(e) => e.stopPropagation()}>
+        <h3>Edit Annotation Layer</h3>
+        <div class="form-group">
+          <label for="edit-layer-name">Name</label>
+          <input 
+            id="edit-layer-name"
+            type="text" 
+            bind:value={editLayerName}
+            placeholder="Layer name"
+          />
+        </div>
+        <div class="form-group">
+          <label for="edit-layer-task-type">Task Type</label>
+          <select id="edit-layer-task-type" bind:value={editLayerTaskType}>
+            {#each taskTypes as tt}
+              <option value={tt.value}>{tt.label}</option>
+            {/each}
+          </select>
+        </div>
+        <div class="dialog-actions">
+          <button class="btn secondary" onclick={closeEditLayerDialog}>Cancel</button>
+          <button class="btn primary" onclick={handleSaveEditLayer} disabled={!editLayerName.trim()}>
+            Save
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  <!-- Layer Context Menu -->
+  {#if layerContextMenu.visible && layerContextMenu.target}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="context-menu-overlay" onclick={closeLayerContextMenu} onkeydown={(e) => e.key === 'Escape' && closeLayerContextMenu()}>
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div 
+        class="context-menu" 
+        style="left: {layerContextMenu.x}px; top: {layerContextMenu.y}px;"
+        onclick={(e) => e.stopPropagation()}
+      >
+        <button class="context-menu-item" onclick={() => openEditLayerDialog(layerContextMenu.target!)}>
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+          </svg>
+          <span>Edit</span>
+        </button>
+        <button class="context-menu-item delete" onclick={handleContextMenuDelete}>
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="3 6 5 6 21 6"></polyline>
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+          </svg>
+          <span>Delete</span>
+        </button>
+      </div>
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -586,6 +721,7 @@
   }
 
   .layer-item:hover .layer-actions,
+  .layer-item:hover .layer-actions .action-btn,
   .annotation-item:hover .action-btn {
     opacity: 1;
   }
@@ -777,6 +913,69 @@
   .layer-list::-webkit-scrollbar-thumb:hover,
   .annotation-list::-webkit-scrollbar-thumb:hover {
     background: #444;
+  }
+
+  /* Context menu */
+  .context-menu-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+  }
+
+  .context-menu {
+    position: fixed;
+    z-index: 10001;
+    background: #222;
+    border: 1px solid #444;
+    border-radius: 6px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+    padding: 4px 0;
+    min-width: 140px;
+    animation: contextFadeIn 0.1s ease-out;
+  }
+
+  @keyframes contextFadeIn {
+    from {
+      opacity: 0;
+      transform: scale(0.95);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+
+  .context-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    background: transparent;
+    border: none;
+    color: #ddd;
+    font-size: 0.8125rem;
+    cursor: pointer;
+    text-align: left;
+    transition: background-color 0.1s;
+  }
+
+  .context-menu-item:hover {
+    background: #0066cc;
+    color: #fff;
+  }
+
+  .context-menu-item.delete:hover {
+    background: #dc2626;
+    color: #fff;
+  }
+
+  .context-menu-item:first-child {
+    border-radius: 5px 5px 0 0;
+  }
+
+  .context-menu-item:last-child {
+    border-radius: 0 0 5px 5px;
   }
 
   /* Mobile adaptations */
