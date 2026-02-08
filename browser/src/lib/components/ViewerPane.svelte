@@ -140,6 +140,7 @@
     isCreating: boolean;
     tempCenter?: { x: number; y: number };
     tempRadii?: { rx: number; ry: number };
+    tempAngleOffset?: number; // Initial angle when entering ellipse-angle phase (to avoid jank)
   }>({ phase: 'idle', annotation: null, isCreating: false });
 
   // Mouse position in image coordinates during modify mode
@@ -1167,12 +1168,15 @@
       const center = modifyMode.tempCenter!;
       const rx = Math.abs(imagePos.x - center.x);
       const ry = Math.abs(imagePos.y - center.y);
+      // Store initial angle to use as offset (so rotation starts at 0, not mouse position)
+      const initialAngle = Math.atan2(imagePos.y - center.y, imagePos.x - center.x);
       modifyMode = {
         phase: 'ellipse-angle',
         annotation,
         isCreating: modifyMode.isCreating,
         tempCenter: center,
         tempRadii: { rx: Math.max(rx, 1), ry: Math.max(ry, 1) }, // Minimum radius of 1 to avoid zero-size
+        tempAngleOffset: initialAngle,
       };
       showHudNotification('Move mouse to set rotation, then click');
     } else if (modifyMode.phase === 'ellipse-angle') {
@@ -1180,7 +1184,8 @@
       const center = modifyMode.tempCenter!;
       const dx = imagePos.x - center.x;
       const dy = imagePos.y - center.y;
-      const angle = Math.atan2(dy, dx);
+      const rawAngle = Math.atan2(dy, dx);
+      const angle = rawAngle - (modifyMode.tempAngleOffset ?? 0);
       
       const geometry = {
         cx_level0: center.x,
@@ -1374,6 +1379,7 @@
       modifyCenter={modifyMode.tempCenter ?? null}
       modifyRadii={modifyMode.tempRadii ?? null}
       modifyMousePos={modifyMouseImagePos}
+      modifyAngleOffset={modifyMode.tempAngleOffset ?? 0}
     />
     
     <!-- Viewer HUD overlay (top-left) -->

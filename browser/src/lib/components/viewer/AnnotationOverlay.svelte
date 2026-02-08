@@ -23,12 +23,13 @@
     modifyCenter?: { x: number; y: number } | null;
     modifyRadii?: { rx: number; ry: number } | null;
     modifyMousePos?: { x: number; y: number } | null;
+    modifyAngleOffset?: number;
   }
 
   let { 
     viewportX, viewportY, viewportZoom, containerWidth, containerHeight, 
     onAnnotationClick, onAnnotationRightClick,
-    modifyPhase = 'idle', modifyAnnotationId = null, modifyCenter = null, modifyRadii = null, modifyMousePos = null
+    modifyPhase = 'idle', modifyAnnotationId = null, modifyCenter = null, modifyRadii = null, modifyMousePos = null, modifyAngleOffset = 0
   }: Props = $props();
 
   // Settings: global annotation visibility
@@ -406,7 +407,8 @@
         {@const centerScreen = imageToScreen(modifyCenter.x, modifyCenter.y)}
         {@const dx = modifyMousePos.x - modifyCenter.x}
         {@const dy = modifyMousePos.y - modifyCenter.y}
-        {@const angleRad = Math.atan2(dy, dx)}
+        {@const rawAngleRad = Math.atan2(dy, dx)}
+        {@const angleRad = rawAngleRad - modifyAngleOffset}
         {@const angleDeg = angleRad * (180 / Math.PI)}
         {@const rx = getScreenRadius(modifyRadii.rx)}
         {@const ry = getScreenRadius(modifyRadii.ry)}
