@@ -1,9 +1,12 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte';
+  import { onDestroy, tick } from 'svelte';
   import { settings } from '$lib/stores/settings';
   import { annotationStore, getLayerColor } from '$lib/stores/annotations';
   import { authStore } from '$lib/stores/auth';
   import type { Annotation, AnnotationKind, AnnotationSet, PointGeometry, EllipseGeometry, PolygonGeometry, MaskGeometry } from '$lib/api/annotations';
+
+  // Cache for decoded mask data - avoids re-decoding base64 every frame
+  const maskDataCache = new Map<string, Uint8Array>();
 
   interface Props {
     /** Slide ID for this overlay - filters annotations to this slide */
@@ -82,7 +85,145 @@
     unsubSettings();
     unsubAnnotations();
     unsubAuth();
+    // Clear cache on destroy
+    maskDataCache.clear();
   });
+
+  // Canvas for mask rendering (much faster than SVG for pixel-based graphics)
+  let maskCanvas: HTMLCanvasElement | null = $state(null);
+  
+  // Cached decoded mask data keyed by annotation ID
+  function getCachedMaskData(annotationId: string, base64: string): Uint8Array | null {
+    const cached = maskDataCache.get(annotationId);
+    if (cached) return cached;
+    
+    const decoded = decodeMaskData(base64);
+    if (decoded) {
+      maskDataCache.set(annotationId, decoded);
+    }
+    return decoded;
+  }
+
+  // Render all masks to canvas - only recomputes when inputs change
+  $effect(() => {
+    if (!maskCanvas || !globalVisible) return;
+    
+    const ctx = maskCanvas.getContext('2d', { alpha: true });
+    if (!ctx) return;
+    
+    // Clear the canvas
+    ctx.clearRect(0, 0, containerWidth, containerHeight);
+    
+    // Get visible mask annotations
+    const masks = visibleAnnotations.filter(a => a.annotation.kind === 'mask_patch' && isInView(a.annotation));
+    
+    // Render stored masks
+    for (const { annotation, color } of masks) {
+      const geo = annotation.geometry as MaskGeometry;
+      if (!geo.data_base64) continue;
+      
+      const maskData = getCachedMaskData(annotation.id, geo.data_base64);
+      if (!maskData) continue;
+      
+      renderMaskToCanvas(ctx, maskData, geo.x0_level0, geo.y0_level0, geo.width, geo.height, color, 0.5);
+    }
+    
+    // Render painting preview tiles
+    if (modifyPhase === 'mask-paint' && maskAllTiles && maskAllTiles.length > 0) {
+      const previewColor = '#3b82f6';
+      for (const tile of maskAllTiles) {
+        if (!tile || !tile.origin || !tile.data) continue;
+        renderMaskToCanvas(ctx, tile.data, tile.origin.x, tile.origin.y, 512, 512, previewColor, 0.5);
+      }
+    }
+  });
+  
+  // Efficient mask rendering to canvas using run-length encoding and fillRect
+  function renderMaskToCanvas(
+    ctx: CanvasRenderingContext2D,
+    maskData: Uint8Array,
+    x0: number,
+    y0: number,
+    width: number,
+    height: number,
+    colorHex: string,
+    opacity: number
+  ) {
+    if (!maskData || maskData.length === 0) return;
+    
+    // Parse color once
+    const r = parseInt(colorHex.slice(1, 3), 16) || 0;
+    const g = parseInt(colorHex.slice(3, 5), 16) || 0;
+    const b = parseInt(colorHex.slice(5, 7), 16) || 0;
+    ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${opacity})`;
+    
+    // Determine effective mask dimensions
+    const effectiveWidth = maskData.length === 32768 ? 512 : Math.min(width, Math.floor(maskData.length * 8 / height));
+    const effectiveHeight = maskData.length === 32768 ? 512 : height;
+    
+    if (effectiveWidth <= 0 || effectiveHeight <= 0) return;
+    
+    // Calculate viewport bounds in mask coordinates  
+    const viewLeft = viewportX;
+    const viewTop = viewportY;
+    const viewRight = viewportX + containerWidth / viewportZoom;
+    const viewBottom = viewportY + containerHeight / viewportZoom;
+    
+    // Clamp to mask bounds
+    const startRow = Math.max(0, Math.floor(viewTop - y0));
+    const endRow = Math.min(effectiveHeight, Math.ceil(viewBottom - y0));
+    const startCol = Math.max(0, Math.floor(viewLeft - x0));
+    const endCol = Math.min(effectiveWidth, Math.ceil(viewRight - x0));
+    
+    if (startRow >= endRow || startCol >= endCol) return;
+    
+    // Subsample when zoomed out for performance
+    const step = viewportZoom < 0.25 ? Math.ceil(1 / (viewportZoom * 4)) : 1;
+    const pixelSize = viewportZoom * step;
+    
+    // Limit total operations for performance
+    let opCount = 0;
+    const maxOps = 50000;
+    
+    for (let row = startRow; row < endRow && opCount < maxOps; row += step) {
+      let runStart: number | null = null;
+      
+      for (let col = startCol; col <= endCol && opCount < maxOps; col += step) {
+        const inBounds = col < endCol;
+        let isSet = false;
+        
+        if (inBounds) {
+          const bitIndex = row * effectiveWidth + col;
+          const byteIndex = Math.floor(bitIndex / 8);
+          const bitOffset = bitIndex % 8;
+          isSet = byteIndex < maskData.length && (maskData[byteIndex] & (1 << bitOffset)) !== 0;
+        }
+        
+        if (isSet) {
+          if (runStart === null) runStart = col;
+        } else {
+          if (runStart !== null) {
+            // Draw the run
+            const screenX = (x0 + runStart - viewportX) * viewportZoom;
+            const screenY = (y0 + row - viewportY) * viewportZoom;
+            const runWidth = (col - runStart) * viewportZoom;
+            ctx.fillRect(screenX, screenY, runWidth, pixelSize);
+            runStart = null;
+            opCount++;
+          }
+        }
+      }
+      
+      // Close run at end of row
+      if (runStart !== null) {
+        const screenX = (x0 + runStart - viewportX) * viewportZoom;
+        const screenY = (y0 + row - viewportY) * viewportZoom;
+        const runWidth = (endCol - runStart) * viewportZoom;
+        ctx.fillRect(screenX, screenY, runWidth, pixelSize);
+        opCount++;
+      }
+    }
+  }
 
   // Get all visible annotations for this slide
   let visibleAnnotations = $derived.by(() => {
@@ -219,64 +360,6 @@
   // Ellipse stroke width
   const ELLIPSE_STROKE_WIDTH = 2;
 
-  // Convert bitmask to run-length encoded runs for efficient rendering
-  // Returns array of { row, startCol, length } for each horizontal run of set bits
-  // Supports variable-sized masks (e.g., edge tiles may be smaller than 512x512)
-  function getMaskRuns(data: Uint8Array | null | undefined, tileWidth: number = 512, tileHeight: number = 512): Array<{ row: number; startCol: number; length: number }> {
-    // Guard against invalid data
-    if (!data || !(data instanceof Uint8Array) || data.length === 0) {
-      return [];
-    }
-    
-    const runs: Array<{ row: number; startCol: number; length: number }> = [];
-    const expectedBytes = Math.ceil((tileWidth * tileHeight) / 8);
-    
-    // Validate data length - allow exact match or full 512x512 (32768 bytes)
-    if (data.length !== expectedBytes && data.length !== 32768) {
-      console.warn(`getMaskRuns: unexpected data length ${data.length}, expected ${expectedBytes} or 32768`);
-      return [];
-    }
-    
-    // Use actual tile dimensions for iteration, but if data is full size, use 512
-    const effectiveWidth = data.length === 32768 ? 512 : tileWidth;
-    const effectiveHeight = data.length === 32768 ? 512 : tileHeight;
-    
-    // Limit to visible area for performance - subsample when zoomed out
-    const step = viewportZoom < 0.5 ? Math.ceil(1 / viewportZoom) : 1;
-    
-    for (let row = 0; row < effectiveHeight; row += step) {
-      let runStart: number | null = null;
-      
-      for (let col = 0; col < effectiveWidth; col += step) {
-        const bitIndex = row * effectiveWidth + col;
-        const byteIndex = Math.floor(bitIndex / 8);
-        const bitOffset = bitIndex % 8;
-        const isSet = byteIndex < data.length && (data[byteIndex] & (1 << bitOffset)) !== 0;
-        
-        if (isSet) {
-          if (runStart === null) {
-            runStart = col;
-          }
-        } else {
-          if (runStart !== null) {
-            runs.push({ row, startCol: runStart, length: col - runStart });
-            runStart = null;
-          }
-        }
-      }
-      
-      // Close run at end of row
-      if (runStart !== null) {
-        runs.push({ row, startCol: runStart, length: effectiveWidth - runStart });
-      }
-      
-      // Limit total runs for performance
-      if (runs.length > 10000) break;
-    }
-    
-    return runs;
-  }
-
   // Decode base64 mask data to Uint8Array
   function decodeMaskData(base64: string): Uint8Array | null {
     try {
@@ -291,64 +374,17 @@
       return null;
     }
   }
-
-  // Get pixelated brush outline for cursor display
-  // Returns an SVG path string for the outline of pixels that would be painted
-  // Must match the algorithm in ViewerPane.svelte paintMaskBrush()
-  function getPixelatedBrushPath(centerX: number, centerY: number, brushSize: number): string {
-    const radius = brushSize / 2;
-    const minPx = Math.floor(centerX - radius);
-    const maxPx = Math.ceil(centerX + radius);
-    const minPy = Math.floor(centerY - radius);
-    const maxPy = Math.ceil(centerY + radius);
-    
-    // Build a set of pixel coordinates that are inside the brush
-    // Uses same algorithm as paintMaskBrush: distance from pixel corner to cursor
-    const pixels = new Set<string>();
-    for (let py = minPy; py <= maxPy; py++) {
-      for (let px = minPx; px <= maxPx; px++) {
-        // Check distance from pixel top-left corner to cursor (matches painting algorithm)
-        const dx = px - centerX;
-        const dy = py - centerY;
-        if (dx * dx + dy * dy <= radius * radius) {
-          pixels.add(`${px},${py}`);
-        }
-      }
-    }
-    
-    if (pixels.size === 0) return '';
-    
-    // Build outline path by checking each pixel's edges
-    const segments: string[] = [];
-    for (const key of pixels) {
-      const [px, py] = key.split(',').map(Number);
-      const topLeft = imageToScreen(px, py);
-      const size = viewportZoom;
-      
-      // Check each edge - if neighbor is not in set, draw that edge
-      // Top edge
-      if (!pixels.has(`${px},${py - 1}`)) {
-        segments.push(`M${topLeft.x},${topLeft.y} L${topLeft.x + size},${topLeft.y}`);
-      }
-      // Bottom edge
-      if (!pixels.has(`${px},${py + 1}`)) {
-        segments.push(`M${topLeft.x},${topLeft.y + size} L${topLeft.x + size},${topLeft.y + size}`);
-      }
-      // Left edge
-      if (!pixels.has(`${px - 1},${py}`)) {
-        segments.push(`M${topLeft.x},${topLeft.y} L${topLeft.x},${topLeft.y + size}`);
-      }
-      // Right edge
-      if (!pixels.has(`${px + 1},${py}`)) {
-        segments.push(`M${topLeft.x + size},${topLeft.y} L${topLeft.x + size},${topLeft.y + size}`);
-      }
-    }
-    
-    return segments.join(' ');
-  }
 </script>
 
 {#if globalVisible}
+  <!-- Canvas layer for efficient mask rendering -->
+  <canvas 
+    bind:this={maskCanvas}
+    class="mask-canvas"
+    width={containerWidth}
+    height={containerHeight}
+  ></canvas>
+  
   <svg 
     class="annotation-overlay"
     width={containerWidth}
@@ -488,53 +524,27 @@
           </g>
 
         {:else if annotation.kind === 'mask_patch'}
+          <!-- Masks are rendered on canvas; this is just a click/hover target -->
           {@const geo = annotation.geometry as MaskGeometry}
           {@const screen = imageToScreen(geo.x0_level0, geo.y0_level0)}
-          {@const maskData = geo.data_base64 ? decodeMaskData(geo.data_base64) : null}
+          {@const width = getScreenRadius(geo.width)}
+          {@const height = getScreenRadius(geo.height)}
           <!-- svelte-ignore a11y_click_events_have_key_events -->
           <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <g 
-            class="annotation-mask"
+          <rect 
+            class="annotation-mask-target"
             class:highlighted={isHighlighted}
             class:selected={isSelected}
+            x={screen.x} 
+            y={screen.y} 
+            width={width}
+            height={height}
+            fill="transparent"
             onclick={(e) => handleClick(e, annotation)}
             oncontextmenu={(e) => handleContextMenu(e, annotation)}
             onmouseenter={() => handleMouseEnter(annotation)}
             onmouseleave={handleMouseLeave}
-          >
-            <title>{setName}</title>
-            {#if maskData}
-              <!-- Render actual mask pixels using run-length encoding -->
-              {#each getMaskRuns(maskData) as run}
-                {@const runScreen = imageToScreen(geo.x0_level0 + run.startCol, geo.y0_level0 + run.row)}
-                <rect 
-                  x={runScreen.x} 
-                  y={runScreen.y}
-                  width={run.length * viewportZoom}
-                  height={viewportZoom}
-                  fill={color}
-                  fill-opacity="0.5"
-                  filter={isHighlighted || isSelected ? 'url(#annotation-glow)' : undefined}
-                />
-              {/each}
-            {:else}
-              <!-- Fallback: render as rectangle if mask data unavailable -->
-              {@const width = getScreenRadius(geo.width)}
-              {@const height = getScreenRadius(geo.height)}
-              <rect 
-                x={screen.x} 
-                y={screen.y} 
-                width={width}
-                height={height}
-                fill={color}
-                fill-opacity="0.3"
-                stroke={color}
-                stroke-width="1"
-                stroke-dasharray="4 2"
-                filter={isHighlighted || isSelected ? 'url(#annotation-glow)' : undefined}
-              />
-            {/if}
-          </g>
+          />
         {/if}
       {/if}
     {/each}
@@ -756,90 +766,68 @@
       {/if}
     {/if}
 
-    <!-- Mask painting preview - renders all tiles -->
-    {#if modifyPhase === 'mask-paint' && maskAllTiles && maskAllTiles.length > 0}
-      {@const tileSize = 512 * viewportZoom}
+    <!-- Mask painting mode: tile boundaries and brush cursor -->
+    <!-- Mask pixels are rendered on canvas for performance -->
+    {#if modifyPhase === 'mask-paint'}
       {@const previewColor = '#3b82f6'}
       
-      {#each maskAllTiles.filter(t => t && t.origin && t.data) as tile (tile.origin.x + ',' + tile.origin.y)}
-        {@const tileScreen = imageToScreen(tile.origin.x, tile.origin.y)}
-        
-        <!-- Tile boundary -->
-        <rect 
-          x={tileScreen.x} 
-          y={tileScreen.y}
-          width={tileSize} 
-          height={tileSize}
-          fill="none"
-          stroke={previewColor}
-          stroke-width="1"
-          stroke-dasharray="4 2"
-          opacity="0.5"
-          style="pointer-events: none;"
-        />
-        
-        <!-- Render painted pixels -->
-        <g class="mask-preview">
-          {#each getMaskRuns(tile.data) as run}
-            {@const runScreen = imageToScreen(tile.origin.x + run.startCol, tile.origin.y + run.row)}
-            <rect 
-              x={runScreen.x} 
-              y={runScreen.y}
-              width={run.length * viewportZoom}
-              height={viewportZoom}
-              fill={previewColor}
-              fill-opacity="0.5"
-            />
-          {/each}
-        </g>
-      {/each}
-      
-      <!-- Brush cursor (pixelated) -->
-      {#if modifyMousePos}
-        {@const brushPath = getPixelatedBrushPath(modifyMousePos.x, modifyMousePos.y, maskBrushSize)}
-        <g class="brush-cursor">
-          <path 
-            d={brushPath}
+      <!-- Tile boundaries -->
+      {#if maskAllTiles && maskAllTiles.length > 0}
+        {@const tileSize = 512 * viewportZoom}
+        {#each maskAllTiles.filter(t => t && t.origin) as tile (tile.origin.x + ',' + tile.origin.y)}
+          {@const tileScreen = imageToScreen(tile.origin.x, tile.origin.y)}
+          <rect 
+            x={tileScreen.x} 
+            y={tileScreen.y}
+            width={tileSize} 
+            height={tileSize}
             fill="none"
-            stroke="white"
-            stroke-width="2"
-            opacity="0.9"
-          />
-          <path 
-            d={brushPath}
-            fill="none"
-            stroke="black"
+            stroke={previewColor}
             stroke-width="1"
+            stroke-dasharray="4 2"
             opacity="0.5"
+            style="pointer-events: none;"
           />
-        </g>
+        {/each}
       {/if}
-    {/if}
-
-    <!-- Mask brush cursor (shows even before first paint) -->
-    {#if modifyPhase === 'mask-paint' && modifyMousePos && (!maskAllTiles || maskAllTiles.length === 0)}
-      {@const brushPath = getPixelatedBrushPath(modifyMousePos.x, modifyMousePos.y, maskBrushSize)}
-      <g class="brush-cursor">
-        <path 
-          d={brushPath}
+      
+      <!-- Simple circle brush cursor (much faster than pixelated path) -->
+      {#if modifyMousePos}
+        {@const screen = imageToScreen(modifyMousePos.x, modifyMousePos.y)}
+        {@const radius = (maskBrushSize / 2) * viewportZoom}
+        <circle 
+          cx={screen.x}
+          cy={screen.y}
+          r={radius}
           fill="none"
           stroke="white"
           stroke-width="2"
           opacity="0.9"
+          style="pointer-events: none;"
         />
-        <path 
-          d={brushPath}
+        <circle 
+          cx={screen.x}
+          cy={screen.y}
+          r={radius}
           fill="none"
           stroke="black"
           stroke-width="1"
           opacity="0.5"
+          style="pointer-events: none;"
         />
-      </g>
+      {/if}
     {/if}
   </svg>
 {/if}
 
 <style>
+  .mask-canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    pointer-events: none;
+  }
+
   .annotation-overlay {
     position: absolute;
     top: 0;
@@ -852,7 +840,7 @@
   .annotation-ellipse,
   .annotation-polygon,
   .annotation-polyline,
-  .annotation-mask {
+  .annotation-mask-target {
     pointer-events: auto;
     cursor: pointer;
     transition: opacity 0.15s;
@@ -862,7 +850,7 @@
   .annotation-ellipse:hover,
   .annotation-polygon:hover,
   .annotation-polyline:hover,
-  .annotation-mask:hover {
+  .annotation-mask-target:hover {
     opacity: 0.9;
   }
 
@@ -870,7 +858,7 @@
   .annotation-ellipse.highlighted,
   .annotation-polygon.highlighted,
   .annotation-polyline.highlighted,
-  .annotation-mask.highlighted {
+  .annotation-mask-target.highlighted {
     opacity: 1;
   }
 
@@ -878,7 +866,7 @@
   .annotation-ellipse.selected,
   .annotation-polygon.selected,
   .annotation-polyline.selected,
-  .annotation-mask.selected {
+  .annotation-mask-target.selected {
     opacity: 1;
   }
 
@@ -906,16 +894,9 @@
   .preview-ellipse,
   .preview-ellipse-rotated,
   .preview-polygon,
-  .preview-freehand,
-  .mask-preview,
-  .brush-cursor {
+  .preview-freehand {
     pointer-events: none;
     animation: previewPulse 1s ease-in-out infinite;
-  }
-
-  .mask-preview,
-  .brush-cursor {
-    animation: none;
   }
 
   .polygon-vertex-handle {
