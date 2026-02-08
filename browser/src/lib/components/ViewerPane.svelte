@@ -1825,7 +1825,9 @@
   }
 
   function captureUndoState() {
-    if (maskPaintData && maskTileOrigin) {
+    // Capture mask data before stroke. On the first stroke, maskTileOrigin may be null
+    // but it will be set during paintMaskBrush, so we just capture the data.
+    if (maskPaintData) {
       maskStateBeforeStroke = new Uint8Array(maskPaintData);
     }
   }
