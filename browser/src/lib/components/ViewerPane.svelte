@@ -400,13 +400,18 @@
       }
       handleStartMaskPainting();
     }
-    // Enter finishes multi-point mode or polygon creation
+    // Enter finishes multi-point mode, polygon creation, or mask painting
     if (e.key === 'Enter') {
       if (modifyMode.phase === 'multi-point') {
         cancelModifyMode();
       } else if (modifyMode.phase === 'polygon-vertices' || modifyMode.phase === 'polygon-edit') {
         // Complete polygon if we have enough vertices
         handleCompletePolygon();
+      } else if (modifyMode.phase === 'mask-paint') {
+        // Confirm and save mask painting
+        confirmMaskPainting();
+        cancelModifyMode();
+        showHudNotification('Mask saved');
       }
     }
     // Q/W/E keys switch ellipse modification phases
@@ -611,13 +616,15 @@
         const wasMultiPoint = modifyMode.phase === 'multi-point';
         const wasMaskPaint = modifyMode.phase === 'mask-paint';
         if (wasMaskPaint) {
-          cancelMaskPainting();
-        }
-        cancelModifyMode();
-        if (!wasMultiPoint && !wasMaskPaint) {
-          showHudNotification(wasCreating ? 'Creation cancelled' : 'Modification cancelled');
-        } else if (wasMaskPaint) {
-          showHudNotification('Mask painting cancelled');
+          // Confirm and save mask painting on Escape
+          confirmMaskPainting();
+          cancelModifyMode();
+          showHudNotification('Mask saved');
+        } else {
+          cancelModifyMode();
+          if (!wasMultiPoint) {
+            showHudNotification(wasCreating ? 'Creation cancelled' : 'Modification cancelled');
+          }
         }
       }
     }
@@ -1832,7 +1839,7 @@
       annotation: null,
       isCreating: true,
     };
-    showHudNotification('Paint mask, Alt = erase, Esc = cancel');
+    showHudNotification('Paint mask, Alt = erase, Esc/Enter = save');
   }
 
   // Helper: Set a pixel in the mask data
@@ -2065,6 +2072,30 @@
     maskAnnotationId = null;
     maskDirty = false;
     isMaskPainting = false;
+  }
+
+  async function confirmMaskPainting() {
+    // Cancel any pending debounced sync
+    if (maskSyncTimeout) {
+      clearTimeout(maskSyncTimeout);
+      maskSyncTimeout = null;
+    }
+    
+    // Immediately sync any unsaved changes
+    if (maskDirty) {
+      await syncMaskToBackend();
+    }
+    
+    // Reset mask state
+    maskPaintData = null;
+    maskTileOrigin = null;
+    maskAnnotationId = null;
+    maskDirty = false;
+    isMaskPainting = false;
+    
+    // Clear undo/redo stacks
+    undoStack = [];
+    redoStack = [];
   }
 
   function cancelModifyMode() {
