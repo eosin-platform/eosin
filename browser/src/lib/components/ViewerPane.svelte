@@ -397,7 +397,8 @@
           ...modifyMode,
           phase: 'ellipse-radii',
           tempCenterOffset: undefined, // Clear center offset
-          dragStartPos: undefined, // Reset for radii phase (will be set on mouse move)
+          // In modification mode, set dragStartPos to current mouse so size doesn't jump
+          dragStartPos: !modifyMode.isCreating && modifyMouseImagePos ? modifyMouseImagePos : undefined,
         };
         showHudNotification('Adjusting size (Q=position, E=rotation)');
       } else if (modifyMode.phase === 'ellipse-angle' && modifyMode.tempCenter && modifyMouseImagePos) {
@@ -417,7 +418,8 @@
           ...modifyMode,
           phase: 'ellipse-radii',
           tempRotation: currentRotation,
-          dragStartPos: undefined, // Reset for radii phase
+          // In modification mode, set dragStartPos to current mouse so size doesn't jump
+          dragStartPos: !modifyMode.isCreating ? modifyMouseImagePos : undefined,
         };
         showHudNotification('Adjusting size (Q=position, E=rotation)');
       } else if (modifyMode.phase === 'ellipse-radii') {
@@ -439,7 +441,8 @@
               phase: 'ellipse-angle',
               tempAngleOffset: rawAngle - desiredRotation,
               tempCenterOffset: undefined,
-              dragStartPos: undefined, // Reset for angle phase
+              // In modification mode, set dragStartPos to current mouse so rotation doesn't jump
+              dragStartPos: !modifyMode.isCreating ? modifyMouseImagePos : undefined,
             };
             showHudNotification('Adjusting rotation (Q=position, W=size)');
           }
@@ -461,7 +464,8 @@
             tempRadii: { rx: Math.max(rx, 1), ry: Math.max(ry, 1) },
             tempAngleOffset: initialAngle,
             tempCenterOffset: undefined,
-            dragStartPos: undefined, // Reset for angle phase
+            // In modification mode, set dragStartPos to current mouse so rotation doesn't jump
+            dragStartPos: !modifyMode.isCreating ? modifyMouseImagePos : undefined,
           };
           showHudNotification('Adjusting rotation (Q=position, W=size)');
         }
@@ -501,7 +505,8 @@
           phase: 'ellipse-angle',
           tempRadii: { rx, ry },
           tempAngleOffset: rawAngle - desiredRotation,
-          dragStartPos: undefined, // Reset for angle phase
+          // In modification mode, set dragStartPos to current mouse so rotation doesn't jump
+          dragStartPos: !modifyMode.isCreating ? modifyMouseImagePos : undefined,
         };
         showHudNotification('Adjusting rotation (Q=position, W=size)');
       } else if (modifyMode.phase === 'ellipse-angle') {
@@ -1408,7 +1413,8 @@
           phase: 'ellipse-angle',
           tempCenter: newCenter,
           tempCenterOffset: undefined, // Clear offset after applying
-          dragStartPos: undefined, // Reset drag start for next phase
+          // In modification mode, set dragStartPos to current click so rotation doesn't jump
+          dragStartPos: !modifyMode.isCreating ? imagePos : undefined,
         };
         showHudNotification('Adjust rotation, then click to confirm');
       } else if (modifyMode.tempRadii) {
@@ -1417,18 +1423,20 @@
           phase: 'ellipse-radii',
           tempCenter: newCenter,
           tempCenterOffset: undefined, // Clear offset after applying
-          dragStartPos: undefined, // Reset drag start for next phase
+          // In modification mode, set dragStartPos to current click so size doesn't jump
+          dragStartPos: !modifyMode.isCreating ? imagePos : undefined,
         };
         showHudNotification('Adjust size, then click (W=size, E=rotation)');
       } else {
         // For creation mode (no original values), start fresh radii phase
-        // For modification mode, preserve original values
+        // For modification mode, preserve original values and set dragStartPos
         modifyMode = {
           ...modifyMode,
           phase: 'ellipse-radii',
           tempCenter: newCenter,
           tempCenterOffset: undefined,
-          dragStartPos: undefined, // Will be set on first mouse move
+          // In modification mode, set dragStartPos to current click so size doesn't jump
+          dragStartPos: !modifyMode.isCreating ? imagePos : undefined,
         };
         showHudNotification('Move mouse to set width & height, then click');
       }
@@ -1469,7 +1477,8 @@
         phase: 'ellipse-angle',
         tempRadii: { rx, ry },
         tempAngleOffset: initialAngle,
-        dragStartPos: undefined, // Reset for angle phase
+        // In modification mode, set dragStartPos to current click so rotation doesn't jump
+        dragStartPos: !modifyMode.isCreating ? imagePos : undefined,
       };
       showHudNotification('Move mouse to set rotation, then click');
     } else if (modifyMode.phase === 'ellipse-angle') {
