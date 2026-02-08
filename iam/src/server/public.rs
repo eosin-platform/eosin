@@ -9,8 +9,8 @@ use axum_keycloak_auth::{
     instance::{KeycloakAuthInstance, KeycloakConfig},
     layer::KeycloakAuthLayer,
 };
-use owo_colors::OwoColorize;
 use eosin_common::{access_log, args::KeycloakArgs, cors};
+use owo_colors::OwoColorize;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 

@@ -25,6 +25,7 @@
   import ViewerHud from '$lib/components/viewer/ViewerHud.svelte';
   import ScaleBar from '$lib/components/viewer/ScaleBar.svelte';
   import MeasurementOverlay from '$lib/components/viewer/MeasurementOverlay.svelte';
+  import AnnotationOverlay from '$lib/components/viewer/AnnotationOverlay.svelte';
   import ViewportContextMenu from '$lib/components/ViewportContextMenu.svelte';
   import { tabStore, type Tab } from '$lib/stores/tabs';
   import { acquireCache, releaseCache } from '$lib/stores/slideCache';
@@ -880,9 +881,18 @@
   }
 
   // Context menu handlers
+  let contextMenuImageX = $state<number | undefined>(undefined);
+  let contextMenuImageY = $state<number | undefined>(undefined);
+
   function showContextMenu(x: number, y: number) {
     contextMenuX = x;
     contextMenuY = y;
+    // Convert to image coordinates
+    if (container && viewport) {
+      const imagePos = screenToImage(x, y);
+      contextMenuImageX = imagePos.x;
+      contextMenuImageY = imagePos.y;
+    }
     contextMenuVisible = true;
   }
 
@@ -895,6 +905,8 @@
 
   function handleContextMenuClose() {
     contextMenuVisible = false;
+    contextMenuImageX = undefined;
+    contextMenuImageY = undefined;
   }
 
   function cancelLongPress() {
@@ -1036,6 +1048,15 @@
     <!-- Measurement overlay -->
     <MeasurementOverlay {viewport} {measurement} />
     
+    <!-- Annotation overlay -->
+    <AnnotationOverlay
+      viewportX={viewport.x}
+      viewportY={viewport.y}
+      viewportZoom={viewport.zoom}
+      containerWidth={viewport.width}
+      containerHeight={viewport.height}
+    />
+    
     <!-- Viewer HUD overlay (top-left) -->
     <ViewerHud
       zoom={viewport.zoom}
@@ -1122,6 +1143,8 @@
     x={contextMenuX}
     y={contextMenuY}
     visible={contextMenuVisible}
+    imageX={contextMenuImageX}
+    imageY={contextMenuImageY}
     onSaveImage={handleSaveImage}
     onCopyImage={handleCopyImage}
     onClose={handleContextMenuClose}

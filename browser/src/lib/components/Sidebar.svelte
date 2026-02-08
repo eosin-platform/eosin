@@ -4,8 +4,11 @@
   import { liveProgress, type SlideProgress } from '$lib/stores/progress';
   import { newSlides, type NewSlide } from '$lib/stores/newSlides';
   import { tabStore } from '$lib/stores/tabs';
+  import { sidebarLayoutStore } from '$lib/stores/annotations';
+  import { authStore } from '$lib/stores/auth';
   import ActivityIndicator from './ActivityIndicator.svelte';
   import ContextMenu from './ContextMenu.svelte';
+  import AnnotationsPanel from './AnnotationsPanel.svelte';
 
   interface SlideListItem {
     id: string;
@@ -279,6 +282,112 @@
     unsubActiveTab();
   });
 
+  // --- Sidebar layout (slides/annotations split) ---
+  let slidesSectionCollapsed = $state(false);
+  let annotationsSectionCollapsed = $state(false);
+  let annotationsSectionHeight = $state(300);
+  
+  const unsubSidebarLayout = sidebarLayoutStore.subscribe((state) => {
+    slidesSectionCollapsed = state.slidesSectionCollapsed;
+    annotationsSectionCollapsed = state.annotationsSectionCollapsed;
+    annotationsSectionHeight = state.annotationsSectionHeight;
+  });
+
+  onDestroy(() => {
+    unsubSidebarLayout();
+  });
+
+  // --- Auth state ---
+  let isLoggedIn = $state(false);
+  const unsubAuth = authStore.subscribe((state) => {
+    isLoggedIn = state.user !== null;
+  });
+  
+  onDestroy(() => {
+    unsubAuth();
+  });
+
+  // --- New layer dialog state ---
+  let showNewLayerDialog = $state(false);
+
+  function handleNewLayerClick(e: MouseEvent) {
+    e.stopPropagation();
+    showNewLayerDialog = true;
+  }
+
+  function handleNewLayerDialogClose() {
+    showNewLayerDialog = false;
+  }
+
+  function toggleSlidesSection() {
+    sidebarLayoutStore.toggleSlidesSection();
+  }
+
+  function toggleAnnotationsSection() {
+    sidebarLayoutStore.toggleAnnotationsSection();
+  }
+
+  // Splitter drag logic
+  let isDraggingSplitter = $state(false);
+  let splitterStartY = 0;
+  let splitterStartHeight = 0;
+  let sidebarElement: HTMLElement;
+
+  function handleSplitterMouseDown(e: MouseEvent) {
+    e.preventDefault();
+    isDraggingSplitter = true;
+    splitterStartY = e.clientY;
+    splitterStartHeight = annotationsSectionHeight;
+    
+    document.addEventListener('mousemove', handleSplitterMouseMove);
+    document.addEventListener('mouseup', handleSplitterMouseUp);
+  }
+
+  function handleSplitterMouseMove(e: MouseEvent) {
+    if (!isDraggingSplitter) return;
+    const delta = splitterStartY - e.clientY;
+    const newHeight = Math.max(100, Math.min(splitterStartHeight + delta, sidebarElement?.clientHeight - 200 || 500));
+    sidebarLayoutStore.setAnnotationsSectionHeight(newHeight);
+  }
+
+  function handleSplitterMouseUp() {
+    isDraggingSplitter = false;
+    document.removeEventListener('mousemove', handleSplitterMouseMove);
+    document.removeEventListener('mouseup', handleSplitterMouseUp);
+  }
+
+  // Touch support for splitter
+  function handleSplitterTouchStart(e: TouchEvent) {
+    e.preventDefault();
+    isDraggingSplitter = true;
+    splitterStartY = e.touches[0].clientY;
+    splitterStartHeight = annotationsSectionHeight;
+    
+    document.addEventListener('touchmove', handleSplitterTouchMove, { passive: false });
+    document.addEventListener('touchend', handleSplitterTouchEnd);
+  }
+
+  function handleSplitterTouchMove(e: TouchEvent) {
+    if (!isDraggingSplitter) return;
+    e.preventDefault();
+    const delta = splitterStartY - e.touches[0].clientY;
+    const newHeight = Math.max(100, Math.min(splitterStartHeight + delta, sidebarElement?.clientHeight - 200 || 500));
+    sidebarLayoutStore.setAnnotationsSectionHeight(newHeight);
+  }
+
+  function handleSplitterTouchEnd() {
+    isDraggingSplitter = false;
+    document.removeEventListener('touchmove', handleSplitterTouchMove);
+    document.removeEventListener('touchend', handleSplitterTouchEnd);
+  }
+
+  // Handle annotation navigation - center viewport on annotation
+  function handleAnnotationClick(annotationId: string, x: number, y: number) {
+    // This would need to communicate with ViewerPane to center on (x, y)
+    // For now, just log it - the actual implementation depends on how ViewerPane exposes navigation
+    console.log('Navigate to annotation:', annotationId, 'at', x, y);
+  }
+
   // --- Pull-to-refresh ---
   let pullStartY = $state(0);
   let pullDistance = $state(0);
@@ -346,17 +455,17 @@
 <aside
   class="sidebar"
   class:collapsed
+  bind:this={sidebarElement}
 >
+  <!-- Top header with logo and collapse button -->
   <div class="sidebar-header" class:collapsed onclick={collapsed ? handleToggle : undefined} role={collapsed ? 'button' : undefined} tabindex={collapsed ? 0 : -1} aria-label={collapsed ? 'Expand sidebar' : undefined}>
     <div class="logo-container">
       <img src="/logo_half.png" alt="App logo" class="app-logo" />
     </div>
     {#if !collapsed}
-      <h2>Slides</h2>
-      <span class="slide-count">({totalCount})</span>
+      <span class="app-title">Eosin</span>
       <button class="toggle-btn" onclick={(e) => { e.stopPropagation(); handleToggle(); }} aria-label="Collapse sidebar">
         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <!-- Panel left close icon (collapse sidebar) -->
           <rect x="3" y="3" width="18" height="18" rx="2"></rect>
           <path d="M9 3v18"></path>
           <path d="M17 9l-3 3 3 3"></path>
@@ -365,105 +474,213 @@
     {/if}
   </div>
 
-  <!-- Pull-to-refresh indicator -->
-  <div
-    class="pull-indicator"
-    class:visible={pullDistance > 0 || refreshing}
-    style="height: {refreshing ? PULL_THRESHOLD : pullDistance}px"
-  >
-    <div class="pull-indicator-content">
-      {#if refreshing}
-        <div class="spinner"></div>
-        <span>Refreshing…</span>
-      {:else if pullDistance >= PULL_THRESHOLD}
-        <svg class="pull-arrow released" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="17 11 12 6 7 11"></polyline>
-          <line x1="12" y1="18" x2="12" y2="6"></line>
-        </svg>
-        <span>Release to refresh</span>
-      {:else}
-        <svg class="pull-arrow" style="transform: rotate({Math.min(pullDistance / PULL_THRESHOLD, 1) * 180}deg)" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="7 13 12 18 17 13"></polyline>
-          <line x1="12" y1="6" x2="12" y2="18"></line>
-        </svg>
-        <span>Pull to refresh</span>
-      {/if}
-    </div>
-  </div>
-
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <nav
-    class="slide-list"
-    bind:this={scrollContainer}
-    ontouchstart={handlePullTouchStart}
-    ontouchmove={handlePullTouchMove}
-    ontouchend={handlePullTouchEnd}
-  >
-    {#each slides as slide (slide.id)}
-      {@const progress = formatProgress(slide)}
-      {@const slideProgress = progressMap.get(slide.id)}
+  {#if !collapsed}
+    <!-- Slides section (expandable/collapsible) -->
+    <div class="sidebar-section slides-section" class:collapsed-section={slidesSectionCollapsed} style={!slidesSectionCollapsed && !annotationsSectionCollapsed ? `flex: 1 1 auto; min-height: 150px;` : !slidesSectionCollapsed ? 'flex: 1 1 auto;' : ''}>
       <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <!-- svelte-ignore a11y_click_events_have_key_events -->
-      <div
-        class="slide-item"
-        class:active={activeSlideId === slide.id}
-        class:slide-new={animatingSlideIds.has(slide.id)}
-        title={collapsed ? `${getSlideLabel(slide)} - ${formatDimensions(slide.width, slide.height)} - ${formatSize(slide.full_size)}${progress ? ` - ${progress}` : ''}` : undefined}
-        onanimationend={() => handleAnimationEnd(slide.id)}
-        onclick={() => handleSlideClick(slide)}
-        onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleSlideClick(slide); }}
-        oncontextmenu={(e) => handleContextMenu(e, slide)}
-        ontouchstart={(e) => handleTouchStartSlide(e, slide)}
-        ontouchend={handleTouchEndSlide}
-        ontouchmove={handleTouchMoveSlide}
+      <div 
+        class="section-header" 
+        onclick={toggleSlidesSection}
+        onkeydown={(e) => e.key === 'Enter' && toggleSlidesSection()}
         role="button"
         tabindex="0"
       >
-        {#if collapsed}
-          <span class="slide-icon">{(slide.filename || slide.id).slice(0, 2).toUpperCase()}</span>
-        {:else}
-          <div class="slide-row">
-            <span class="slide-name">{getSlideLabel(slide)}</span>
-            {#if progress}
-              <span class="slide-progress">
-                {#if slideProgress}
-                  <ActivityIndicator trigger={slideProgress.lastUpdate} />
-                {/if}
-                {progress}
-              </span>
+        <svg class="chevron" class:rotated={!slidesSectionCollapsed} xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="9 18 15 12 9 6"></polyline>
+        </svg>
+        <span class="section-title">Slides</span>
+        <span class="section-count">({totalCount})</span>
+      </div>
+      
+      {#if !slidesSectionCollapsed}
+        <!-- Pull-to-refresh indicator -->
+        <div
+          class="pull-indicator"
+          class:visible={pullDistance > 0 || refreshing}
+          style="height: {refreshing ? PULL_THRESHOLD : pullDistance}px"
+        >
+          <div class="pull-indicator-content">
+            {#if refreshing}
+              <div class="spinner"></div>
+              <span>Refreshing…</span>
+            {:else if pullDistance >= PULL_THRESHOLD}
+              <svg class="pull-arrow released" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="17 11 12 6 7 11"></polyline>
+                <line x1="12" y1="18" x2="12" y2="6"></line>
+              </svg>
+              <span>Release to refresh</span>
+            {:else}
+              <svg class="pull-arrow" style="transform: rotate({Math.min(pullDistance / PULL_THRESHOLD, 1) * 180}deg)" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="7 13 12 18 17 13"></polyline>
+                <line x1="12" y1="6" x2="12" y2="18"></line>
+              </svg>
+              <span>Pull to refresh</span>
             {/if}
           </div>
-          <span class="slide-meta">
-            <span class="slide-dimensions">{formatDimensions(slide.width, slide.height)}</span>
-            <span class="slide-size">{formatSize(slide.full_size)}</span>
-          </span>
-        {/if}
-      </div>
-    {/each}
+        </div>
 
-    {#if slides.length === 0 && !loading}
-      <div class="empty-state">
-        <p>No slides available</p>
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <nav
+          class="slide-list"
+          bind:this={scrollContainer}
+          ontouchstart={handlePullTouchStart}
+          ontouchmove={handlePullTouchMove}
+          ontouchend={handlePullTouchEnd}
+        >
+          {#each slides as slide (slide.id)}
+            {@const progress = formatProgress(slide)}
+            {@const slideProgress = progressMap.get(slide.id)}
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <!-- svelte-ignore a11y_click_events_have_key_events -->
+            <div
+              class="slide-item"
+              class:active={activeSlideId === slide.id}
+              class:slide-new={animatingSlideIds.has(slide.id)}
+              onanimationend={() => handleAnimationEnd(slide.id)}
+              onclick={() => handleSlideClick(slide)}
+              onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleSlideClick(slide); }}
+              oncontextmenu={(e) => handleContextMenu(e, slide)}
+              ontouchstart={(e) => handleTouchStartSlide(e, slide)}
+              ontouchend={handleTouchEndSlide}
+              ontouchmove={handleTouchMoveSlide}
+              role="button"
+              tabindex="0"
+            >
+              <div class="slide-row">
+                <span class="slide-name">{getSlideLabel(slide)}</span>
+                {#if progress}
+                  <span class="slide-progress">
+                    {#if slideProgress}
+                      <ActivityIndicator trigger={slideProgress.lastUpdate} />
+                    {/if}
+                    {progress}
+                  </span>
+                {/if}
+              </div>
+              <span class="slide-meta">
+                <span class="slide-dimensions">{formatDimensions(slide.width, slide.height)}</span>
+                <span class="slide-size">{formatSize(slide.full_size)}</span>
+              </span>
+            </div>
+          {/each}
+
+          {#if slides.length === 0 && !loading}
+            <div class="empty-state">
+              <p>No slides available</p>
+            </div>
+          {/if}
+
+          <!-- Sentinel for infinite scroll -->
+          <div bind:this={sentinel} class="sentinel">
+            {#if loading}
+              <div class="loading-indicator">
+                <div class="spinner"></div>
+                <span>Loading...</span>
+              </div>
+            {:else if error}
+              <div class="error-state">
+                <p>{error}</p>
+                <button onclick={loadMore}>Retry</button>
+              </div>
+            {:else if canLoadMore}
+              <div class="load-more-hint">Scroll for more</div>
+            {/if}
+          </div>
+        </nav>
+      {/if}
+    </div>
+
+    <!-- Splitter between sections (only when annotations not collapsed) -->
+    {#if !annotationsSectionCollapsed}
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div 
+        class="section-splitter"
+        onmousedown={handleSplitterMouseDown}
+        ontouchstart={handleSplitterTouchStart}
+      >
+        <div class="splitter-handle"></div>
       </div>
     {/if}
 
-    <!-- Sentinel for infinite scroll -->
-    <div bind:this={sentinel} class="sentinel">
-      {#if loading}
-        <div class="loading-indicator">
-          <div class="spinner"></div>
-          <span>Loading...</span>
+    <!-- Annotations section (expandable/collapsible) -->
+    <div 
+      class="sidebar-section annotations-section" 
+      class:collapsed-section={annotationsSectionCollapsed}
+      style={!annotationsSectionCollapsed ? `height: ${annotationsSectionHeight}px; flex-shrink: 0;` : ''}
+    >
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div 
+        class="section-header"
+        onclick={toggleAnnotationsSection}
+        onkeydown={(e) => e.key === 'Enter' && toggleAnnotationsSection()}
+        role="button"
+        tabindex="0"
+      >
+        <svg class="chevron" class:rotated={!annotationsSectionCollapsed} xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="9 18 15 12 9 6"></polyline>
+        </svg>
+        <span class="section-title">Layers</span>
+        
+        <!-- New layer button (aligned right) -->
+        {#if isLoggedIn}
+          <button 
+            class="section-action-btn" 
+            onclick={handleNewLayerClick}
+            title="New Layer"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+          </button>
+        {:else}
+          <button class="section-action-btn disabled" disabled title="Log in to create layers">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+          </button>
+        {/if}
+      </div>
+      
+      {#if !annotationsSectionCollapsed}
+        <div class="section-content">
+          <AnnotationsPanel 
+            slideId={activeSlideId}
+            onAnnotationClick={handleAnnotationClick}
+            showNewLayerDialogProp={showNewLayerDialog}
+            onNewLayerDialogClose={handleNewLayerDialogClose}
+          />
         </div>
-      {:else if error}
-        <div class="error-state">
-          <p>{error}</p>
-          <button onclick={loadMore}>Retry</button>
-        </div>
-      {:else if canLoadMore}
-        <div class="load-more-hint">Scroll for more</div>
       {/if}
     </div>
-  </nav>
+  {:else}
+    <!-- Collapsed sidebar: show icons only -->
+    <div class="collapsed-sections">
+      <button 
+        class="collapsed-section-btn" 
+        title="Slides ({totalCount})"
+        onclick={handleToggle}
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+          <line x1="8" y1="21" x2="16" y2="21"></line>
+          <line x1="12" y1="17" x2="12" y2="21"></line>
+        </svg>
+      </button>
+      <button 
+        class="collapsed-section-btn" 
+        title="Annotations"
+        onclick={handleToggle}
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5 12 2"></polygon>
+          <line x1="12" y1="22" x2="12" y2="15.5"></line>
+          <polyline points="22 8.5 12 15.5 2 8.5"></polyline>
+        </svg>
+      </button>
+    </div>
+  {/if}
 </aside>
 
 <ContextMenu
@@ -882,5 +1099,157 @@
       font-size: 0.875rem;
       min-height: 44px;
     }
+  }
+
+  /* Section styles for VS Code-like split view */
+  .app-title {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #eee;
+  }
+
+  .sidebar-section {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .sidebar-section.collapsed-section {
+    flex: 0 0 auto;
+  }
+
+  .slides-section {
+    flex: 1 1 auto;
+  }
+
+  .annotations-section {
+    border-top: 1px solid #333;
+  }
+
+  .section-header {
+    display: flex;
+    align-items: center;
+    padding: 0.5rem 0.75rem;
+    background: #1a1a1a;
+    cursor: pointer;
+    user-select: none;
+    gap: 0.375rem;
+    flex-shrink: 0;
+    transition: background-color 0.1s;
+  }
+
+  .section-header:hover {
+    background: #222;
+  }
+
+  .section-title {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    flex: 1;
+  }
+
+  .section-action-btn {
+    margin-left: auto;
+    background: transparent;
+    border: none;
+    padding: 2px 4px;
+    color: #888;
+    cursor: pointer;
+    border-radius: 3px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 0.1s, color 0.1s;
+  }
+
+  .section-action-btn:hover:not(.disabled) {
+    background: #333;
+    color: #ccc;
+  }
+
+  .section-action-btn.disabled {
+    color: #555;
+    cursor: not-allowed;
+  }
+
+  .section-count {
+    font-size: 0.6875rem;
+    color: #666;
+  }
+
+  .chevron {
+    color: #666;
+    transition: transform 0.15s ease;
+    flex-shrink: 0;
+  }
+
+  .chevron.rotated {
+    transform: rotate(90deg);
+  }
+
+  .section-content {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  /* Splitter between sections */
+  .section-splitter {
+    flex-shrink: 0;
+    height: 6px;
+    background: #1a1a1a;
+    cursor: ns-resize;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 0.1s;
+  }
+
+  .section-splitter:hover {
+    background: #252525;
+  }
+
+  .splitter-handle {
+    width: 32px;
+    height: 2px;
+    background: #444;
+    border-radius: 1px;
+  }
+
+  .section-splitter:hover .splitter-handle {
+    background: #666;
+  }
+
+  /* Collapsed sidebar section buttons */
+  .collapsed-sections {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 0.5rem 0;
+    gap: 0.25rem;
+  }
+
+  .collapsed-section-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    color: #888;
+    cursor: pointer;
+    border-radius: 6px;
+    transition: background-color 0.15s, color 0.15s;
+  }
+
+  .collapsed-section-btn:hover {
+    background: #333;
+    color: #fff;
   }
 </style>

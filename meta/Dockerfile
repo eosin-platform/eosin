@@ -15,6 +15,10 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     sccache --show-stats
 
 FROM ${RUNTIME_IMAGE}
-RUN apt-get update && apt-get install -y libssl3 && rm -rf /var/lib/apt/lists/*
+RUN apt-get update \
+    && apt-get install -y \
+        ca-certificates \
+        libssl3 \
+    && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /app/eosin-meta /usr/local/bin/eosin-meta
 CMD ["eosin-meta"]

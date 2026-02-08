@@ -13,7 +13,7 @@ nats:
         key: password
 
 keycloak:
-  endpoint: "https://keycloak.beebs.dev"
+  endpoint: "http://keycloak-service.keycloak.svc.cluster.local:8080"
 
 redis:
   username:
