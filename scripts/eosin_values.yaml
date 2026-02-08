@@ -12,6 +12,9 @@ nats:
         name: nats-cred
         key: password
 
+keycloak:
+  endpoint: "https://keycloak.beebs.dev"
+
 redis:
   username:
     valueFrom:

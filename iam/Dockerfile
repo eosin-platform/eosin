@@ -1,4 +1,4 @@
-ARG RUNTIME_IMAGE=debian:bookworm-slim
+ARG RUNTIME_IMAGE=debian:trixie-slim
 ARG BASE_IMAGE=thavlik/eosin-base:latest
 
 FROM ${BASE_IMAGE} AS builder

@@ -12,30 +12,30 @@ cors:
 
 keycloak:
   endpoint: "https://keycloak.example.com"
-  realm: dorch
+  realm: eosin
   clientId:
     valueFrom:
       secretKeyRef:
-        name: keycloak-client-cred
+        name: keycloak-cred
         key: clientid
   clientSecret:
     valueFrom:
       secretKeyRef:
-        name: keycloak-client-cred
+        name: keycloak-cred
         key: clientsecret
   admin:
     realm: master
     username:
       valueFrom:
         secretKeyRef:
-          name: keycloak-client-cred
+          name: keycloak-cred
           key: username
     password:
       valueFrom:
         secretKeyRef:
-          name: keycloak-client-cred
+          name: keycloak-cred
           key: password
-          
+
 s3:
   bucket:
     value: camelyon17
