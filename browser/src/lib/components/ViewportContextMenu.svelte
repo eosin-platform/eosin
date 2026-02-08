@@ -22,11 +22,13 @@
     onClose: () => void;
     /** Callback after creating an annotation */
     onAnnotationCreated?: () => void;
-    /** Callback to start interactive ellipse creation at given center */
-    onStartEllipseCreation?: (centerX: number, centerY: number) => void;
+    /** Callback to start interactive point creation */
+    onStartPointCreation?: () => void;
+    /** Callback to start interactive ellipse creation */
+    onStartEllipseCreation?: () => void;
   }
 
-  let { x, y, visible, imageX, imageY, onSaveImage, onCopyImage, onClose, onAnnotationCreated, onStartEllipseCreation }: Props = $props();
+  let { x, y, visible, imageX, imageY, onSaveImage, onCopyImage, onClose, onAnnotationCreated, onStartPointCreation, onStartEllipseCreation }: Props = $props();
 
   let menuEl = $state<HTMLDivElement>();
   let showAnnotationSubmenu = $state(false);
@@ -61,53 +63,21 @@
     onClose();
   }
 
-  async function handleCreatePoint() {
-    if (!canCreate || imageX === undefined || imageY === undefined) return;
+  function handleCreatePoint() {
+    if (!canCreate) return;
     
-    try {
-      await annotationStore.createAnnotation({
-        kind: 'point',
-        label_id: 'unlabeled',
-        geometry: {
-          x_level0: imageX,
-          y_level0: imageY,
-        },
-      });
-      onAnnotationCreated?.();
-    } catch (err) {
-      console.error('Failed to create point annotation:', err);
+    if (onStartPointCreation) {
+      onStartPointCreation();
     }
     onClose();
   }
 
-  async function handleCreateEllipse() {
-    if (!canCreate || imageX === undefined || imageY === undefined) return;
+  function handleCreateEllipse() {
+    if (!canCreate) return;
     
     // Start interactive ellipse creation flow
     if (onStartEllipseCreation) {
-      onStartEllipseCreation(imageX, imageY);
-      onClose();
-      return;
-    }
-    
-    // Fallback: create default ellipse if no interactive mode available
-    const defaultRadius = 50;
-    
-    try {
-      await annotationStore.createAnnotation({
-        kind: 'ellipse',
-        label_id: 'unlabeled',
-        geometry: {
-          cx_level0: imageX,
-          cy_level0: imageY,
-          radius_x: defaultRadius,
-          radius_y: defaultRadius,
-          rotation_radians: 0,
-        },
-      });
-      onAnnotationCreated?.();
-    } catch (err) {
-      console.error('Failed to create ellipse annotation:', err);
+      onStartEllipseCreation();
     }
     onClose();
   }
@@ -188,13 +158,13 @@
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <circle cx="12" cy="12" r="3"></circle>
             </svg>
-            Point here
+            Point
           </button>
           <button class="context-menu-item" role="menuitem" onclick={handleCreateEllipse}>
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <ellipse cx="12" cy="12" rx="8" ry="5"></ellipse>
             </svg>
-            Ellipse here
+            Ellipse
           </button>
         </div>
       {/if}

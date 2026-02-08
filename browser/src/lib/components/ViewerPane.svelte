@@ -997,15 +997,24 @@
     }
   }
 
-  function handleStartEllipseCreation(centerX: number, centerY: number) {
-    // Start interactive ellipse creation with center already set
+  function handleStartEllipseCreation() {
+    // Start interactive ellipse creation at center selection phase
     modifyMode = {
-      phase: 'ellipse-radii',
+      phase: 'ellipse-center',
       annotation: null,
       isCreating: true,
-      tempCenter: { x: centerX, y: centerY },
     };
-    showHudNotification('Move mouse to set width & height, then click');
+    showHudNotification('Click to set center');
+  }
+
+  function handleStartPointCreation() {
+    // Start interactive point creation
+    modifyMode = {
+      phase: 'point-position',
+      annotation: null,
+      isCreating: true,
+    };
+    showHudNotification('Click to place point');
   }
 
   function cancelModifyMode() {
@@ -1021,19 +1030,33 @@
     const annotation = modifyMode.annotation;
 
     if (modifyMode.phase === 'point-position') {
-      // Update point position (only for existing annotations)
-      if (!annotation) return;
+      // Create or update point position
       try {
-        await annotationStore.updateAnnotation(annotation.id, {
-          geometry: {
-            x_level0: imagePos.x,
-            y_level0: imagePos.y,
-          },
-        });
-        showHudNotification('Point updated');
+        if (modifyMode.isCreating) {
+          // Creating new point
+          await annotationStore.createAnnotation({
+            kind: 'point',
+            geometry: {
+              x_level0: imagePos.x,
+              y_level0: imagePos.y,
+            },
+            label_id: 'unlabeled',
+          });
+          showHudNotification('Point created');
+        } else {
+          // Updating existing point
+          if (!annotation) return;
+          await annotationStore.updateAnnotation(annotation.id, {
+            geometry: {
+              x_level0: imagePos.x,
+              y_level0: imagePos.y,
+            },
+          });
+          showHudNotification('Point updated');
+        }
       } catch (err) {
-        console.error('Failed to update point:', err);
-        showHudNotification('Failed to update point');
+        console.error('Failed to save point:', err);
+        showHudNotification('Failed to save point');
       }
       cancelModifyMode();
     } else if (modifyMode.phase === 'ellipse-center') {
@@ -1348,6 +1371,7 @@
     onSaveImage={handleSaveImage}
     onCopyImage={handleCopyImage}
     onClose={handleContextMenuClose}
+    onStartPointCreation={handleStartPointCreation}
     onStartEllipseCreation={handleStartEllipseCreation}
   />
 
