@@ -25,6 +25,7 @@
   import ViewerHud from '$lib/components/viewer/ViewerHud.svelte';
   import ScaleBar from '$lib/components/viewer/ScaleBar.svelte';
   import MeasurementOverlay from '$lib/components/viewer/MeasurementOverlay.svelte';
+  import ViewportContextMenu from '$lib/components/ViewportContextMenu.svelte';
   import { tabStore, type Tab } from '$lib/stores/tabs';
   import { acquireCache, releaseCache } from '$lib/stores/slideCache';
   import { updatePerformanceMetrics } from '$lib/stores/metrics';
@@ -112,6 +113,15 @@
   let progressSteps = $state(0);
   let progressTotal = $state(0);
   let progressUpdateTrigger = $state(0);
+
+  // Context menu state for viewport
+  let contextMenuVisible = $state(false);
+  let contextMenuX = $state(0);
+  let contextMenuY = $state(0);
+
+  // Long press state for mobile context menu
+  let longPressTimer: ReturnType<typeof setTimeout> | null = null;
+  const LONG_PRESS_MS = 500;
 
   // Settings-derived values for zoom/pan sensitivity
   const sensitivityMap = { low: 0.5, medium: 1.0, high: 2.0 };
@@ -781,10 +791,22 @@
   let lastTouchCenter = { x: 0, y: 0 };
 
   function handleTouchStart(e: TouchEvent) {
+    cancelLongPress();
+    
     if (e.touches.length === 1) {
       isDragging = true;
       lastMouseX = e.touches[0].clientX;
       lastMouseY = e.touches[0].clientY;
+      
+      // Start longpress timer for context menu (only when viewing an image)
+      if (imageDesc) {
+        const touch = e.touches[0];
+        longPressTimer = setTimeout(() => {
+          longPressTimer = null;
+          isDragging = false;
+          showContextMenu(touch.clientX, touch.clientY);
+        }, LONG_PRESS_MS);
+      }
     } else if (e.touches.length === 2) {
       isDragging = false;
       lastTouchDistance = getTouchDistance(e.touches);
@@ -796,6 +818,9 @@
   }
 
   function handleTouchMove(e: TouchEvent) {
+    // Cancel long press if finger moves
+    cancelLongPress();
+    
     if (!imageDesc) return;
 
     if (e.touches.length === 1 && isDragging) {
@@ -828,6 +853,8 @@
   }
 
   function handleTouchEnd(e: TouchEvent) {
+    cancelLongPress();
+    
     if (e.touches.length === 0) {
       isDragging = false;
       lastTouchDistance = 0;
@@ -850,6 +877,75 @@
       x: (touches[0].clientX + touches[1].clientX) / 2,
       y: (touches[0].clientY + touches[1].clientY) / 2,
     };
+  }
+
+  // Context menu handlers
+  function showContextMenu(x: number, y: number) {
+    contextMenuX = x;
+    contextMenuY = y;
+    contextMenuVisible = true;
+  }
+
+  function handleContextMenu(e: MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!imageDesc) return;
+    showContextMenu(e.clientX, e.clientY);
+  }
+
+  function handleContextMenuClose() {
+    contextMenuVisible = false;
+  }
+
+  function cancelLongPress() {
+    if (longPressTimer) {
+      clearTimeout(longPressTimer);
+      longPressTimer = null;
+    }
+  }
+
+  async function handleSaveImage() {
+    const canvas = container?.querySelector('canvas') as HTMLCanvasElement | null;
+    if (!canvas) return;
+
+    try {
+      const blob = await new Promise<Blob | null>((resolve) => {
+        canvas.toBlob(resolve, 'image/png');
+      });
+      if (!blob) return;
+
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${activeSlideId || 'viewport'}.png`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Failed to save image:', err);
+    }
+  }
+
+  async function handleCopyImage() {
+    const canvas = container?.querySelector('canvas') as HTMLCanvasElement | null;
+    if (!canvas) return;
+
+    try {
+      const blob = await new Promise<Blob | null>((resolve) => {
+        canvas.toBlob(resolve, 'image/png');
+      });
+      if (!blob) return;
+
+      await navigator.clipboard.write([
+        new ClipboardItem({ 'image/png': blob })
+      ]);
+      
+      showHudNotification('Image copied to clipboard');
+    } catch (err) {
+      console.error('Failed to copy image:', err);
+      showHudNotification('Failed to copy image');
+    }
   }
 
   // Update viewport size on resize
@@ -901,6 +997,7 @@
     if (hudNotificationTimeout) {
       clearTimeout(hudNotificationTimeout);
     }
+    cancelLongPress();
     if (browser) {
       window.removeEventListener('mouseup', handleWindowMouseUp);
       window.removeEventListener('keydown', handleKeyDown, true);
@@ -919,6 +1016,7 @@
   onmousedown={handleMouseDown}
   onmousemove={handleMouseMove}
   onwheel={handleWheel}
+  oncontextmenu={handleContextMenu}
   ontouchstart={handleTouchStart}
   ontouchmove={handleTouchMove}
   ontouchend={handleTouchEnd}
@@ -1018,6 +1116,16 @@
       </div>
     </footer>
   {/if}
+
+  <!-- Viewport context menu (right-click / longpress) -->
+  <ViewportContextMenu
+    x={contextMenuX}
+    y={contextMenuY}
+    visible={contextMenuVisible}
+    onSaveImage={handleSaveImage}
+    onCopyImage={handleCopyImage}
+    onClose={handleContextMenuClose}
+  />
 </div>
 
 <style>
