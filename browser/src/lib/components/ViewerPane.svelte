@@ -2814,6 +2814,7 @@
 <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 <div
   class="viewer-container"
+  class:no-slide={!imageDesc}
   class:measuring={measurement.active}
   class:measuring-toggle={measurement.active && (measurement.mode === 'toggle' || measurement.mode === 'pending')}
   class:modifying={modifyMode.phase !== 'idle'}
@@ -3001,6 +3002,11 @@
 
   .viewer-container:active {
     cursor: grabbing;
+  }
+
+  /* No slide loaded - default cursor */
+  .viewer-container.no-slide {
+    cursor: default;
   }
 
   /* Measurement mode cursor */
