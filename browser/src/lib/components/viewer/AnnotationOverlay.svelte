@@ -7,6 +7,10 @@
 
   // Cache for decoded mask data - avoids re-decoding base64 every frame
   const maskDataCache = new Map<string, Uint8Array>();
+  
+  // Cache for pre-rendered mask ImageBitmaps (keyed by annotationId:color)
+  // This is the key optimization - render once to ImageBitmap, then just drawImage
+  const maskBitmapCache = new Map<string, ImageBitmap>();
 
   interface Props {
     /** Slide ID for this overlay - filters annotations to this slide */
@@ -85,12 +89,138 @@
     unsubSettings();
     unsubAnnotations();
     unsubAuth();
-    // Clear cache on destroy
+    // Clear caches on destroy
     maskDataCache.clear();
+    pendingBitmaps.clear();
+    // Close all ImageBitmaps to free GPU memory
+    for (const bitmap of maskBitmapCache.values()) {
+      bitmap.close();
+    }
+    maskBitmapCache.clear();
+    // Clear preview canvas references
+    previewCanvas = null;
+    previewImageData = null;
   });
 
   // Canvas for mask rendering (much faster than SVG for pixel-based graphics)
   let maskCanvas: HTMLCanvasElement | null = $state(null);
+  
+  // Offscreen canvas for creating mask bitmaps (reused for efficiency)
+  let offscreenCanvas: OffscreenCanvas | null = null;
+  
+  // Get or create an ImageBitmap for a mask annotation (cached by id:color)
+  // This is the key optimization - we render the mask to a bitmap ONCE, then just use drawImage
+  async function getOrCreateMaskBitmap(
+    annotationId: string,
+    maskData: Uint8Array,
+    width: number,
+    height: number,
+    colorHex: string,
+    opacity: number
+  ): Promise<ImageBitmap | null> {
+    const cacheKey = `${annotationId}:${colorHex}`;
+    
+    // Return cached bitmap if available
+    const cached = maskBitmapCache.get(cacheKey);
+    if (cached) return cached;
+    
+    // Create offscreen canvas if needed
+    if (!offscreenCanvas || offscreenCanvas.width !== width || offscreenCanvas.height !== height) {
+      offscreenCanvas = new OffscreenCanvas(width, height);
+    }
+    
+    const ctx = offscreenCanvas.getContext('2d', { alpha: true });
+    if (!ctx) return null;
+    
+    // Clear and render mask to offscreen canvas
+    ctx.clearRect(0, 0, width, height);
+    
+    // Parse color
+    const r = parseInt(colorHex.slice(1, 3), 16) || 0;
+    const g = parseInt(colorHex.slice(3, 5), 16) || 0;
+    const b = parseInt(colorHex.slice(5, 7), 16) || 0;
+    const a = Math.round(opacity * 255);
+    
+    // Create ImageData and fill directly - much faster than fillRect per pixel
+    const imageData = ctx.createImageData(width, height);
+    const data = imageData.data;
+    
+    for (let row = 0; row < height; row++) {
+      for (let col = 0; col < width; col++) {
+        const bitIndex = row * width + col;
+        const byteIndex = Math.floor(bitIndex / 8);
+        const bitOffset = bitIndex % 8;
+        
+        if (byteIndex < maskData.length && (maskData[byteIndex] & (1 << bitOffset)) !== 0) {
+          const pixelIndex = (row * width + col) * 4;
+          data[pixelIndex] = r;
+          data[pixelIndex + 1] = g;
+          data[pixelIndex + 2] = b;
+          data[pixelIndex + 3] = a;
+        }
+      }
+    }
+    
+    ctx.putImageData(imageData, 0, 0);
+    
+    // Create ImageBitmap from the canvas content
+    try {
+      const bitmap = await createImageBitmap(offscreenCanvas);
+      maskBitmapCache.set(cacheKey, bitmap);
+      return bitmap;
+    } catch (e) {
+      console.warn('Failed to create mask bitmap:', e);
+      return null;
+    }
+  }
+  
+  // Synchronous bitmap lookup (returns null if not yet created)
+  function getMaskBitmap(annotationId: string, colorHex: string): ImageBitmap | null {
+    return maskBitmapCache.get(`${annotationId}:${colorHex}`) ?? null;
+  }
+  
+  // Track which bitmaps are being created to avoid duplicate work
+  const pendingBitmaps = new Set<string>();
+  
+  // Pre-create bitmaps for visible masks (async, non-blocking)
+  $effect(() => {
+    if (!globalVisible || !Array.isArray(visibleAnnotations)) return;
+    
+    const masks = visibleAnnotations.filter(a => 
+      a && a.annotation && a.annotation.kind === 'mask_patch' && isInView(a.annotation)
+    );
+    
+    for (const { annotation, color } of masks) {
+      const geo = annotation.geometry as MaskGeometry;
+      if (!geo || !geo.data_base64) continue;
+      
+      const cacheKey = `${annotation.id}:${color}`;
+      if (maskBitmapCache.has(cacheKey) || pendingBitmaps.has(cacheKey)) continue;
+      
+      const maskData = getCachedMaskData(annotation.id, geo.data_base64);
+      if (!maskData) continue;
+      
+      // Mark as pending and start async creation
+      pendingBitmaps.add(cacheKey);
+      getOrCreateMaskBitmap(annotation.id, maskData, geo.width, geo.height, color, 0.5)
+        .then(() => {
+          pendingBitmaps.delete(cacheKey);
+          // Trigger re-render by touching renderTrigger
+          if (maskCanvas) {
+            maskCanvas.dispatchEvent(new Event('bitmapReady'));
+          }
+        });
+    }
+  });
+  
+  // Listen for bitmap ready events to trigger re-render
+  let bitmapReadyTrigger = $state(0);
+  $effect(() => {
+    if (!maskCanvas) return;
+    const handler = () => { bitmapReadyTrigger++; };
+    maskCanvas.addEventListener('bitmapReady', handler);
+    return () => maskCanvas?.removeEventListener('bitmapReady', handler);
+  });
   
   // Cached decoded mask data keyed by annotation ID
   function getCachedMaskData(annotationId: string, base64: string): Uint8Array | null {
@@ -104,8 +234,11 @@
     return decoded;
   }
 
-  // Render all masks to canvas - only recomputes when inputs change
+  // Render all masks to canvas - uses pre-rendered ImageBitmaps for speed
   $effect(() => {
+    // Touch bitmapReadyTrigger to re-run when bitmaps are ready
+    void bitmapReadyTrigger;
+    
     if (!maskCanvas || !globalVisible) return;
     
     const ctx = maskCanvas.getContext('2d', { alpha: true });
@@ -120,29 +253,39 @@
     // Get visible mask annotations
     const masks = visibleAnnotations.filter(a => a && a.annotation && a.annotation.kind === 'mask_patch' && isInView(a.annotation));
     
-    // Render stored masks
+    // Render stored masks using cached ImageBitmaps
     for (const { annotation, color } of masks) {
       const geo = annotation.geometry as MaskGeometry;
       if (!geo || !geo.data_base64) continue;
       
-      const maskData = getCachedMaskData(annotation.id, geo.data_base64);
-      if (!maskData) continue;
-      
-      renderMaskToCanvas(ctx, maskData, geo.x0_level0, geo.y0_level0, geo.width, geo.height, color, 0.5);
+      const bitmap = getMaskBitmap(annotation.id, color);
+      if (bitmap) {
+        // Fast path: use pre-rendered bitmap
+        const screenX = (geo.x0_level0 - viewportX) * viewportZoom;
+        const screenY = (geo.y0_level0 - viewportY) * viewportZoom;
+        const screenWidth = geo.width * viewportZoom;
+        const screenHeight = geo.height * viewportZoom;
+        ctx.drawImage(bitmap, screenX, screenY, screenWidth, screenHeight);
+      }
+      // If bitmap not ready yet, it will be rendered on next trigger
     }
     
-    // Render painting preview tiles
+    // Render painting preview tiles (these change constantly, so render directly)
     if (modifyPhase === 'mask-paint' && maskAllTiles && Array.isArray(maskAllTiles) && maskAllTiles.length > 0) {
       const previewColor = '#3b82f6';
       for (const tile of maskAllTiles) {
         if (!tile || !tile.origin || !tile.data) continue;
-        renderMaskToCanvas(ctx, tile.data, tile.origin.x, tile.origin.y, 512, 512, previewColor, 0.5);
+        renderMaskToCanvasDirect(ctx, tile.data, tile.origin.x, tile.origin.y, 512, 512, previewColor, 0.5);
       }
     }
   });
   
-  // Efficient mask rendering to canvas using run-length encoding and fillRect
-  function renderMaskToCanvas(
+  // Reusable canvas for painting preview (avoids creating new canvas every frame)
+  let previewCanvas: HTMLCanvasElement | null = null;
+  let previewImageData: ImageData | null = null;
+  
+  // Direct mask rendering for painting preview (not cached, used for live updates)
+  function renderMaskToCanvasDirect(
     ctx: CanvasRenderingContext2D,
     maskData: Uint8Array,
     x0: number,
@@ -157,78 +300,57 @@
     if (!Number.isFinite(width) || !Number.isFinite(height)) return;
     if (width <= 0 || height <= 0) return;
     
-    // Parse color once
+    // Reuse preview canvas if size matches, otherwise create new
+    if (!previewCanvas || previewCanvas.width !== width || previewCanvas.height !== height) {
+      previewCanvas = document.createElement('canvas');
+      previewCanvas.width = width;
+      previewCanvas.height = height;
+      previewImageData = null; // Force recreate ImageData
+    }
+    
+    const tempCtx = previewCanvas.getContext('2d', { alpha: true });
+    if (!tempCtx) return;
+    
+    // Reuse or create ImageData
+    if (!previewImageData || previewImageData.width !== width || previewImageData.height !== height) {
+      previewImageData = tempCtx.createImageData(width, height);
+    }
+    
+    // Clear the data buffer (important since we reuse it)
+    const data = previewImageData.data;
+    data.fill(0);
+    
+    // Parse color
     const r = parseInt(colorHex.slice(1, 3), 16) || 0;
     const g = parseInt(colorHex.slice(3, 5), 16) || 0;
     const b = parseInt(colorHex.slice(5, 7), 16) || 0;
-    ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${opacity})`;
+    const a = Math.round(opacity * 255);
     
-    // Determine effective mask dimensions - guard against division by zero
-    const effectiveWidth = maskData.length === 32768 ? 512 : Math.min(width, Math.floor(maskData.length * 8 / Math.max(height, 1)));
-    const effectiveHeight = maskData.length === 32768 ? 512 : height;
-    
-    if (effectiveWidth <= 0 || effectiveHeight <= 0 || !Number.isFinite(effectiveWidth) || !Number.isFinite(effectiveHeight)) return;
-    
-    // Calculate viewport bounds in mask coordinates  
-    const viewLeft = viewportX;
-    const viewTop = viewportY;
-    const viewRight = viewportX + containerWidth / viewportZoom;
-    const viewBottom = viewportY + containerHeight / viewportZoom;
-    
-    // Clamp to mask bounds
-    const startRow = Math.max(0, Math.floor(viewTop - y0));
-    const endRow = Math.min(effectiveHeight, Math.ceil(viewBottom - y0));
-    const startCol = Math.max(0, Math.floor(viewLeft - x0));
-    const endCol = Math.min(effectiveWidth, Math.ceil(viewRight - x0));
-    
-    if (startRow >= endRow || startCol >= endCol) return;
-    
-    // Subsample when zoomed out for performance
-    const step = viewportZoom < 0.25 ? Math.ceil(1 / (viewportZoom * 4)) : 1;
-    const pixelSize = viewportZoom * step;
-    
-    // Limit total operations for performance
-    let opCount = 0;
-    const maxOps = 50000;
-    
-    for (let row = startRow; row < endRow && opCount < maxOps; row += step) {
-      let runStart: number | null = null;
-      
-      for (let col = startCol; col <= endCol && opCount < maxOps; col += step) {
-        const inBounds = col < endCol;
-        let isSet = false;
+    // Fill set pixels
+    for (let row = 0; row < height; row++) {
+      for (let col = 0; col < width; col++) {
+        const bitIndex = row * width + col;
+        const byteIndex = Math.floor(bitIndex / 8);
+        const bitOffset = bitIndex % 8;
         
-        if (inBounds) {
-          const bitIndex = row * effectiveWidth + col;
-          const byteIndex = Math.floor(bitIndex / 8);
-          const bitOffset = bitIndex % 8;
-          isSet = byteIndex < maskData.length && (maskData[byteIndex] & (1 << bitOffset)) !== 0;
+        if (byteIndex < maskData.length && (maskData[byteIndex] & (1 << bitOffset)) !== 0) {
+          const pixelIndex = (row * width + col) * 4;
+          data[pixelIndex] = r;
+          data[pixelIndex + 1] = g;
+          data[pixelIndex + 2] = b;
+          data[pixelIndex + 3] = a;
         }
-        
-        if (isSet) {
-          if (runStart === null) runStart = col;
-        } else {
-          if (runStart !== null) {
-            // Draw the run
-            const screenX = (x0 + runStart - viewportX) * viewportZoom;
-            const screenY = (y0 + row - viewportY) * viewportZoom;
-            const runWidth = (col - runStart) * viewportZoom;
-            ctx.fillRect(screenX, screenY, runWidth, pixelSize);
-            runStart = null;
-            opCount++;
-          }
-        }
-      }
-      
-      // Close run at end of row
-      if (runStart !== null) {
-        const screenX = (x0 + runStart - viewportX) * viewportZoom;
-        const screenY = (y0 + row - viewportY) * viewportZoom;
-        const runWidth = (endCol - runStart) * viewportZoom;
-        ctx.fillRect(screenX, screenY, runWidth, pixelSize);
-        opCount++;
       }
     }
+    
+    tempCtx.putImageData(previewImageData, 0, 0);
+    
+    // Draw to main canvas with proper transform
+    const screenX = (x0 - viewportX) * viewportZoom;
+    const screenY = (y0 - viewportY) * viewportZoom;
+    const screenWidth = width * viewportZoom;
+    const screenHeight = height * viewportZoom;
+    ctx.drawImage(previewCanvas, screenX, screenY, screenWidth, screenHeight);
   }
 
   // Get all visible annotations for this slide
