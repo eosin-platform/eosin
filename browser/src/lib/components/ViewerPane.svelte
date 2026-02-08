@@ -287,7 +287,7 @@
         }
         return;
       }
-      if (e.ctrlKey || e.metaKey) {
+      if (e.altKey) {
         handleStartMultiPointCreation();
       } else {
         handleStartPointCreation();
@@ -1172,7 +1172,7 @@
         annotation,
         isCreating: modifyMode.isCreating,
         tempCenter: center,
-        tempRadii: { rx: Math.max(rx, 10), ry: Math.max(ry, 10) }, // Minimum radius of 10
+        tempRadii: { rx: Math.max(rx, 1), ry: Math.max(ry, 1) }, // Minimum radius of 1 to avoid zero-size
       };
       showHudNotification('Move mouse to set rotation, then click');
     } else if (modifyMode.phase === 'ellipse-angle') {

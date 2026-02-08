@@ -541,8 +541,8 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
     if (e.key === 'y' || e.key === 'Y') {
       yKeyHeld = true;
     }
-    // Number keys 0-9 force that mip level for debugging
-    if (e.key >= '0' && e.key <= '9') {
+    // Shift+0-9 force that mip level for debugging
+    if (e.shiftKey && e.key >= '0' && e.key <= '9') {
       forcedMipLevel = parseInt(e.key, 10);
     }
   }
@@ -551,7 +551,7 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
     if (e.key === 'y' || e.key === 'Y') {
       yKeyHeld = false;
     }
-    // Release forced mip level when number key is released
+    // Release forced mip level when Shift+number key is released
     if (e.key >= '0' && e.key <= '9' && forcedMipLevel === parseInt(e.key, 10)) {
       forcedMipLevel = null;
     }
