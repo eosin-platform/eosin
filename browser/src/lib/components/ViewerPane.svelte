@@ -228,8 +228,8 @@
 
   // Long press state for mobile context menu
   let longPressTimer: ReturnType<typeof setTimeout> | null = null;
-  const LONG_PRESS_MS = 500;
-  const LONG_PRESS_MOVE_THRESHOLD = 10; // Pixels of movement allowed before canceling long press
+  const LONG_PRESS_MS = 300;
+  const LONG_PRESS_MOVE_THRESHOLD = 20; // Pixels of movement allowed before canceling long press
   let longPressStartX = 0;
   let longPressStartY = 0;
 
@@ -1680,6 +1680,18 @@
       }
     }
     
+    // If context menu is showing and user starts moving, close it and start panning
+    if (contextMenuVisible && e.touches.length === 1 && !isDragging) {
+      const dx = Math.abs(e.touches[0].clientX - longPressStartX);
+      const dy = Math.abs(e.touches[0].clientY - longPressStartY);
+      if (dx > LONG_PRESS_MOVE_THRESHOLD || dy > LONG_PRESS_MOVE_THRESHOLD) {
+        contextMenuVisible = false;
+        isDragging = true;
+        lastMouseX = e.touches[0].clientX;
+        lastMouseY = e.touches[0].clientY;
+      }
+    }
+    
     if (!imageDesc) return;
 
     // Only pan if we've cancelled long press and are now dragging
@@ -1688,6 +1700,11 @@
       const deltaY = e.touches[0].clientY - lastMouseY;
       lastMouseX = e.touches[0].clientX;
       lastMouseY = e.touches[0].clientY;
+
+      // Close context menu when panning starts
+      if (contextMenuVisible) {
+        contextMenuVisible = false;
+      }
 
       viewport = pan(viewport, deltaX, deltaY, imageDesc.width, imageDesc.height);
       scheduleViewportUpdate();
@@ -1713,6 +1730,9 @@
   }
 
   function handleTouchEnd(e: TouchEvent) {
+    // Prevent synthetic click events
+    e.preventDefault();
+    
     cancelLongPress();
     
     if (e.touches.length === 0) {
@@ -2749,6 +2769,7 @@
   ontouchstart={handleTouchStart}
   ontouchmove={handleTouchMove}
   ontouchend={handleTouchEnd}
+  ontouchcancel={handleTouchEnd}
   role="application"
   tabindex="0"
   aria-label="Tile viewer - use mouse to pan, scroll to zoom"

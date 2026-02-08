@@ -25,7 +25,7 @@
   let modalEl = $state<HTMLDivElement>();
   let isDeleting = $state(false);
   let showMaskDeleteConfirm = $state(false);
-  let menuOpenTime = $state(0); // Track when menu was opened to ignore immediate clicks
+  let mountTime = 0; // Track when menu mounted to ignore synthetic clicks
 
   function handleModify() {
     if (!annotation) return;
@@ -68,12 +68,13 @@
     showMaskDeleteConfirm = false;
   }
 
-  function handleClickOutside(e: MouseEvent) {
-    // Ignore clicks that happen within 300ms of menu opening (prevents touch-end from closing)
-    if (Date.now() - menuOpenTime < 300) return;
+  function handleClickOutside(e: MouseEvent | TouchEvent) {
+    // Ignore synthetic clicks for 100ms after menu opens (touch device protection)
+    if (Date.now() - mountTime < 100) return;
     // Don't close if clicking inside menu or modal
-    if (menuEl && menuEl.contains(e.target as Node)) return;
-    if (modalEl && modalEl.contains(e.target as Node)) return;
+    const target = e instanceof TouchEvent ? e.touches[0]?.target ?? e.target : e.target;
+    if (menuEl && menuEl.contains(target as Node)) return;
+    if (modalEl && modalEl.contains(target as Node)) return;
     if (showMaskDeleteConfirm) return; // Don't close while modal is showing
     onClose();
   }
@@ -91,10 +92,11 @@
 
   onMount(() => {
     if (browser) {
-      menuOpenTime = Date.now();
+      mountTime = Date.now();
       // Delay to avoid the same click event closing the menu
       requestAnimationFrame(() => {
         document.addEventListener('click', handleClickOutside, true);
+        document.addEventListener('touchstart', handleClickOutside, true);
         document.addEventListener('keydown', handleKeydown);
       });
     }
@@ -103,6 +105,7 @@
   onDestroy(() => {
     if (browser) {
       document.removeEventListener('click', handleClickOutside, true);
+      document.removeEventListener('touchstart', handleClickOutside, true);
       document.removeEventListener('keydown', handleKeydown);
     }
   });

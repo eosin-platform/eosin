@@ -38,7 +38,7 @@
 
   let menuEl = $state<HTMLDivElement>();
   let showAnnotationSubmenu = $state(false);
-  let menuOpenTime = $state(0); // Track when menu was opened to ignore immediate clicks
+  let mountTime = 0; // Track when menu mounted to ignore synthetic clicks
 
   // Auth state
   let isLoggedIn = $state(false);
@@ -119,10 +119,11 @@
     onClose();
   }
 
-  function handleClickOutside(e: MouseEvent) {
-    // Ignore clicks that happen within 300ms of menu opening (prevents touch-end from closing)
-    if (Date.now() - menuOpenTime < 300) return;
-    if (menuEl && !menuEl.contains(e.target as Node)) {
+  function handleClickOutside(e: MouseEvent | TouchEvent) {
+    // Ignore synthetic clicks for 100ms after menu opens (touch device protection)
+    if (Date.now() - mountTime < 100) return;
+    const target = e instanceof TouchEvent ? e.touches[0]?.target ?? e.target : e.target;
+    if (menuEl && !menuEl.contains(target as Node)) {
       onClose();
     }
   }
@@ -135,10 +136,11 @@
 
   onMount(() => {
     if (browser) {
-      menuOpenTime = Date.now();
+      mountTime = Date.now();
       // Delay to avoid the same click event closing the menu
       requestAnimationFrame(() => {
         document.addEventListener('click', handleClickOutside, true);
+        document.addEventListener('touchstart', handleClickOutside, true);
         document.addEventListener('keydown', handleKeydown);
       });
     }
@@ -147,6 +149,7 @@
   onDestroy(() => {
     if (browser) {
       document.removeEventListener('click', handleClickOutside, true);
+      document.removeEventListener('touchstart', handleClickOutside, true);
       document.removeEventListener('keydown', handleKeydown);
     }
   });
