@@ -531,6 +531,65 @@
     
     // Only trigger if this was a quick tap (minimal movement and short duration)
     if (dx < TOUCH_TAP_THRESHOLD && dy < TOUCH_TAP_THRESHOLD && elapsed < TOUCH_TAP_MAX_TIME) {
+      // For mask annotations, only highlight if the tap is on a painted pixel
+      if (annotation.kind === 'mask_patch') {
+        const geo = annotation.geometry as MaskGeometry;
+        if (!geo || !geo.data_base64) {
+          touchStartPos = null;
+          touchAnnotation = null;
+          return;
+        }
+        
+        // Get mask data (cached)
+        const maskData = getCachedMaskData(annotation.id, geo.data_base64);
+        if (!maskData) {
+          touchStartPos = null;
+          touchAnnotation = null;
+          return;
+        }
+        
+        // Convert screen position to image coordinates
+        const target = e.currentTarget as SVGElement;
+        const svg = target.ownerSVGElement;
+        if (!svg) {
+          touchStartPos = null;
+          touchAnnotation = null;
+          return;
+        }
+        const rect = svg.getBoundingClientRect();
+        const screenX = touch.clientX - rect.left;
+        const screenY = touch.clientY - rect.top;
+        const imgX = viewportX + screenX / viewportZoom;
+        const imgY = viewportY + screenY / viewportZoom;
+        
+        // Convert to mask-local coordinates
+        const maskX = Math.floor(imgX - geo.x0_level0);
+        const maskY = Math.floor(imgY - geo.y0_level0);
+        
+        // Check bounds
+        if (maskX < 0 || maskX >= geo.width || maskY < 0 || maskY >= geo.height) {
+          touchStartPos = null;
+          touchAnnotation = null;
+          return;
+        }
+        
+        // Check if pixel is painted
+        const bitIndex = maskY * geo.width + maskX;
+        const byteIndex = Math.floor(bitIndex / 8);
+        const bitOffset = bitIndex % 8;
+        const isPainted = byteIndex < maskData.length && (maskData[byteIndex] & (1 << bitOffset)) !== 0;
+        
+        // If pixel is not painted, don't highlight - let it clear any existing highlight
+        if (!isPainted) {
+          touchStartPos = null;
+          touchAnnotation = null;
+          return;
+        }
+        
+        // Set hoveredMaskId for mask canvas rendering
+        hoveredMaskId = annotation.id;
+      }
+      
       e.stopPropagation();
       e.preventDefault();
       // Highlight the annotation (like mouseenter does on desktop)
