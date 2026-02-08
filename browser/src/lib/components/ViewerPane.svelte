@@ -2274,6 +2274,9 @@
         if (pixelsPainted > 0) {
           tile.dirty = true;
           anyPixelsPainted = true;
+          // Update the tile in the map with a new object to trigger reactivity
+          const key = getTileKey(tileX, tileY);
+          maskTiles.set(key, { ...tile, data: new Uint8Array(tile.data) });
         }
       }
     }
