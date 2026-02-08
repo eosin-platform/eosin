@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use eosin_common::args::{NatsArgs, PostgresArgs};
+use eosin_common::args::{NatsArgs, PostgresArgs, RedisArgs};
 
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about, long_about = None)]
@@ -60,6 +60,9 @@ pub struct DispatchArgs {
 pub struct ProcessArgs {
     #[command(flatten)]
     pub s3: S3Args,
+
+    #[command(flatten)]
+    pub redis: RedisArgs,
 
     #[command(flatten)]
     pub nats: NatsArgs,

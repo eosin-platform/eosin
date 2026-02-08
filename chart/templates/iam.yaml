@@ -1,0 +1,94 @@
+{{- $image := printf "%s%s" .Values.registry .Values.iam.image -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-iam
+spec:
+  replicas: {{ .Values.iam.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-iam
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}-iam
+    spec:
+    {{- if .Values.imagePullSecrets }}
+      imagePullSecrets:
+{{ toYaml .Values.imagePullSecrets | indent 10 }}
+    {{- end }}
+      containers:
+      - name: iam
+        imagePullPolicy: {{ .Values.iam.imagePullPolicy }}
+        image: {{ $image }}
+    {{- if .Values.iam.resources }}
+        resources:
+{{ toYaml .Values.iam.resources | indent 10 }}
+    {{- end }}
+        command:
+          - eosin-iam
+          - server
+          - --internal-port
+          - "80"
+          - --public-port
+          - "3000"
+        ports:
+        - containerPort: 80
+          protocol: TCP
+          name: internal
+        - containerPort: 3000
+          protocol: TCP
+          name: public
+{{- if .Values.prometheus.enabled }}
+        - containerPort: 2112
+          protocol: TCP
+          name: metrics
+{{- end }}
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 80
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 80
+        env:
+        - name: SERVICE_NAME
+          value: iam
+        - name: RUST_LOG
+          value: info,aws_smithy_runtime=debug,aws_smithy_http_tower=debug,hyper=info
+        - name: LOG_LEVEL
+          value: {{ .Values.iam.logLevel }}
+{{ include "eosin.keycloak-env" . | indent 8 }}
+{{ include "eosin.metrics-env" . | indent 8 }}
+---
+{{- if .Values.prometheus.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ .Release.Name }}-iam
+  labels:
+    chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
+spec:
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-iam
+  podMetricsEndpoints:
+  - port: metrics
+{{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-iam
+  labels:
+    app: {{ .Release.Name }}-iam
+spec:
+  type: ClusterIP
+  selector:
+    app: {{ .Release.Name }}-iam
+  ports:
+  - name: internal
+    port: 80
+  - name: public
+    port: 3000

@@ -1,5 +1,6 @@
 use crate::args::RedisArgs;
 use anyhow::{Context, Result, bail};
+use async_redis_lock::{Lock, Locker};
 use bytes::Bytes;
 use deadpool_redis::{Config as RedisPoolConfig, Pool};
 use owo_colors::OwoColorize;

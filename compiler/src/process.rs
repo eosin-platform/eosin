@@ -49,6 +49,10 @@ pub async fn run_process(args: ProcessArgs) -> Result<()> {
         "starting process worker"
     );
 
+    let mut locker = async_redis_lock::Locker::from_redis_url(args.redis.url().as_str())
+        .await
+        .context("failed to create Redis locker")?;
+
     // Create postgres pool for checkpointing
     let pg_pool = create_pool(args.postgres.clone()).await;
     db::init_schema(&pg_pool).await?;
@@ -190,6 +194,7 @@ pub async fn run_process(args: ProcessArgs) -> Result<()> {
                             &mut storage,
                             &nats_for_tiles,
                             &pg_pool,
+                            &mut locker,
                             cancel.clone(),
                         ).await;
 
@@ -226,6 +231,10 @@ pub async fn run_process(args: ProcessArgs) -> Result<()> {
     Ok(())
 }
 
+fn lock_key_for_slide(key: &str) -> String {
+    format!("eosin:l:{}", key)
+}
+
 /// Handle a `ProcessSlideEvent`: download TIF, insert metadata, extract and upload tiles.
 async fn handle_process_slide(
     payload: &[u8],
@@ -236,12 +245,18 @@ async fn handle_process_slide(
     storage_client: &mut StorageClient,
     nats_client: &async_nats::Client,
     pg_pool: &Pool,
+    locker: &mut async_redis_lock::Locker,
     cancel: CancellationToken,
 ) -> Result<()> {
     let event: ProcessSlideEvent =
         serde_json::from_slice(payload).context("failed to deserialize ProcessSlideEvent")?;
 
     tracing::info!(key = %event.key, "processing slide");
+
+    let _lock = locker
+        .acquire(&lock_key_for_slide(&event.key))
+        .await
+        .context("failed to acquire lock for slide")?;
 
     // Download the TIF file
     let local_path = s3::download_file(s3_client, bucket, &event.key, download_dir).await?;

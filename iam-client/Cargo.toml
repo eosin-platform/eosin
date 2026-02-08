@@ -1,0 +1,20 @@
+[package]
+name = "eosin-iam-client"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "eosin_iam_client"
+path = "src/lib.rs"
+
+[dependencies]
+anyhow = "1.0.100"
+reqwest = { version = "0.12", default-features = false, features = [
+    "rustls-tls",
+    "json",
+    "http2",
+    "stream",
+] }
+serde = "1.0.228"
+serde_json = "1.0.145"
+uuid = { version = "1.18.1", features = ["serde", "v4", "v8"] }

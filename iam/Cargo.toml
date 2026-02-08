@@ -1,0 +1,32 @@
+[package]
+name = "eosin-iam"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "eosin-iam"
+path = "src/main.rs"
+
+[dependencies]
+eosin-common = { path = "../common" }
+eosin-iam-client = { path = "../iam-client" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+clap = { workspace = true }
+anyhow = { workspace = true }
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+futures = { workspace = true }
+futures-util = { workspace = true }
+http = { workspace = true }
+uuid = { workspace = true }
+owo-colors = { workspace = true }
+reqwest = { workspace = true }
+deadpool-redis = { workspace = true }
+base64 = { workspace = true }
+tokio-util = { workspace = true }
+keycloak = { workspace = true }
+chrono = { workspace = true }
+axum-keycloak-auth = { workspace = true }

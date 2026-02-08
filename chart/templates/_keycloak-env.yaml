@@ -1,0 +1,13 @@
+{{/*
+Keycloak environment variables template
+*/}}
+{{- define "eosin.keycloak-env" -}}
+- name: KC_ENDPOINT
+  value: {{ tpl .Values.keycloak.endpoint . }}
+- name: KC_REALM
+  value: {{ required "missing iam.keycloak.realm" .Values.keycloak.realm }}
+- name: KC_CLIENT_ID
+{{ tpl (toYaml .Values.keycloak.clientId) . | indent 2 }}
+- name: KC_CLIENT_SECRET
+{{ tpl (toYaml .Values.keycloak.clientSecret) . | indent 2 }}
+{{- end -}}

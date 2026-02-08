@@ -86,6 +86,7 @@ spec:
 {{ include "eosin.metrics-env" . | indent 8 }}
 {{ include "eosin.nats-env" . | indent 8 }}
 {{ include "eosin.postgres-env" . | indent 8 }}
+{{ include "eosin.redis-env" . | indent 8 }}
         volumeMounts:
         - name: download-volume
           mountPath: {{ .Values.compiler.downloadDir }}

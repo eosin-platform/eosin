@@ -209,6 +209,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "async-redis-lock"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8e4f495185d8bde839b8d15f4bacd97afd9adf8914d61e3cfb89b1c8c8caff78"
+dependencies = [
+ "anyhow",
+ "redis",
+ "thiserror 2.0.18",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "async-trait"
 version = "0.1.89"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1580,6 +1593,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-nats",
+ "async-redis-lock",
  "async-trait",
  "axum",
  "axum-keycloak-auth",
@@ -1625,6 +1639,7 @@ dependencies = [
  "anyhow",
  "async-channel",
  "async-nats",
+ "async-redis-lock",
  "aws-config",
  "aws-credential-types",
  "aws-sdk-s3",
@@ -1679,6 +1694,45 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "eosin-iam"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "axum-keycloak-auth",
+ "base64",
+ "chrono",
+ "clap",
+ "deadpool-redis",
+ "eosin-common",
+ "eosin-iam-client",
+ "futures",
+ "futures-util",
+ "http 1.4.0",
+ "keycloak",
+ "owo-colors",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+ "tower",
+ "tower-http",
+ "uuid",
+]
+
+[[package]]
+name = "eosin-iam-client"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "reqwest",
+ "serde",
+ "serde_json",
  "uuid",
 ]
 

@@ -5,6 +5,37 @@ nats:
   user: {}
   password: {}
 
+cors:
+  accessControlAllowOrigins:
+    - https://eosin.ai
+    - https://eosin.io
+
+keycloak:
+  endpoint: "https://keycloak.example.com"
+  realm: dorch
+  clientId:
+    valueFrom:
+      secretKeyRef:
+        name: keycloak-client-cred
+        key: clientid
+  clientSecret:
+    valueFrom:
+      secretKeyRef:
+        name: keycloak-client-cred
+        key: clientsecret
+  admin:
+    realm: master
+    username:
+      valueFrom:
+        secretKeyRef:
+          name: keycloak-client-cred
+          key: username
+    password:
+      valueFrom:
+        secretKeyRef:
+          name: keycloak-client-cred
+          key: password
+          
 s3:
   bucket:
     value: camelyon17
@@ -47,6 +78,17 @@ postgres:
     value: ""
   ca:
     value: ""
+
+iam:
+  image: thavlik/eosin-iam:latest
+  imagePullPolicy: Always
+  replicas: 1
+  logLevel: debug
+  resources:
+    requests: 
+      memory: "32Mi"
+    limits:
+      memory: "64Mi"
 
 storage:
   image: docker.io/thavlik/eosin-storage:latest
