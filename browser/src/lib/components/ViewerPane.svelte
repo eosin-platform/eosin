@@ -1152,18 +1152,12 @@
       return;
     }
 
-    // Middle mouse button (button 1) - start drag measurement
+    // Middle mouse button (button 1) - pan viewport
     if (e.button === 1) {
       e.preventDefault();
-      const imagePos = screenToImage(e.clientX, e.clientY);
-      measurement = {
-        active: true,
-        mode: 'drag',
-        startScreen: { x: e.clientX, y: e.clientY },
-        endScreen: { x: e.clientX, y: e.clientY },
-        startImage: imagePos,
-        endImage: imagePos,
-      };
+      isDragging = true;
+      lastMouseX = e.clientX;
+      lastMouseY = e.clientY;
       return;
     }
 
@@ -1261,19 +1255,14 @@
       }
     }
 
-    // Handle measurement mode (both drag and toggle)
-    if (measurement.active && measurement.startImage) {
+    // Handle measurement mode (toggle mode only)
+    if (measurement.active && measurement.mode === 'toggle' && measurement.startImage) {
       const imagePos = screenToImage(e.clientX, e.clientY);
       measurement = {
         ...measurement,
         endScreen: { x: e.clientX, y: e.clientY },
         endImage: imagePos,
       };
-      
-      // In drag mode, don't pan
-      if (measurement.mode === 'drag') {
-        return;
-      }
     }
 
     // Regular pan handling
@@ -1307,9 +1296,9 @@
       return;
     }
     
-    // Middle mouse button released - end drag measurement
-    if (e && e.button === 1 && measurement.active && measurement.mode === 'drag') {
-      cancelMeasurement();
+    // Middle mouse button released - stop panning
+    if (e && e.button === 1) {
+      isDragging = false;
       return;
     }
     
