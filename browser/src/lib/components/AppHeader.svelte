@@ -630,6 +630,10 @@
     cursor: not-allowed;
   }
 
+  .tool-btn:focus {
+    outline: none;
+  }
+
   .tool-btn svg {
     flex-shrink: 0;
   }
