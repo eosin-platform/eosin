@@ -25,6 +25,7 @@
   let modalEl = $state<HTMLDivElement>();
   let isDeleting = $state(false);
   let showMaskDeleteConfirm = $state(false);
+  let menuOpenTime = $state(0); // Track when menu was opened to ignore immediate clicks
 
   function handleModify() {
     if (!annotation) return;
@@ -68,6 +69,8 @@
   }
 
   function handleClickOutside(e: MouseEvent) {
+    // Ignore clicks that happen within 300ms of menu opening (prevents touch-end from closing)
+    if (Date.now() - menuOpenTime < 300) return;
     // Don't close if clicking inside menu or modal
     if (menuEl && menuEl.contains(e.target as Node)) return;
     if (modalEl && modalEl.contains(e.target as Node)) return;
@@ -88,6 +91,7 @@
 
   onMount(() => {
     if (browser) {
+      menuOpenTime = Date.now();
       // Delay to avoid the same click event closing the menu
       requestAnimationFrame(() => {
         document.addEventListener('click', handleClickOutside, true);

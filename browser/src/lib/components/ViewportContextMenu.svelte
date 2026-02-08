@@ -38,6 +38,7 @@
 
   let menuEl = $state<HTMLDivElement>();
   let showAnnotationSubmenu = $state(false);
+  let menuOpenTime = $state(0); // Track when menu was opened to ignore immediate clicks
 
   // Auth state
   let isLoggedIn = $state(false);
@@ -119,6 +120,8 @@
   }
 
   function handleClickOutside(e: MouseEvent) {
+    // Ignore clicks that happen within 300ms of menu opening (prevents touch-end from closing)
+    if (Date.now() - menuOpenTime < 300) return;
     if (menuEl && !menuEl.contains(e.target as Node)) {
       onClose();
     }
@@ -132,6 +135,7 @@
 
   onMount(() => {
     if (browser) {
+      menuOpenTime = Date.now();
       // Delay to avoid the same click event closing the menu
       requestAnimationFrame(() => {
         document.addEventListener('click', handleClickOutside, true);
@@ -183,7 +187,7 @@
         <line x1="12" y1="22" x2="12" y2="15.5"></line>
         <polyline points="22 8.5 12 15.5 2 8.5"></polyline>
       </svg>
-      <span>Create annotation</span>
+      <span>Create</span>
       <svg class="chevron" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <polyline points="9 18 15 12 9 6"></polyline>
       </svg>

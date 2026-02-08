@@ -215,6 +215,9 @@
   // Long press state for mobile
   let longPressTimer: ReturnType<typeof setTimeout> | null = null;
   const LONG_PRESS_MS = 500;
+  const LONG_PRESS_MOVE_THRESHOLD = 90; // Pixels of movement allowed before canceling long press (3x normal for touch)
+  let longPressStartX = 0;
+  let longPressStartY = 0;
 
   function showContextMenu(x: number, y: number, slide: SlideListItem) {
     contextMenuX = x;
@@ -236,9 +239,11 @@
   }
 
   function handleTouchStartSlide(e: TouchEvent, slide: SlideListItem) {
+    const touch = e.touches[0];
+    longPressStartX = touch.clientX;
+    longPressStartY = touch.clientY;
     longPressTimer = setTimeout(() => {
       longPressTimer = null;
-      const touch = e.touches[0];
       showContextMenu(touch.clientX, touch.clientY, slide);
     }, LONG_PRESS_MS);
   }
@@ -250,11 +255,15 @@
     }
   }
 
-  function handleTouchMoveSlide() {
-    // Cancel long press if finger moves
-    if (longPressTimer) {
-      clearTimeout(longPressTimer);
-      longPressTimer = null;
+  function handleTouchMoveSlide(e: TouchEvent) {
+    // Cancel long press if finger moves beyond threshold
+    if (longPressTimer && e.touches.length > 0) {
+      const dx = Math.abs(e.touches[0].clientX - longPressStartX);
+      const dy = Math.abs(e.touches[0].clientY - longPressStartY);
+      if (dx > LONG_PRESS_MOVE_THRESHOLD || dy > LONG_PRESS_MOVE_THRESHOLD) {
+        clearTimeout(longPressTimer);
+        longPressTimer = null;
+      }
     }
   }
 

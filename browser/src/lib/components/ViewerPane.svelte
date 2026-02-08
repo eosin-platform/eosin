@@ -229,6 +229,9 @@
   // Long press state for mobile context menu
   let longPressTimer: ReturnType<typeof setTimeout> | null = null;
   const LONG_PRESS_MS = 500;
+  const LONG_PRESS_MOVE_THRESHOLD = 90; // Pixels of movement allowed before canceling long press (3x normal for touch)
+  let longPressStartX = 0;
+  let longPressStartY = 0;
 
   // Settings-derived values for zoom/pan sensitivity
   const sensitivityMap = { low: 0.5, medium: 1.0, high: 2.0 };
@@ -1636,18 +1639,22 @@
     cancelLongPress();
     
     if (e.touches.length === 1) {
-      isDragging = true;
       lastMouseX = e.touches[0].clientX;
       lastMouseY = e.touches[0].clientY;
       
       // Start longpress timer for context menu (only when viewing an image)
       if (imageDesc) {
         const touch = e.touches[0];
+        longPressStartX = touch.clientX;
+        longPressStartY = touch.clientY;
+        // Don't set isDragging yet - wait to see if it's a long press or pan
+        isDragging = false;
         longPressTimer = setTimeout(() => {
           longPressTimer = null;
-          isDragging = false;
           showContextMenu(touch.clientX, touch.clientY);
         }, LONG_PRESS_MS);
+      } else {
+        isDragging = true;
       }
     } else if (e.touches.length === 2) {
       isDragging = false;
@@ -1660,11 +1667,22 @@
   }
 
   function handleTouchMove(e: TouchEvent) {
-    // Cancel long press if finger moves
-    cancelLongPress();
+    // Check if we should cancel long press and start panning
+    if (longPressTimer && e.touches.length === 1) {
+      const dx = Math.abs(e.touches[0].clientX - longPressStartX);
+      const dy = Math.abs(e.touches[0].clientY - longPressStartY);
+      if (dx > LONG_PRESS_MOVE_THRESHOLD || dy > LONG_PRESS_MOVE_THRESHOLD) {
+        cancelLongPress();
+        // Now start panning
+        isDragging = true;
+        lastMouseX = e.touches[0].clientX;
+        lastMouseY = e.touches[0].clientY;
+      }
+    }
     
     if (!imageDesc) return;
 
+    // Only pan if we've cancelled long press and are now dragging
     if (e.touches.length === 1 && isDragging) {
       const deltaX = e.touches[0].clientX - lastMouseX;
       const deltaY = e.touches[0].clientY - lastMouseY;

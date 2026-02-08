@@ -132,7 +132,7 @@
   let longPressMoved = $state(false);
   let isTouchDevice = $state(false);
   const LONG_PRESS_MS = 500;
-  const LONG_PRESS_MOVE_THRESHOLD = 30; // Higher threshold to account for drag behavior
+  const LONG_PRESS_MOVE_THRESHOLD = 90; // Pixels of movement allowed (3x normal for touch)
 
   function handleTouchStart(e: TouchEvent, tabId: string) {
     isTouchDevice = true; // Detected touch - disable draggable
