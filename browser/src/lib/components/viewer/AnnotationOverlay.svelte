@@ -20,7 +20,7 @@
     /** Callback when an annotation is right-clicked */
     onAnnotationRightClick?: (annotation: Annotation, screenX: number, screenY: number) => void;
     /** Modification mode state */
-    modifyPhase?: 'idle' | 'point-position' | 'multi-point' | 'ellipse-center' | 'ellipse-radii' | 'ellipse-angle';
+    modifyPhase?: 'idle' | 'point-position' | 'multi-point' | 'ellipse-center' | 'ellipse-radii' | 'ellipse-angle' | 'polygon-vertices' | 'polygon-freehand' | 'polygon-edit';
     modifyAnnotationId?: string | null;
     modifyCenter?: { x: number; y: number } | null;
     modifyRadii?: { rx: number; ry: number } | null;
@@ -31,13 +31,18 @@
     modifyIsCreating?: boolean;
     modifyOriginalRadii?: { rx: number; ry: number } | null;
     modifyDragStartPos?: { x: number; y: number } | null;
+    /** Polygon modification state */
+    modifyPolygonVertices?: Array<{ x: number; y: number }> | null;
+    modifyFreehandPath?: Array<{ x: number; y: number }> | null;
+    modifyEditingVertexIndex?: number | null;
   }
 
   let { 
     slideId,
     viewportX, viewportY, viewportZoom, containerWidth, containerHeight, 
     onAnnotationClick, onAnnotationRightClick,
-    modifyPhase = 'idle', modifyAnnotationId = null, modifyCenter = null, modifyRadii = null, modifyMousePos = null, modifyAngleOffset = 0, modifyRotation = 0, modifyCenterOffset = null, modifyIsCreating = true, modifyOriginalRadii = null, modifyDragStartPos = null
+    modifyPhase = 'idle', modifyAnnotationId = null, modifyCenter = null, modifyRadii = null, modifyMousePos = null, modifyAngleOffset = 0, modifyRotation = 0, modifyCenterOffset = null, modifyIsCreating = true, modifyOriginalRadii = null, modifyDragStartPos = null,
+    modifyPolygonVertices = null, modifyFreehandPath = null, modifyEditingVertexIndex = null
   }: Props = $props();
 
   // Settings: global annotation visibility
@@ -505,6 +510,100 @@
         <circle cx={screen.x} cy={screen.y} r={POINT_RADIUS} fill={previewColor} fill-opacity="0.7" stroke="white" stroke-width={POINT_STROKE_WIDTH}/>
       </g>
     {/if}
+
+    <!-- Polygon modification/creation preview -->
+    {#if modifyPhase === 'polygon-vertices' || modifyPhase === 'polygon-edit' || modifyPhase === 'polygon-freehand'}
+      {@const previewColor = '#ffcc00'}
+      
+      {#if modifyPolygonVertices && modifyPolygonVertices.length > 0}
+        <!-- Draw polygon path -->
+        {@const polygonPath = modifyPolygonVertices.map((v, i) => {
+          const s = imageToScreen(v.x, v.y);
+          return i === 0 ? `M${s.x},${s.y}` : `L${s.x},${s.y}`;
+        }).join(' ') + (modifyPolygonVertices.length >= 3 ? ' Z' : '')}
+        
+        <g class="preview-polygon">
+          <path 
+            d={polygonPath}
+            fill={previewColor}
+            fill-opacity={modifyPolygonVertices.length >= 3 ? 0.15 : 0}
+            stroke={previewColor}
+            stroke-width="2"
+            stroke-dasharray={modifyPolygonVertices.length >= 3 ? 'none' : '6 3'}
+          />
+          
+          <!-- Preview line to current mouse position during vertex creation -->
+          {#if modifyPhase === 'polygon-vertices' && modifyMousePos && modifyPolygonVertices.length > 0}
+            {@const lastVertex = modifyPolygonVertices[modifyPolygonVertices.length - 1]}
+            {@const lastScreen = imageToScreen(lastVertex.x, lastVertex.y)}
+            {@const mouseScreen = imageToScreen(modifyMousePos.x, modifyMousePos.y)}
+            <line 
+              x1={lastScreen.x} y1={lastScreen.y} 
+              x2={mouseScreen.x} y2={mouseScreen.y} 
+              stroke={previewColor} 
+              stroke-width="1"
+              stroke-dasharray="4 2"
+            />
+            <!-- Close preview line if we have 3+ vertices -->
+            {#if modifyPolygonVertices.length >= 2}
+              {@const firstVertex = modifyPolygonVertices[0]}
+              {@const firstScreen = imageToScreen(firstVertex.x, firstVertex.y)}
+              <line 
+                x1={mouseScreen.x} y1={mouseScreen.y} 
+                x2={firstScreen.x} y2={firstScreen.y} 
+                stroke={previewColor} 
+                stroke-width="1"
+                stroke-dasharray="4 2"
+                opacity="0.5"
+              />
+            {/if}
+          {/if}
+          
+          <!-- Draw vertex handles -->
+          {#each modifyPolygonVertices as vertex, i}
+            {@const screen = imageToScreen(vertex.x, vertex.y)}
+            {@const isEditing = modifyEditingVertexIndex === i}
+            <circle 
+              cx={screen.x} 
+              cy={screen.y} 
+              r={isEditing ? 8 : 6} 
+              fill={isEditing ? 'white' : previewColor} 
+              stroke={isEditing ? previewColor : 'white'} 
+              stroke-width="2"
+              class="polygon-vertex-handle"
+            />
+            <!-- Vertex number label -->
+            <text 
+              x={screen.x} 
+              y={screen.y - 12} 
+              text-anchor="middle" 
+              fill={previewColor}
+              font-size="10"
+              font-weight="bold"
+            >{i + 1}</text>
+          {/each}
+        </g>
+      {/if}
+      
+      <!-- Freehand lasso preview -->
+      {#if modifyFreehandPath && modifyFreehandPath.length > 1}
+        {@const freehandPathD = modifyFreehandPath.map((v, i) => {
+          const s = imageToScreen(v.x, v.y);
+          return i === 0 ? `M${s.x},${s.y}` : `L${s.x},${s.y}`;
+        }).join(' ')}
+        
+        <g class="preview-freehand">
+          <path 
+            d={freehandPathD}
+            fill="none"
+            stroke={previewColor}
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </g>
+      {/if}
+    {/if}
   </svg>
 {/if}
 
@@ -573,9 +672,20 @@
   .preview-center,
   .preview-point,
   .preview-ellipse,
-  .preview-ellipse-rotated {
+  .preview-ellipse-rotated,
+  .preview-polygon,
+  .preview-freehand {
     pointer-events: none;
     animation: previewPulse 1s ease-in-out infinite;
+  }
+
+  .polygon-vertex-handle {
+    cursor: move;
+    transition: r 0.15s, fill 0.15s;
+  }
+
+  .polygon-vertex-handle:hover {
+    r: 9;
   }
 
   @keyframes previewPulse {

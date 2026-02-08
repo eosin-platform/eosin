@@ -78,7 +78,7 @@
   let adjustedY = $derived(Math.min(y, (browser ? window.innerHeight : 9999) - 100));
 
   // Check if annotation kind supports modification
-  let canModify = $derived(annotation?.kind === 'point' || annotation?.kind === 'ellipse');
+  let canModify = $derived(annotation?.kind === 'point' || annotation?.kind === 'ellipse' || annotation?.kind === 'polygon');
 </script>
 
 {#if visible && annotation}

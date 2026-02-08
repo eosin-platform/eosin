@@ -26,9 +26,13 @@
     onStartPointCreation?: () => void;
     /** Callback to start interactive ellipse creation */
     onStartEllipseCreation?: () => void;
+    /** Callback to start interactive polygon creation */
+    onStartPolygonCreation?: () => void;
+    /** Callback to start freehand lasso creation */
+    onStartFreehandLasso?: () => void;
   }
 
-  let { x, y, visible, imageX, imageY, onSaveImage, onCopyImage, onClose, onAnnotationCreated, onStartPointCreation, onStartEllipseCreation }: Props = $props();
+  let { x, y, visible, imageX, imageY, onSaveImage, onCopyImage, onClose, onAnnotationCreated, onStartPointCreation, onStartEllipseCreation, onStartPolygonCreation, onStartFreehandLasso }: Props = $props();
 
   let menuEl = $state<HTMLDivElement>();
   let showAnnotationSubmenu = $state(false);
@@ -78,6 +82,26 @@
     // Start interactive ellipse creation flow
     if (onStartEllipseCreation) {
       onStartEllipseCreation();
+    }
+    onClose();
+  }
+
+  function handleCreatePolygon() {
+    if (!canCreate) return;
+    
+    // Start interactive polygon creation flow
+    if (onStartPolygonCreation) {
+      onStartPolygonCreation();
+    }
+    onClose();
+  }
+
+  function handleCreateFreehandLasso() {
+    if (!canCreate) return;
+    
+    // Start freehand lasso creation flow
+    if (onStartFreehandLasso) {
+      onStartFreehandLasso();
     }
     onClose();
   }
@@ -165,6 +189,19 @@
               <ellipse cx="12" cy="12" rx="8" ry="5"></ellipse>
             </svg>
             Ellipse
+          </button>
+          <button class="context-menu-item" role="menuitem" onclick={handleCreatePolygon}>
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polygon points="12 2 22 12 12 22 2 12"></polygon>
+            </svg>
+            Polygon
+          </button>
+          <button class="context-menu-item" role="menuitem" onclick={handleCreateFreehandLasso}>
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M3 12c0-4.97 4.03-9 9-9s9 4.03 9 9-4.03 9-9 9c-2.12 0-4.07-.74-5.62-1.97"></path>
+              <polyline points="3 12 3 6 9 6"></polyline>
+            </svg>
+            Lasso
           </button>
         </div>
       {/if}

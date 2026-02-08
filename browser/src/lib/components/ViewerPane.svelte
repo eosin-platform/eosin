@@ -31,7 +31,7 @@
   import { annotationStore, activeAnnotationSet } from '$lib/stores/annotations';
   import { authStore } from '$lib/stores/auth';
   import { navigationTarget } from '$lib/stores/navigation';
-  import type { Annotation, PointGeometry, EllipseGeometry } from '$lib/api/annotations';
+  import type { Annotation, PointGeometry, EllipseGeometry, PolygonGeometry } from '$lib/api/annotations';
   import { tabStore, type Tab } from '$lib/stores/tabs';
   import { acquireCache, releaseCache } from '$lib/stores/slideCache';
   import { updatePerformanceMetrics } from '$lib/stores/metrics';
@@ -132,7 +132,7 @@
   let annotationMenuTarget = $state<Annotation | null>(null);
 
   // Annotation modification mode state
-  type ModifyPhase = 'idle' | 'point-position' | 'multi-point' | 'ellipse-center' | 'ellipse-radii' | 'ellipse-angle';
+  type ModifyPhase = 'idle' | 'point-position' | 'multi-point' | 'ellipse-center' | 'ellipse-radii' | 'ellipse-angle' | 'polygon-vertices' | 'polygon-freehand' | 'polygon-edit';
   let modifyMode = $state<{
     pointsCreated?: number; // Track count for multi-point mode
     phase: ModifyPhase;
@@ -148,10 +148,19 @@
     originalRadii?: { rx: number; ry: number };
     originalRotation?: number;
     dragStartPos?: { x: number; y: number }; // Where mouse was when entering current phase
+    // Polygon-specific state
+    polygonVertices?: Array<{ x: number; y: number }>; // Current vertices during creation/editing
+    freehandPath?: Array<{ x: number; y: number }>; // Freehand drawing points
+    editingVertexIndex?: number | null; // Index of vertex being dragged
+    isDraggingPolygon?: boolean; // Whether dragging the entire polygon
+    polygonDragStart?: { x: number; y: number }; // Mouse position when polygon drag started
   }>({ phase: 'idle', annotation: null, isCreating: false });
 
   // Track if '1' key is being held for multi-point mode
   let oneKeyHeld = $state(false);
+
+  // Track if '3' key is being held for freehand lasso mode
+  let threeKeyHeld = $state(false);
 
   // Mouse position in image coordinates during modify mode
   let modifyMouseImagePos = $state<{ x: number; y: number } | null>(null);
@@ -316,10 +325,29 @@
       }
       handleStartEllipseCreation();
     }
-    // Enter finishes multi-point mode
+    // '3' key: tap for polygon vertices, hold for freehand lasso
+    if (e.key === '3') {
+      if (e.repeat) return; // Ignore key repeat events
+      if (!canCreate) {
+        if (!isLoggedIn) {
+          showHudNotification('Log in to create annotations');
+        } else if (!currentActiveSet) {
+          showHudNotification('Select an annotation layer first');
+        } else if (currentActiveSet.locked) {
+          showHudNotification('Layer is locked');
+        }
+        return;
+      }
+      threeKeyHeld = true;
+      handleStartFreehandLasso();
+    }
+    // Enter finishes multi-point mode or polygon creation
     if (e.key === 'Enter') {
       if (modifyMode.phase === 'multi-point') {
         cancelModifyMode();
+      } else if (modifyMode.phase === 'polygon-vertices' || modifyMode.phase === 'polygon-edit') {
+        // Complete polygon if we have enough vertices
+        handleCompletePolygon();
       }
     }
     // Q/W/E keys switch ellipse modification phases
@@ -536,6 +564,17 @@
       oneKeyHeld = false;
       if (modifyMode.phase === 'multi-point') {
         cancelModifyMode();
+      }
+    }
+    // Handle '3' key release - switch to polygon vertices mode if user hasn't started drawing
+    if (e.key === '3') {
+      threeKeyHeld = false;
+      if (modifyMode.phase === 'polygon-freehand') {
+        // If user hasn't started drawing yet, switch to polygon vertex mode
+        if (!modifyMode.freehandPath || modifyMode.freehandPath.length === 0) {
+          handleStartPolygonCreation();
+        }
+        // If already drawing, keep the freehand mode active
       }
     }
   }
@@ -994,6 +1033,65 @@
   function handleMouseDown(e: MouseEvent) {
     // Handle annotation modification mode clicks
     if (modifyMode.phase !== 'idle' && e.button === 0) {
+      // For polygon-edit mode, check if we're clicking on a vertex or inside polygon
+      if (modifyMode.phase === 'polygon-edit' && modifyMode.polygonVertices) {
+        e.preventDefault();
+        e.stopPropagation();
+        const imagePos = screenToImage(e.clientX, e.clientY);
+        
+        // Check if clicking on a vertex (within 10px screen distance)
+        const clickRadius = 10 / viewport.zoom; // Convert screen pixels to image pixels
+        const vertexIndex = modifyMode.polygonVertices.findIndex(v => {
+          const dist = Math.sqrt((v.x - imagePos.x) ** 2 + (v.y - imagePos.y) ** 2);
+          return dist < clickRadius;
+        });
+        
+        if (vertexIndex >= 0) {
+          // Start dragging this vertex
+          modifyMode = {
+            ...modifyMode,
+            editingVertexIndex: vertexIndex,
+            isDraggingPolygon: false,
+          };
+          return;
+        }
+        
+        // Check if clicking inside the polygon
+        if (isPointInPolygon(imagePos, modifyMode.polygonVertices)) {
+          // Start dragging the entire polygon
+          modifyMode = {
+            ...modifyMode,
+            isDraggingPolygon: true,
+            polygonDragStart: imagePos,
+            editingVertexIndex: null,
+          };
+          return;
+        }
+        
+        // Clicking outside - just update mouse position
+        return;
+      }
+      
+      // For polygon-vertices mode, clicking adds a vertex
+      if (modifyMode.phase === 'polygon-vertices') {
+        e.preventDefault();
+        e.stopPropagation();
+        handlePolygonVertexClick(e);
+        return;
+      }
+      
+      // For polygon-freehand mode, start/continue freehand drawing
+      if (modifyMode.phase === 'polygon-freehand') {
+        e.preventDefault();
+        e.stopPropagation();
+        const imagePos = screenToImage(e.clientX, e.clientY);
+        modifyMode = {
+          ...modifyMode,
+          freehandPath: [imagePos],
+        };
+        return;
+      }
+      
       e.preventDefault();
       e.stopPropagation();
       handleModifyClick(e);
@@ -1035,6 +1133,42 @@
     if (modifyMode.phase !== 'idle') {
       const newMousePos = screenToImage(e.clientX, e.clientY);
       modifyMouseImagePos = newMousePos;
+      
+      // Handle polygon vertex dragging
+      if (modifyMode.phase === 'polygon-edit' && modifyMode.editingVertexIndex !== null && modifyMode.editingVertexIndex !== undefined) {
+        const vertices = [...(modifyMode.polygonVertices ?? [])];
+        vertices[modifyMode.editingVertexIndex] = newMousePos;
+        modifyMode = {
+          ...modifyMode,
+          polygonVertices: vertices,
+        };
+        return;
+      }
+      
+      // Handle polygon dragging (moving entire shape)
+      if (modifyMode.phase === 'polygon-edit' && modifyMode.isDraggingPolygon && modifyMode.polygonDragStart) {
+        const dx = newMousePos.x - modifyMode.polygonDragStart.x;
+        const dy = newMousePos.y - modifyMode.polygonDragStart.y;
+        const vertices = (modifyMode.polygonVertices ?? []).map(v => ({
+          x: v.x + dx,
+          y: v.y + dy,
+        }));
+        modifyMode = {
+          ...modifyMode,
+          polygonVertices: vertices,
+          polygonDragStart: newMousePos,
+        };
+        return;
+      }
+      
+      // Handle freehand lasso drawing - only add points if already started (has at least 1 point)
+      if (modifyMode.phase === 'polygon-freehand' && modifyMode.freehandPath && modifyMode.freehandPath.length > 0) {
+        modifyMode = {
+          ...modifyMode,
+          freehandPath: [...modifyMode.freehandPath, newMousePos],
+        };
+        return;
+      }
       
       // For modification mode (not creation): set initial offsets/dragStartPos on first mouse move
       if (!modifyMode.isCreating && modifyMode.originalCenter) {
@@ -1092,6 +1226,51 @@
     // Middle mouse button released - end drag measurement
     if (e && e.button === 1 && measurement.active && measurement.mode === 'drag') {
       cancelMeasurement();
+      return;
+    }
+    
+    // Handle polygon vertex drag end
+    if (modifyMode.phase === 'polygon-edit' && modifyMode.editingVertexIndex !== null) {
+      modifyMode = {
+        ...modifyMode,
+        editingVertexIndex: null,
+      };
+      return;
+    }
+    
+    // Handle polygon drag end
+    if (modifyMode.phase === 'polygon-edit' && modifyMode.isDraggingPolygon) {
+      modifyMode = {
+        ...modifyMode,
+        isDraggingPolygon: false,
+        polygonDragStart: undefined,
+      };
+      return;
+    }
+    
+    // Handle freehand lasso completion
+    if (modifyMode.phase === 'polygon-freehand' && modifyMode.freehandPath && modifyMode.freehandPath.length >= 3) {
+      // Discretize the freehand path into polygon vertices
+      const tolerance = 5 / viewport.zoom; // Tolerance in image coordinates
+      const discretizedVertices = discretizeFreehandPath(modifyMode.freehandPath, tolerance);
+      
+      if (discretizedVertices.length >= 3) {
+        modifyMode = {
+          ...modifyMode,
+          phase: 'polygon-edit',
+          polygonVertices: discretizedVertices,
+          freehandPath: undefined,
+          editingVertexIndex: null,
+          isDraggingPolygon: false,
+        };
+        showHudNotification(`${discretizedVertices.length} vertices created, Enter to confirm`);
+      } else {
+        showHudNotification('Draw a larger shape');
+        modifyMode = {
+          ...modifyMode,
+          freehandPath: [],
+        };
+      }
       return;
     }
 
@@ -1306,7 +1485,60 @@
         // tempCenterOffset will be computed from first mouse position
       };
       showHudNotification('Drag to adjust position (W=size, E=rotation)');
+    } else if (annotation.kind === 'polygon') {
+      // For polygon modification, load existing vertices
+      const geo = annotation.geometry as PolygonGeometry;
+      const vertices = geo.path.map(([x, y]) => ({ x, y }));
+      modifyMode = {
+        phase: 'polygon-edit',
+        annotation,
+        isCreating: false,
+        polygonVertices: vertices,
+        editingVertexIndex: null,
+        isDraggingPolygon: false,
+      };
+      showHudNotification('Drag vertices to move, drag inside to reposition, Enter to confirm');
     }
+  }
+
+  function handleStartPolygonCreation() {
+    // Start interactive polygon creation - clicking adds vertices
+    modifyMode = {
+      phase: 'polygon-vertices',
+      annotation: null,
+      isCreating: true,
+      polygonVertices: [],
+    };
+    showHudNotification('Click to add vertices, Enter to finish (min 3)');
+  }
+
+  async function handleCompletePolygon() {
+    const vertices = modifyMode.polygonVertices;
+    if (!vertices || vertices.length < 3) {
+      showHudNotification('Need at least 3 vertices');
+      return;
+    }
+
+    const path: [number, number][] = vertices.map(v => [v.x, v.y]);
+    const geometry: PolygonGeometry = { path };
+
+    try {
+      if (modifyMode.isCreating) {
+        await annotationStore.createAnnotation({
+          kind: 'polygon',
+          geometry,
+          label_id: 'unlabeled',
+        });
+        showHudNotification('Polygon created');
+      } else if (modifyMode.annotation) {
+        await annotationStore.updateAnnotation(modifyMode.annotation.id, { geometry });
+        showHudNotification('Polygon updated');
+      }
+    } catch (err) {
+      console.error('Failed to save polygon:', err);
+      showHudNotification('Failed to save polygon');
+    }
+    cancelModifyMode();
   }
 
   function handleStartEllipseCreation() {
@@ -1337,6 +1569,99 @@
       isCreating: true,
       pointsCreated: 0,
     };
+  }
+
+  // Helper: check if point is inside polygon using ray casting algorithm
+  function isPointInPolygon(point: { x: number; y: number }, vertices: Array<{ x: number; y: number }>): boolean {
+    if (vertices.length < 3) return false;
+    
+    let inside = false;
+    for (let i = 0, j = vertices.length - 1; i < vertices.length; j = i++) {
+      const xi = vertices[i].x, yi = vertices[i].y;
+      const xj = vertices[j].x, yj = vertices[j].y;
+      
+      if (((yi > point.y) !== (yj > point.y)) &&
+          (point.x < (xj - xi) * (point.y - yi) / (yj - yi) + xi)) {
+        inside = !inside;
+      }
+    }
+    return inside;
+  }
+
+  // Helper: discretize freehand path into polygon vertices using Douglas-Peucker algorithm
+  function discretizeFreehandPath(path: Array<{ x: number; y: number }>, tolerance: number): Array<{ x: number; y: number }> {
+    if (path.length < 3) return path;
+    
+    // Douglas-Peucker algorithm implementation
+    function perpendicularDistance(point: { x: number; y: number }, lineStart: { x: number; y: number }, lineEnd: { x: number; y: number }): number {
+      const dx = lineEnd.x - lineStart.x;
+      const dy = lineEnd.y - lineStart.y;
+      const mag = Math.sqrt(dx * dx + dy * dy);
+      if (mag === 0) return Math.sqrt((point.x - lineStart.x) ** 2 + (point.y - lineStart.y) ** 2);
+      
+      const u = ((point.x - lineStart.x) * dx + (point.y - lineStart.y) * dy) / (mag * mag);
+      const closestX = lineStart.x + u * dx;
+      const closestY = lineStart.y + u * dy;
+      return Math.sqrt((point.x - closestX) ** 2 + (point.y - closestY) ** 2);
+    }
+    
+    function douglasPeucker(points: Array<{ x: number; y: number }>, epsilon: number): Array<{ x: number; y: number }> {
+      if (points.length < 3) return points;
+      
+      let maxDist = 0;
+      let maxIndex = 0;
+      const first = points[0];
+      const last = points[points.length - 1];
+      
+      for (let i = 1; i < points.length - 1; i++) {
+        const dist = perpendicularDistance(points[i], first, last);
+        if (dist > maxDist) {
+          maxDist = dist;
+          maxIndex = i;
+        }
+      }
+      
+      if (maxDist > epsilon) {
+        const left = douglasPeucker(points.slice(0, maxIndex + 1), epsilon);
+        const right = douglasPeucker(points.slice(maxIndex), epsilon);
+        return [...left.slice(0, -1), ...right];
+      }
+      
+      return [first, last];
+    }
+    
+    return douglasPeucker(path, tolerance);
+  }
+
+  function handlePolygonVertexClick(e: MouseEvent) {
+    const imagePos = screenToImage(e.clientX, e.clientY);
+    const vertices = modifyMode.polygonVertices ?? [];
+    
+    // Add the new vertex
+    const newVertices = [...vertices, imagePos];
+    modifyMode = {
+      ...modifyMode,
+      polygonVertices: newVertices,
+    };
+    
+    // Auto-close notification when we have 3+ vertices
+    if (newVertices.length >= 3) {
+      showHudNotification(`${newVertices.length} vertices (Enter to finish, Esc to cancel)`);
+    } else {
+      showHudNotification(`${newVertices.length}/3 vertices (need at least 3)`);
+    }
+  }
+
+  function handleStartFreehandLasso() {
+    // Start freehand lasso mode - click and drag to draw
+    // freehandPath starts undefined until user clicks
+    modifyMode = {
+      phase: 'polygon-freehand',
+      annotation: null,
+      isCreating: true,
+      freehandPath: undefined,
+    };
+    showHudNotification('Click and drag to draw, release to finish');
   }
 
   function cancelModifyMode() {
@@ -1700,6 +2025,9 @@
       modifyIsCreating={modifyMode.isCreating}
       modifyOriginalRadii={modifyMode.originalRadii ?? null}
       modifyDragStartPos={modifyMode.dragStartPos ?? null}
+      modifyPolygonVertices={modifyMode.polygonVertices ?? null}
+      modifyFreehandPath={modifyMode.freehandPath ?? null}
+      modifyEditingVertexIndex={modifyMode.editingVertexIndex ?? null}
     />
     
     <!-- Viewer HUD overlay (top-left) -->
@@ -1796,6 +2124,8 @@
     onClose={handleContextMenuClose}
     onStartPointCreation={handleStartPointCreation}
     onStartEllipseCreation={handleStartEllipseCreation}
+    onStartPolygonCreation={handleStartPolygonCreation}
+    onStartFreehandLasso={handleStartFreehandLasso}
   />
 
   <!-- Annotation context menu (right-click on annotation) -->
@@ -2050,9 +2380,9 @@
   /* HUD notification for keyboard shortcuts */
   .hud-notification {
     position: absolute;
-    top: 50%;
+    bottom: 2rem;
     left: 50%;
-    transform: translate(-50%, -50%);
+    transform: translateX(-50%);
     background: rgba(0, 0, 0, 0.8);
     backdrop-filter: blur(8px);
     color: #fff;
