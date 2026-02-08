@@ -51,6 +51,7 @@ export interface MaskGeometry {
   y0_level0: number;
   width: number;
   height: number;
+  encoding?: string; // "bitmask" - optional, defaults to "bitmask" on backend
   data_base64: string;
 }
 
@@ -274,7 +275,8 @@ export async function deleteAnnotationSet(setId: string): Promise<void> {
  */
 export async function fetchAnnotations(setId: string): Promise<Annotation[]> {
   const base = getMetaEndpoint();
-  const url = `${base}/annotation-sets/${encodeURIComponent(setId)}/annotations`;
+  // Include mask data so mask_patch annotations render properly
+  const url = `${base}/annotation-sets/${encodeURIComponent(setId)}/annotations?include_mask_data=true`;
   const response = await fetch(url);
   const data = await handleResponse<ListAnnotationsResponse>(response);
   return data.items;

@@ -2121,12 +2121,10 @@
   async function syncMaskToBackend() {
     if (!maskPaintData || !maskTileOrigin || !maskDirty) return;
     
-    // Encode mask to base64 using chunked approach to avoid stack overflow
+    // Encode mask to base64 - build binary string byte by byte
     let binaryString = '';
-    const chunkSize = 8192;
-    for (let i = 0; i < maskPaintData.length; i += chunkSize) {
-      const chunk = maskPaintData.subarray(i, Math.min(i + chunkSize, maskPaintData.length));
-      binaryString += String.fromCharCode.apply(null, chunk as unknown as number[]);
+    for (let i = 0; i < maskPaintData.length; i++) {
+      binaryString += String.fromCharCode(maskPaintData[i]);
     }
     const base64 = btoa(binaryString);
     
