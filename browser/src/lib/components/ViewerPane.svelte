@@ -1187,6 +1187,22 @@
       return;
     }
 
+    // Middle mouse button (button 1) - momentary measurement tool
+    if (e.button === 1) {
+      e.preventDefault();
+      e.stopPropagation();
+      const imagePos = screenToImage(e.clientX, e.clientY);
+      measurement = {
+        active: true,
+        mode: 'drag',
+        startScreen: { x: e.clientX, y: e.clientY },
+        endScreen: { x: e.clientX, y: e.clientY },
+        startImage: imagePos,
+        endImage: imagePos,
+      };
+      return;
+    }
+
     // Right mouse button (button 2) - pan viewport, show context menu on release if no drag
     if (e.button === 2) {
       e.preventDefault();
@@ -1291,8 +1307,8 @@
       }
     }
 
-    // Handle measurement mode (toggle mode only)
-    if (measurement.active && measurement.mode === 'toggle' && measurement.startImage) {
+    // Handle measurement mode (toggle or drag mode)
+    if (measurement.active && measurement.startImage) {
       const imagePos = screenToImage(e.clientX, e.clientY);
       measurement = {
         ...measurement,
@@ -1334,9 +1350,14 @@
       return;
     }
     
-    // Middle mouse button released - stop brush size adjustment
+    // Middle mouse button released - stop brush size adjustment or measurement
     if (e && e.button === 1) {
-      maskBrushDragStart = null;
+      if (maskBrushDragStart !== null) {
+        maskBrushDragStart = null;
+      } else if (measurement.active && measurement.mode === 'drag') {
+        // End momentary measurement
+        cancelMeasurement();
+      }
       return;
     }
     
