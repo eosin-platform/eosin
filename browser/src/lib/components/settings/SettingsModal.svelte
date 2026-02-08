@@ -15,9 +15,11 @@
 		type StreamingQuality
 	} from '$lib/stores/settings';
 	import { clearNormalizationCache } from '$lib/frusta';
+	import { authStore } from '$lib/stores/auth';
+	import { logout } from '$lib/auth/client';
 
-	type TabId = 'image' | 'performance' | 'annotations' | 'privacy' | 'defaults' | 'about';
-	type ResettableTabId = Exclude<TabId, 'about'>;
+	type TabId = 'image' | 'performance' | 'annotations' | 'privacy' | 'defaults' | 'account' | 'about';
+	type ResettableTabId = Exclude<TabId, 'about' | 'account'>;
 
 	let activeTab = $state<TabId>('image');
 	let dialogElement: HTMLDivElement;
@@ -247,7 +249,7 @@
 		settings.updateSection('defaults', { ...FACTORY_IMAGE_DEFAULTS });
 	}
 
-	const tabs: { id: TabId; label: string; icon: string }[] = [
+	const baseTabs: { id: TabId; label: string; icon: string }[] = [
 		{ id: 'image', label: 'Image', icon: '🎨' },
 		{ id: 'performance', label: 'Performance', icon: '⚡' },
 		{ id: 'annotations', label: 'Annotations', icon: '✏️' },
@@ -255,6 +257,20 @@
 		{ id: 'defaults', label: 'Defaults', icon: '↺' },
 		{ id: 'about', label: 'About', icon: 'ℹ️' }
 	];
+
+	const accountTab = { id: 'account' as TabId, label: 'Account', icon: '👤' };
+
+	// Show Account tab only when logged in
+	let tabs = $derived(
+		$authStore.user
+			? [...baseTabs.slice(0, -1), accountTab, baseTabs[baseTabs.length - 1]]
+			: baseTabs
+	);
+
+	function handleLogout() {
+		logout();
+		closeModal();
+	}
 
 	const stainEnhancementOptions: { value: StainEnhancementMode; label: string }[] = [
 		{ value: 'none', label: 'None' },
@@ -732,6 +748,40 @@
 					</div>
 				{/if}
 
+				<!-- Account -->
+				{#if activeTab === 'account' && $authStore.user}
+					<div class="panel" id="panel-account" role="tabpanel">
+						<div class="setting-group">
+							<h3>User Information</h3>
+							<div class="account-info">
+								<div class="info-row">
+									<span class="info-label">Username</span>
+									<span class="info-value">{$authStore.user.username}</span>
+								</div>
+								<div class="info-row">
+									<span class="info-label">Name</span>
+									<span class="info-value">{$authStore.user.first_name} {$authStore.user.last_name}</span>
+								</div>
+								<div class="info-row">
+									<span class="info-label">Email</span>
+									<span class="info-value">{$authStore.user.email}</span>
+								</div>
+								<div class="info-row">
+									<span class="info-label">User ID</span>
+									<span class="info-value info-id">{$authStore.user.id}</span>
+								</div>
+							</div>
+						</div>
+
+						<div class="setting-group">
+							<h3>Session</h3>
+							<button class="logout-btn" onclick={handleLogout}>
+								Log Out
+							</button>
+						</div>
+					</div>
+				{/if}
+
 				<!-- About -->
 				{#if activeTab === 'about'}
 					<div class="panel" id="panel-about" role="tabpanel">
@@ -946,6 +996,62 @@
 
 	.about-link:hover {
 		text-decoration: underline;
+	}
+
+	/* Account panel styles */
+	.account-info {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+		padding: 0.75rem;
+		background: #2a2a2a;
+		border-radius: 0.5rem;
+	}
+
+	.info-row {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 0.5rem 0;
+		border-bottom: 1px solid #3a3a3a;
+	}
+
+	.info-row:last-child {
+		border-bottom: none;
+	}
+
+	.info-label {
+		font-size: 0.875rem;
+		color: #9ca3af;
+		font-weight: 500;
+	}
+
+	.info-value {
+		font-size: 0.875rem;
+		color: #e5e7eb;
+	}
+
+	.info-id {
+		font-family: monospace;
+		font-size: 0.75rem;
+		color: #6b7280;
+	}
+
+	.logout-btn {
+		width: 100%;
+		padding: 0.75rem 1rem;
+		background: #dc2626;
+		color: white;
+		border: none;
+		border-radius: 0.5rem;
+		font-size: 0.875rem;
+		font-weight: 500;
+		cursor: pointer;
+		transition: background 0.15s;
+	}
+
+	.logout-btn:hover {
+		background: #b91c1c;
 	}
 
 	.toggle-row {
