@@ -532,6 +532,9 @@
     if (dx < TOUCH_TAP_THRESHOLD && dy < TOUCH_TAP_THRESHOLD && elapsed < TOUCH_TAP_MAX_TIME) {
       e.stopPropagation();
       e.preventDefault();
+      // Highlight the annotation (like mouseenter does on desktop)
+      annotationStore.setHighlightedAnnotation(annotation.id);
+      // Also call the optional click callback
       if (onAnnotationClick) {
         onAnnotationClick(annotation, touch.clientX, touch.clientY);
       }
