@@ -103,7 +103,7 @@
   // Measurement tool state
   interface MeasurementState {
     active: boolean;
-    mode: 'drag' | 'toggle' | null;
+    mode: 'drag' | 'toggle' | 'pending' | null;
     startScreen: { x: number; y: number } | null;
     endScreen: { x: number; y: number } | null;
     startImage: { x: number; y: number } | null;
@@ -618,9 +618,11 @@
         const wasMaskPaint = modifyMode.phase === 'mask-paint';
         if (wasMaskPaint) {
           // Confirm and save mask painting on Escape
-          confirmMaskPainting();
-          cancelModifyMode();
-          showHudNotification('Mask saved');
+          (async () => {
+            await confirmMaskPainting();
+            cancelModifyMode();
+            showHudNotification('Mask saved');
+          })();
         } else {
           cancelModifyMode();
           if (!wasMultiPoint) {
@@ -906,23 +908,21 @@
         performRedo();
         break;
       case 'measure':
-        // Toggle measurement mode (same as 'd' key)
+        // Toggle measurement mode - use "pending" mode when activated from toolbar
+        // so the first click sets the start point
         if (!imageDesc || !container) break;
-        if (measurement.active && measurement.mode === 'toggle') {
+        if (measurement.active) {
           cancelMeasurement();
         } else {
-          const rect = container.getBoundingClientRect();
-          const screenX = lastMouseX || (rect.left + rect.width / 2);
-          const screenY = lastMouseY || (rect.top + rect.height / 2);
-          const imagePos = screenToImage(screenX, screenY);
           measurement = {
             active: true,
-            mode: 'toggle',
-            startScreen: { x: screenX, y: screenY },
-            endScreen: { x: screenX, y: screenY },
-            startImage: imagePos,
-            endImage: imagePos,
+            mode: 'pending',
+            startScreen: null,
+            endScreen: null,
+            startImage: null,
+            endImage: null,
           };
+          showHudNotification('Click to start measuring');
         }
         break;
       case 'annotation':
@@ -1297,6 +1297,20 @@
 
     // Left mouse button - regular pan, but also cancel toggle measurement
     if (e.button === 0) {
+      // If measurement is in 'pending' mode (from toolbar), start measuring from this click
+      if (measurement.active && measurement.mode === 'pending') {
+        const imagePos = screenToImage(e.clientX, e.clientY);
+        measurement = {
+          active: true,
+          mode: 'toggle',
+          startScreen: { x: e.clientX, y: e.clientY },
+          endScreen: { x: e.clientX, y: e.clientY },
+          startImage: imagePos,
+          endImage: imagePos,
+        };
+        e.preventDefault();
+        return;
+      }
       // Cancel toggle measurement mode on click
       if (measurement.active && measurement.mode === 'toggle') {
         cancelMeasurement();
@@ -2489,7 +2503,7 @@
 <div
   class="viewer-container"
   class:measuring={measurement.active}
-  class:measuring-toggle={measurement.active && measurement.mode === 'toggle'}
+  class:measuring-toggle={measurement.active && (measurement.mode === 'toggle' || measurement.mode === 'pending')}
   class:modifying={modifyMode.phase !== 'idle'}
   bind:this={container}
   onmousedown={handleMouseDown}

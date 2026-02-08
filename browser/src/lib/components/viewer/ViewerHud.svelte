@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { settings, type StainEnhancementMode } from '$lib/stores/settings';
+  import { settings } from '$lib/stores/settings';
   import ViewerHudMoreMenu from './ViewerHudMoreMenu.svelte';
 
   interface Props {
@@ -22,15 +22,11 @@
   let { zoom, onZoomChange, onFitView, magnification, isPanning = false, isMaskPainting = false, maskBrushSize = 20 }: Props = $props();
 
   // Bind to settings store
-  let stainEnhancement = $state<StainEnhancementMode>($settings.image.stainEnhancement);
   let scaleBarVisible = $state($settings.image.scaleBarVisible);
-  let annotationsVisible = $state($settings.annotations.visible);
 
   // Keep local state in sync with store
   $effect(() => {
-    stainEnhancement = $settings.image.stainEnhancement;
     scaleBarVisible = $settings.image.scaleBarVisible;
-    annotationsVisible = $settings.annotations.visible;
   });
 
   // Local state for the more menu (per-instance, not global)
@@ -43,20 +39,9 @@
     }
   });
 
-  function handleStainEnhancementChange(e: Event) {
-    const target = e.target as HTMLSelectElement;
-    stainEnhancement = target.value as StainEnhancementMode;
-    settings.setSetting('image', 'stainEnhancement', stainEnhancement);
-  }
-
   function toggleScaleBar() {
     scaleBarVisible = !scaleBarVisible;
     settings.setSetting('image', 'scaleBarVisible', scaleBarVisible);
-  }
-
-  function toggleAnnotations() {
-    annotationsVisible = !annotationsVisible;
-    settings.setSetting('annotations', 'visible', annotationsVisible);
   }
 
   function toggleMoreMenu() {
@@ -139,13 +124,6 @@
     }
   }
 
-  // Stain enhancement options
-  const stainEnhancementOptions: { value: StainEnhancementMode; label: string }[] = [
-    { value: 'none', label: 'None' },
-    { value: 'gram', label: 'Gram' },
-    { value: 'afb', label: 'AFB' },
-    { value: 'gms', label: 'GMS' },
-  ];
   // Stop mouse/touch events from propagating to the viewer (prevents panning)
   function stopPropagation(e: Event) {
     e.stopPropagation();
@@ -160,21 +138,6 @@
     ontouchstart={stopPropagation}
     onwheel={stopPropagation}
   >
-  <!-- Stain enhancement selector -->
-  <select
-    value={stainEnhancement}
-    onchange={handleStainEnhancementChange}
-    class="stain-select"
-    title="Stain Enhancement"
-  >
-    {#each stainEnhancementOptions as mode}
-      <option value={mode.value}>{mode.label}</option>
-    {/each}
-  </select>
-
-  <!-- Divider -->
-  <div class="hud-divider"></div>
-
   <!-- Zoom input -->
   <input
     type="text"
@@ -210,24 +173,6 @@
     <!-- Ruler icon -->
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="icon">
       <path fill-rule="evenodd" d="M2 4.25A2.25 2.25 0 014.25 2h11.5A2.25 2.25 0 0118 4.25v2a.75.75 0 01-1.5 0V5.5h-2v.75a.75.75 0 01-1.5 0V5.5h-2v.75a.75.75 0 01-1.5 0V5.5h-2v.75a.75.75 0 01-1.5 0V5.5h-2v.75a.75.75 0 01-1.5 0v-2z" clip-rule="evenodd" />
-    </svg>
-  </button>
-  
-  <button
-    onclick={toggleAnnotations}
-    class="icon-btn"
-    class:active={annotationsVisible}
-    title={annotationsVisible ? 'Hide Annotations' : 'Show Annotations'}
-  >
-    <!-- Eye icon -->
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="icon">
-      {#if annotationsVisible}
-        <path d="M10 12.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" />
-        <path fill-rule="evenodd" d="M.664 10.59a1.651 1.651 0 010-1.186A10.004 10.004 0 0110 3c4.257 0 7.893 2.66 9.336 6.41.147.381.146.804 0 1.186A10.004 10.004 0 0110 17c-4.257 0-7.893-2.66-9.336-6.41zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clip-rule="evenodd" />
-      {:else}
-        <path fill-rule="evenodd" d="M3.28 2.22a.75.75 0 00-1.06 1.06l14.5 14.5a.75.75 0 101.06-1.06l-1.745-1.745a10.029 10.029 0 003.3-4.38 1.651 1.651 0 000-1.185A10.004 10.004 0 009.999 3a9.956 9.956 0 00-4.744 1.194L3.28 2.22zM7.752 6.69l1.092 1.092a2.5 2.5 0 013.374 3.373l1.091 1.092a4 4 0 00-5.557-5.557z" clip-rule="evenodd" />
-        <path d="M10.748 13.93l2.523 2.523a9.987 9.987 0 01-3.27.547c-4.258 0-7.894-2.66-9.337-6.41a1.651 1.651 0 010-1.186A10.007 10.007 0 012.839 6.02L6.07 9.252a4 4 0 004.678 4.678z" />
-      {/if}
     </svg>
   </button>
   
@@ -330,26 +275,6 @@
     font-weight: 500;
   }
 
-  .stain-select {
-    padding: 0.375rem 0.5rem;
-    background: #374151;
-    border: 1px solid #4b5563;
-    border-radius: 0.375rem;
-    color: #e5e7eb;
-    font-size: 0.75rem;
-    cursor: pointer;
-    outline: none;
-  }
-
-  .stain-select:hover {
-    border-color: #6b7280;
-  }
-
-  .stain-select:focus {
-    border-color: #3b82f6;
-    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3);
-  }
-
   .zoom-input {
     width: 4.5rem;
     padding: 0.375rem 0.5rem;
@@ -424,13 +349,6 @@
     .icon-btn svg {
       width: 1.25rem;
       height: 1.25rem;
-    }
-
-    /* Larger select/combobox for touch */
-    .stain-select {
-      padding: 0.625rem 0.75rem;
-      font-size: 0.875rem;
-      min-height: 44px;
     }
 
     /* Larger zoom input for touch */

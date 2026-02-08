@@ -5,8 +5,8 @@
   interface MeasurementState {
     /** Whether measurement mode is active */
     active: boolean;
-    /** Measurement mode: 'drag' for middle-click drag, 'toggle' for 'd' key toggle */
-    mode: 'drag' | 'toggle' | null;
+    /** Measurement mode: 'drag' for middle-click drag, 'toggle' for 'd' key toggle, 'pending' for toolbar-initiated */
+    mode: 'drag' | 'toggle' | 'pending' | null;
     /** Start position in screen coordinates */
     startScreen: { x: number; y: number } | null;
     /** End position in screen coordinates */
