@@ -221,18 +221,34 @@
 
   // Convert bitmask to run-length encoded runs for efficient rendering
   // Returns array of { row, startCol, length } for each horizontal run of set bits
-  function getMaskRuns(data: Uint8Array): Array<{ row: number; startCol: number; length: number }> {
+  // Supports variable-sized masks (e.g., edge tiles may be smaller than 512x512)
+  function getMaskRuns(data: Uint8Array | null | undefined, tileWidth: number = 512, tileHeight: number = 512): Array<{ row: number; startCol: number; length: number }> {
+    // Guard against invalid data
+    if (!data || !(data instanceof Uint8Array) || data.length === 0) {
+      return [];
+    }
+    
     const runs: Array<{ row: number; startCol: number; length: number }> = [];
-    const TILE_SIZE = 512;
+    const expectedBytes = Math.ceil((tileWidth * tileHeight) / 8);
+    
+    // Validate data length - allow exact match or full 512x512 (32768 bytes)
+    if (data.length !== expectedBytes && data.length !== 32768) {
+      console.warn(`getMaskRuns: unexpected data length ${data.length}, expected ${expectedBytes} or 32768`);
+      return [];
+    }
+    
+    // Use actual tile dimensions for iteration, but if data is full size, use 512
+    const effectiveWidth = data.length === 32768 ? 512 : tileWidth;
+    const effectiveHeight = data.length === 32768 ? 512 : tileHeight;
     
     // Limit to visible area for performance - subsample when zoomed out
     const step = viewportZoom < 0.5 ? Math.ceil(1 / viewportZoom) : 1;
     
-    for (let row = 0; row < TILE_SIZE; row += step) {
+    for (let row = 0; row < effectiveHeight; row += step) {
       let runStart: number | null = null;
       
-      for (let col = 0; col < TILE_SIZE; col += step) {
-        const bitIndex = row * TILE_SIZE + col;
+      for (let col = 0; col < effectiveWidth; col += step) {
+        const bitIndex = row * effectiveWidth + col;
         const byteIndex = Math.floor(bitIndex / 8);
         const bitOffset = bitIndex % 8;
         const isSet = byteIndex < data.length && (data[byteIndex] & (1 << bitOffset)) !== 0;
@@ -251,7 +267,7 @@
       
       // Close run at end of row
       if (runStart !== null) {
-        runs.push({ row, startCol: runStart, length: TILE_SIZE - runStart });
+        runs.push({ row, startCol: runStart, length: effectiveWidth - runStart });
       }
       
       // Limit total runs for performance
@@ -745,7 +761,7 @@
       {@const tileSize = 512 * viewportZoom}
       {@const previewColor = '#3b82f6'}
       
-      {#each maskAllTiles as tile}
+      {#each maskAllTiles.filter(t => t && t.origin && t.data) as tile (tile.origin.x + ',' + tile.origin.y)}
         {@const tileScreen = imageToScreen(tile.origin.x, tile.origin.y)}
         
         <!-- Tile boundary -->

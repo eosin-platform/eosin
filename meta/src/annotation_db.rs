@@ -215,6 +215,49 @@ pub async fn init_annotation_schema(pool: &Pool) -> Result<()> {
         .await
         .context("failed to create annotation_masks bbox index")?;
 
+    // Add annotation_set_id column to annotation_masks for unique constraint enforcement
+    // This is denormalized but necessary for DB-level uniqueness guarantee
+    // client
+    //     .execute(
+    //         r#"
+    //         DO $$
+    //         BEGIN
+    //             IF NOT EXISTS (
+    //                 SELECT 1 FROM information_schema.columns
+    //                 WHERE table_name = 'annotation_masks' AND column_name = 'annotation_set_id'
+    //             ) THEN
+    //                 ALTER TABLE annotation_masks ADD COLUMN annotation_set_id UUID;
+    //                 -- Backfill existing rows
+    //                 UPDATE annotation_masks m
+    //                 SET annotation_set_id = a.annotation_set_id
+    //                 FROM annotations a
+    //                 WHERE m.annotation_id = a.id;
+    //                 -- Make it NOT NULL after backfilling
+    //                 ALTER TABLE annotation_masks ALTER COLUMN annotation_set_id SET NOT NULL;
+    //                 -- Add foreign key constraint
+    //                 ALTER TABLE annotation_masks
+    //                 ADD CONSTRAINT fk_annotation_masks_annotation_set
+    //                 FOREIGN KEY (annotation_set_id) REFERENCES annotation_sets(id) ON DELETE CASCADE;
+    //             END IF;
+    //         END $$
+    //         "#,
+    //         &[],
+    //     )
+    //     .await
+    //     .context("failed to add annotation_set_id to annotation_masks")?;
+
+    // Create unique index to enforce one mask per tile per annotation set
+    client
+        .execute(
+            r#"
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_annotation_masks_unique_tile 
+            ON annotation_masks (annotation_set_id, x0_level0, y0_level0)
+            "#,
+            &[],
+        )
+        .await
+        .context("failed to create unique tile index on annotation_masks")?;
+
     tracing::info!("annotation database schema initialized");
     Ok(())
 }
@@ -544,7 +587,10 @@ pub async fn create_ellipse_annotation(
     Ok(row_to_annotation_response(&ann_row, geometry))
 }
 
-/// Create a new mask patch annotation.
+/// Create a new mask patch annotation, or update existing if one already exists
+/// at the same tile location (x0_level0, y0_level0) in the same annotation set.
+/// This enforces the invariant: one mask per tile per annotation layer.
+/// Uses a transaction with row-level locking for ACID guarantees.
 pub async fn create_mask_annotation(
     pool: &Pool,
     annotation_set_id: Uuid,
@@ -556,41 +602,110 @@ pub async fn create_mask_annotation(
     y0_level0: f64,
     bitmask: &Bitmask,
 ) -> Result<AnnotationResponse> {
-    let client = pool.get().await.context("failed to get db connection")?;
+    let mut client = pool.get().await.context("failed to get db connection")?;
 
-    // Insert the annotation
-    let ann_row = client
-        .query_one(
+    // Start a transaction for ACID guarantees
+    let tx = client
+        .transaction()
+        .await
+        .context("failed to start transaction")?;
+
+    // Check if there's already a mask annotation at this tile location in this annotation set
+    // Use FOR UPDATE to lock the row and prevent concurrent modifications
+    let existing = tx
+        .query_opt(
             r#"
-            INSERT INTO annotations (annotation_set_id, kind, label_id, created_by, metadata, source)
-            VALUES ($1, 'mask_patch', $2, $3, $4, $5)
-            RETURNING id, annotation_set_id, kind, label_id, created_by, created_at, updated_at, metadata, source
+            SELECT a.id, a.annotation_set_id, a.kind, a.label_id, a.created_by, a.created_at, a.updated_at, a.metadata, a.source
+            FROM annotations a
+            INNER JOIN annotation_masks m ON a.id = m.annotation_id
+            WHERE a.annotation_set_id = $1 
+              AND a.kind = 'mask_patch'
+              AND m.x0_level0 = $2 
+              AND m.y0_level0 = $3
+            FOR UPDATE
             "#,
-            &[&annotation_set_id, &label_id, &created_by, metadata, &source],
+            &[&annotation_set_id, &x0_level0, &y0_level0],
         )
         .await
-        .context("failed to insert mask annotation")?;
+        .context("failed to check for existing mask annotation")?;
 
-    let annotation_id: Uuid = ann_row.get("id");
+    let (ann_row, is_update) = if let Some(existing_row) = existing {
+        // Update the existing mask annotation
+        let annotation_id: Uuid = existing_row.get("id");
 
-    // Insert the mask geometry
-    client
-        .execute(
+        // Update the annotation's metadata and timestamp
+        let ann_row = tx
+            .query_one(
+                r#"
+                UPDATE annotations 
+                SET label_id = $2, metadata = $3, source = $4, updated_at = NOW()
+                WHERE id = $1
+                RETURNING id, annotation_set_id, kind, label_id, created_by, created_at, updated_at, metadata, source
+                "#,
+                &[&annotation_id, &label_id, metadata, &source],
+            )
+            .await
+            .context("failed to update mask annotation")?;
+
+        // Update the mask geometry
+        tx.execute(
             r#"
-            INSERT INTO annotation_masks (annotation_id, x0_level0, y0_level0, width, height, encoding, data)
-            VALUES ($1, $2, $3, $4, $5, 'bitmask', $6)
-            "#,
+                UPDATE annotation_masks 
+                SET width = $2, height = $3, data = $4
+                WHERE annotation_id = $1
+                "#,
             &[
                 &annotation_id,
-                &x0_level0,
-                &y0_level0,
                 &bitmask.width,
                 &bitmask.height,
                 &bitmask.data,
             ],
         )
         .await
-        .context("failed to insert mask geometry")?;
+        .context("failed to update mask geometry")?;
+
+        (ann_row, true)
+    } else {
+        // No existing mask at this location - create a new one
+        let ann_row = tx
+            .query_one(
+                r#"
+                INSERT INTO annotations (annotation_set_id, kind, label_id, created_by, metadata, source)
+                VALUES ($1, 'mask_patch', $2, $3, $4, $5)
+                RETURNING id, annotation_set_id, kind, label_id, created_by, created_at, updated_at, metadata, source
+                "#,
+                &[&annotation_set_id, &label_id, &created_by, metadata, &source],
+            )
+            .await
+            .context("failed to insert mask annotation")?;
+
+        let annotation_id: Uuid = ann_row.get("id");
+
+        // Insert the mask geometry
+        tx
+            .execute(
+                r#"
+                INSERT INTO annotation_masks (annotation_id, annotation_set_id, x0_level0, y0_level0, width, height, encoding, data)
+                VALUES ($1, $2, $3, $4, $5, $6, 'bitmask', $7)
+                "#,
+                &[
+                    &annotation_id,
+                    &annotation_set_id,
+                    &x0_level0,
+                    &y0_level0,
+                    &bitmask.width,
+                    &bitmask.height,
+                    &bitmask.data,
+                ],
+            )
+            .await
+            .context("failed to insert mask geometry")?;
+
+        (ann_row, false)
+    };
+
+    // Commit the transaction
+    tx.commit().await.context("failed to commit transaction")?;
 
     let geometry = serde_json::json!({
         "x0_level0": x0_level0,
@@ -600,6 +715,12 @@ pub async fn create_mask_annotation(
         "encoding": "bitmask",
         "data_base64": bitmask.to_base64()
     });
+
+    if is_update {
+        tracing::debug!("Updated existing mask at ({}, {})", x0_level0, y0_level0);
+    } else {
+        tracing::debug!("Created new mask at ({}, {})", x0_level0, y0_level0);
+    }
 
     Ok(row_to_annotation_response(&ann_row, geometry))
 }
@@ -696,7 +817,15 @@ pub async fn list_annotations(
         let kind: String = row.get("kind");
         let annotation_id: Uuid = row.get("id");
 
-        let geometry = fetch_geometry(&client, annotation_id, &kind, include_mask_data).await?;
+        // Skip orphaned annotations (geometry deleted but annotation record remains)
+        let geometry = match fetch_geometry(&client, annotation_id, &kind, include_mask_data).await
+        {
+            Ok(g) => g,
+            Err(e) => {
+                tracing::warn!("Skipping orphaned annotation {}: {}", annotation_id, e);
+                continue;
+            }
+        };
 
         // Apply bbox filter if specified
         if let Some((x_min, y_min, x_max, y_max)) = bbox {
@@ -869,12 +998,17 @@ async fn fetch_geometry(
         }
         "mask_patch" => {
             let row = client
-                .query_one(
+                .query_opt(
                     "SELECT x0_level0, y0_level0, width, height, encoding, data FROM annotation_masks WHERE annotation_id = $1",
                     &[&annotation_id],
                 )
                 .await
                 .context("failed to fetch mask geometry")?;
+
+            let row = match row {
+                Some(r) => r,
+                None => bail!("mask geometry not found for annotation {}", annotation_id),
+            };
 
             let mut json = serde_json::json!({
                 "x0_level0": row.get::<_, f64>("x0_level0"),

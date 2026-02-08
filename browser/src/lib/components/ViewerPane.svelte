@@ -2046,7 +2046,7 @@
     for (const [key, tile] of maskTiles) {
       tilesBeforeStroke.set(key, {
         origin: { ...tile.origin },
-        data: new Uint8Array(tile.data),
+        data: tile.data.slice(),
         annotationId: tile.annotationId,
       });
     }
@@ -2114,7 +2114,7 @@
       for (const tile of maskTiles.values()) {
         currentTiles.push({
           origin: { ...tile.origin },
-          data: new Uint8Array(tile.data),
+          data: tile.data.slice(),
           annotationId: tile.annotationId,
         });
       }
@@ -2131,7 +2131,7 @@
         const key = getTileKey(tileSn.origin.x, tileSn.origin.y);
         newTiles.set(key, {
           origin: { ...tileSn.origin },
-          data: new Uint8Array(tileSn.data),
+          data: tileSn.data.slice(),
           annotationId: tileSn.annotationId,
           dirty: true,
         });
@@ -2158,7 +2158,7 @@
       for (const tile of maskTiles.values()) {
         currentTiles.push({
           origin: { ...tile.origin },
-          data: new Uint8Array(tile.data),
+          data: tile.data.slice(),
           annotationId: tile.annotationId,
         });
       }
@@ -2175,7 +2175,7 @@
         const key = getTileKey(tileSn.origin.x, tileSn.origin.y);
         newTiles.set(key, {
           origin: { ...tileSn.origin },
-          data: new Uint8Array(tileSn.data),
+          data: tileSn.data.slice(),
           annotationId: tileSn.annotationId,
           dirty: true,
         });
@@ -2211,7 +2211,7 @@
       if (!tilesBeforeStroke.has(key)) {
         tilesBeforeStroke.set(key, {
           origin: { x: tileX, y: tileY },
-          data: new Uint8Array(tile.data), // copy before modification
+          data: tile.data.slice(), // copy before modification
           annotationId: tile.annotationId,
         });
       }
@@ -2276,7 +2276,9 @@
           anyPixelsPainted = true;
           // Update the tile in the map with a new object to trigger reactivity
           const key = getTileKey(tileX, tileY);
-          maskTiles.set(key, { ...tile, data: new Uint8Array(tile.data) });
+          // Use slice() for a safer copy that doesn't depend on length property
+          const dataCopy = tile.data.slice();
+          maskTiles.set(key, { ...tile, data: dataCopy });
         }
       }
     }
