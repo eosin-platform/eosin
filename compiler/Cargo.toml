@@ -47,3 +47,4 @@ openslide-rs = { workspace = true }
 image = "0.25"
 webp = "0.3"
 rayon = "1.10"
+async-redis-lock = { workspace = true }

@@ -63,3 +63,26 @@ pub async fn listen_for_work(
         }
     }
 }
+
+pub async fn try_acquire_lock(locker: &mut Locker, key: &String) -> Result<Option<Lock>> {
+    use async_redis_lock::error::Error;
+    const MAX_ATTEMPTS: u32 = 3;
+    for _attempt in 0..MAX_ATTEMPTS {
+        match locker.acquire(key).await {
+            Ok(guard) => return Ok(Some(guard)),
+            Err(e) => {
+                if e.downcast_ref::<Error>()
+                    .map(|e| *e == Error::Timeout)
+                    .unwrap_or(false)
+                {
+                    return Ok(None);
+                } else if format!("{:?}", e).contains("broken pipe") {
+                    continue;
+                } else {
+                    return Err(e.context("Unexpected error acquiring lock"));
+                }
+            }
+        }
+    }
+    bail!("Failed to acquire lock after {} attempts", MAX_ATTEMPTS)
+}

@@ -75,4 +75,5 @@ tokio-stream = "0.1.17"
 tower = "0.5.2"
 tower-http = { version = "0.6.6", features = ["cors"] }
 uuid = { version = "1.18.1", features = ["serde", "v4", "v5", "v8"] }
+async-redis-lock = "0.2.3"
 tokio-util = "0.7.18"
