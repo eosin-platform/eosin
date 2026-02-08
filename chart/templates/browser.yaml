@@ -28,7 +28,11 @@ spec:
         - name: FRUSTA_ENDPOINT
           value: http://{{ .Release.Name }}-frusta
         - name: PUBLIC_FRUSTA_ENDPOINT
-          value: wss://frusta.eosin.ai/ws
+          value: {{ .Values.browser.frustaPublicEndpoint | quote }}
+        - name: IAM_ENDPOINT
+          value: http://{{ .Release.Name }}-iam
+        - name: PUBLIC_IAM_ENDPOINT
+          value: {{ .Values.browser.iamPublicEndpoint | quote }}
         - name: META_ENDPOINT
           value: http://{{ .Release.Name }}-meta
 ---

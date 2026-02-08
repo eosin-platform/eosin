@@ -127,6 +127,8 @@ browser:
   imagePullPolicy: Always
   replicas: 1
   logLevel: warning
+  iamPublicEndpoint: https://iam.eosin.ai
+  frustaPublicEndpoint: wss://frusta.eosin.ai/ws
   resources:
     limits:
       memory: "256Mi"
