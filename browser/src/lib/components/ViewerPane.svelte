@@ -798,6 +798,13 @@
     }
   });
 
+  // Load annotations for this pane's slide (independent of focused pane)
+  $effect(() => {
+    if (activeSlideId) {
+      annotationStore.loadForSlide(activeSlideId);
+    }
+  });
+
   // Reactive trigger: when the WebSocket connects (or reconnects), ensure the
   // slide is open and a viewport update is sent so the backend starts streaming
   // tiles.  This covers the permalink-load case where `activateTab` allocates a
@@ -1674,6 +1681,7 @@
     
     <!-- Annotation overlay -->
     <AnnotationOverlay
+      slideId={activeSlideId}
       viewportX={viewport.x}
       viewportY={viewport.y}
       viewportZoom={viewport.zoom}

@@ -3,9 +3,11 @@
   import { settings } from '$lib/stores/settings';
   import { annotationStore, getLayerColor } from '$lib/stores/annotations';
   import { authStore } from '$lib/stores/auth';
-  import type { Annotation, AnnotationKind, PointGeometry, EllipseGeometry, PolygonGeometry, MaskGeometry } from '$lib/api/annotations';
+  import type { Annotation, AnnotationKind, AnnotationSet, PointGeometry, EllipseGeometry, PolygonGeometry, MaskGeometry } from '$lib/api/annotations';
 
   interface Props {
+    /** Slide ID for this overlay - filters annotations to this slide */
+    slideId: string | null;
     /** Viewport state */
     viewportX: number;
     viewportY: number;
@@ -32,6 +34,7 @@
   }
 
   let { 
+    slideId,
     viewportX, viewportY, viewportZoom, containerWidth, containerHeight, 
     onAnnotationClick, onAnnotationRightClick,
     modifyPhase = 'idle', modifyAnnotationId = null, modifyCenter = null, modifyRadii = null, modifyMousePos = null, modifyAngleOffset = 0, modifyRotation = 0, modifyCenterOffset = null, modifyIsCreating = true, modifyOriginalRadii = null, modifyDragStartPos = null
@@ -43,16 +46,16 @@
     globalVisible = s.annotations.visible;
   });
 
-  // Annotation store state
-  let annotationSets = $state<typeof $annotationStore.annotationSets>([]);
-  let annotationsBySet = $state<Map<string, Annotation[]>>(new Map());
+  // Annotation store state - now per-slide
+  let annotationSetsBySlide = $state<Map<string, AnnotationSet[]>>(new Map());
+  let annotationsBySlide = $state<Map<string, Map<string, Annotation[]>>>(new Map());
   let layerVisibility = $state<Map<string, boolean>>(new Map());
   let highlightedId = $state<string | null>(null);
   let selectedId = $state<string | null>(null);
 
   const unsubAnnotations = annotationStore.subscribe((state) => {
-    annotationSets = state.annotationSets;
-    annotationsBySet = state.annotationsBySet;
+    annotationSetsBySlide = state.annotationSetsBySlide;
+    annotationsBySlide = state.annotationsBySlide;
     layerVisibility = state.layerVisibility;
     highlightedId = state.highlightedAnnotationId;
     selectedId = state.selectedAnnotationId;
@@ -70,17 +73,21 @@
     unsubAuth();
   });
 
-  // Get all visible annotations
+  // Get all visible annotations for this slide
   let visibleAnnotations = $derived.by(() => {
-    if (!globalVisible) return [];
+    if (!globalVisible || !slideId) return [];
     
     const result: Array<{ annotation: Annotation; setId: string; setName: string; color: string }> = [];
+    
+    // Get annotation sets for this specific slide
+    const annotationSets = annotationSetsBySlide.get(slideId) ?? [];
+    const annotationsBySet = annotationsBySlide.get(slideId) ?? new Map();
     
     for (const set of annotationSets) {
       if (!layerVisibility.get(set.id)) continue;
       
       const annotations = annotationsBySet.get(set.id) ?? [];
-      const color = getLayerColor(set.id);
+      const color = getLayerColor(set.id, slideId);
       
       for (const annotation of annotations) {
         result.push({ annotation, setId: set.id, setName: set.name, color });

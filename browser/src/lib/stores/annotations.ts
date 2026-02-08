@@ -34,22 +34,22 @@ import {
 // ============================================================================
 
 export interface AnnotationStoreState {
-  /** Current slide ID being viewed */
+  /** Current slide ID being viewed (for sidebar panel) */
   currentSlideId: string | null;
-  /** Annotation sets for the current slide */
-  annotationSets: AnnotationSet[];
-  /** Currently active (selected) annotation set ID */
-  activeAnnotationSetId: string | null;
-  /** Map of annotation set ID -> annotations */
-  annotationsBySet: Map<string, Annotation[]>;
-  /** Map of annotation set ID -> visibility */
+  /** Annotation sets keyed by slide ID */
+  annotationSetsBySlide: Map<string, AnnotationSet[]>;
+  /** Active annotation set ID per slide */
+  activeAnnotationSetBySlide: Map<string, string | null>;
+  /** Map of slide ID -> (annotation set ID -> annotations) */
+  annotationsBySlide: Map<string, Map<string, Annotation[]>>;
+  /** Map of annotation set ID -> visibility (global across slides) */
   layerVisibility: Map<string, boolean>;
   /** Currently highlighted annotation ID (for hover effects) */
   highlightedAnnotationId: string | null;
   /** Currently selected annotation ID (for editing) */
   selectedAnnotationId: string | null;
-  /** Loading state */
-  isLoading: boolean;
+  /** Loading state per slide */
+  loadingSlides: Set<string>;
   /** Error message */
   error: string | null;
 }
@@ -78,13 +78,13 @@ const MIN_SECTION_HEIGHT = 100;
 
 const initialState: AnnotationStoreState = {
   currentSlideId: null,
-  annotationSets: [],
-  activeAnnotationSetId: null,
-  annotationsBySet: new Map(),
+  annotationSetsBySlide: new Map(),
+  activeAnnotationSetBySlide: new Map(),
+  annotationsBySlide: new Map(),
   layerVisibility: new Map(),
   highlightedAnnotationId: null,
   selectedAnnotationId: null,
-  isLoading: false,
+  loadingSlides: new Set(),
   error: null,
 };
 
@@ -180,14 +180,27 @@ function createAnnotationStore() {
 
     /**
      * Load annotation sets for a slide.
+     * Does not clear data for other slides - supports multi-slide view.
      */
     async loadForSlide(slideId: string): Promise<void> {
-      update((s) => ({
-        ...s,
-        currentSlideId: slideId,
-        isLoading: true,
-        error: null,
-      }));
+      // Check if already loaded
+      const state = get({ subscribe });
+      if (state.annotationSetsBySlide.has(slideId)) {
+        // Just update currentSlideId for the sidebar panel
+        update((s) => ({ ...s, currentSlideId: slideId }));
+        return;
+      }
+
+      update((s) => {
+        const loadingSlides = new Set(s.loadingSlides);
+        loadingSlides.add(slideId);
+        return {
+          ...s,
+          currentSlideId: slideId,
+          loadingSlides,
+          error: null,
+        };
+      });
 
       try {
         const sets = await fetchAnnotationSets(slideId);
@@ -200,43 +213,68 @@ function createAnnotationStore() {
           }
         }
 
-        // Set first set as active if none selected
-        const currentActive = get({ subscribe }).activeAnnotationSetId;
+        // Set first set as active for this slide if none selected
+        const currentState = get({ subscribe });
+        const currentActive = currentState.activeAnnotationSetBySlide.get(slideId);
         const activeId = sets.find((set: AnnotationSet) => set.id === currentActive)?.id ?? sets[0]?.id ?? null;
 
-        update((s) => ({
-          ...s,
-          annotationSets: sets,
-          activeAnnotationSetId: activeId,
-          layerVisibility: visibility,
-          isLoading: false,
-        }));
+        update((s) => {
+          const annotationSetsBySlide = new Map(s.annotationSetsBySlide);
+          annotationSetsBySlide.set(slideId, sets);
+          
+          const activeAnnotationSetBySlide = new Map(s.activeAnnotationSetBySlide);
+          activeAnnotationSetBySlide.set(slideId, activeId);
+          
+          // Initialize empty annotations map for this slide
+          const annotationsBySlide = new Map(s.annotationsBySlide);
+          if (!annotationsBySlide.has(slideId)) {
+            annotationsBySlide.set(slideId, new Map());
+          }
+          
+          const loadingSlides = new Set(s.loadingSlides);
+          loadingSlides.delete(slideId);
+          
+          return {
+            ...s,
+            annotationSetsBySlide,
+            activeAnnotationSetBySlide,
+            annotationsBySlide,
+            layerVisibility: visibility,
+            loadingSlides,
+          };
+        });
 
         schedulePersist();
 
-        // Load annotations for the active set
-        if (activeId) {
-          await annotationStore.loadAnnotationsForSet(activeId);
+        // Load annotations for all sets
+        for (const set of sets) {
+          await annotationStore.loadAnnotationsForSet(slideId, set.id);
         }
       } catch (err) {
-        update((s) => ({
-          ...s,
-          isLoading: false,
-          error: err instanceof Error ? err.message : 'Failed to load annotation sets',
-        }));
+        update((s) => {
+          const loadingSlides = new Set(s.loadingSlides);
+          loadingSlides.delete(slideId);
+          return {
+            ...s,
+            loadingSlides,
+            error: err instanceof Error ? err.message : 'Failed to load annotation sets',
+          };
+        });
       }
     },
 
     /**
      * Load annotations for an annotation set.
      */
-    async loadAnnotationsForSet(annotationSetId: string): Promise<void> {
+    async loadAnnotationsForSet(slideId: string, annotationSetId: string): Promise<void> {
       try {
         const annotations = await fetchAnnotations(annotationSetId);
         update((s) => {
-          const newMap = new Map(s.annotationsBySet);
-          newMap.set(annotationSetId, annotations);
-          return { ...s, annotationsBySet: newMap };
+          const annotationsBySlide = new Map(s.annotationsBySlide);
+          const slideAnnotations = new Map(annotationsBySlide.get(slideId) ?? new Map());
+          slideAnnotations.set(annotationSetId, annotations);
+          annotationsBySlide.set(slideId, slideAnnotations);
+          return { ...s, annotationsBySlide };
         });
       } catch (err) {
         console.error('Failed to load annotations:', err);
@@ -244,13 +282,22 @@ function createAnnotationStore() {
     },
 
     /**
-     * Set the active annotation set.
+     * Set the active annotation set for the current slide.
      */
     async setActiveSet(annotationSetId: string | null): Promise<void> {
-      update((s) => ({ ...s, activeAnnotationSetId: annotationSetId }));
+      const currentSlideId = get({ subscribe }).currentSlideId;
+      if (!currentSlideId) return;
       
-      if (annotationSetId && !get({ subscribe }).annotationsBySet.has(annotationSetId)) {
-        await annotationStore.loadAnnotationsForSet(annotationSetId);
+      update((s) => {
+        const activeAnnotationSetBySlide = new Map(s.activeAnnotationSetBySlide);
+        activeAnnotationSetBySlide.set(currentSlideId, annotationSetId);
+        return { ...s, activeAnnotationSetBySlide };
+      });
+      
+      const state = get({ subscribe });
+      const slideAnnotations = state.annotationsBySlide.get(currentSlideId);
+      if (annotationSetId && (!slideAnnotations || !slideAnnotations.has(annotationSetId))) {
+        await annotationStore.loadAnnotationsForSet(currentSlideId, annotationSetId);
       }
     },
 
@@ -301,16 +348,31 @@ function createAnnotationStore() {
         throw new Error('No slide selected');
       }
 
-      const created = await apiCreateAnnotationSet(state.currentSlideId, data);
+      const slideId = state.currentSlideId;
+      const created = await apiCreateAnnotationSet(slideId, data);
       
       update((s) => {
-        const newSets = [...s.annotationSets, created];
+        const annotationSetsBySlide = new Map(s.annotationSetsBySlide);
+        const existingSets = annotationSetsBySlide.get(slideId) ?? [];
+        annotationSetsBySlide.set(slideId, [...existingSets, created]);
+        
+        const activeAnnotationSetBySlide = new Map(s.activeAnnotationSetBySlide);
+        activeAnnotationSetBySlide.set(slideId, created.id);
+        
         const visibility = new Map(s.layerVisibility);
         visibility.set(created.id, true);
+        
+        // Initialize empty annotations for the new set
+        const annotationsBySlide = new Map(s.annotationsBySlide);
+        const slideAnnotations = new Map(annotationsBySlide.get(slideId) ?? new Map());
+        slideAnnotations.set(created.id, []);
+        annotationsBySlide.set(slideId, slideAnnotations);
+        
         return {
           ...s,
-          annotationSets: newSets,
-          activeAnnotationSetId: created.id,
+          annotationSetsBySlide,
+          activeAnnotationSetBySlide,
+          annotationsBySlide,
           layerVisibility: visibility,
         };
       });
@@ -325,10 +387,19 @@ function createAnnotationStore() {
     async updateSet(id: string, data: UpdateAnnotationSetRequest): Promise<AnnotationSet> {
       const updated = await apiUpdateAnnotationSet(id, data);
       
-      update((s) => ({
-        ...s,
-        annotationSets: s.annotationSets.map((set) => (set.id === id ? updated : set)),
-      }));
+      update((s) => {
+        const annotationSetsBySlide = new Map(s.annotationSetsBySlide);
+        // Update in all slides that might have this set
+        for (const [slideId, sets] of annotationSetsBySlide) {
+          const idx = sets.findIndex((set) => set.id === id);
+          if (idx >= 0) {
+            const newSets = [...sets];
+            newSets[idx] = updated;
+            annotationSetsBySlide.set(slideId, newSets);
+          }
+        }
+        return { ...s, annotationSetsBySlide };
+      });
 
       return updated;
     },
@@ -340,24 +411,37 @@ function createAnnotationStore() {
       await apiDeleteAnnotationSet(id);
       
       update((s) => {
-        const newSets = s.annotationSets.filter((set) => set.id !== id);
+        const annotationSetsBySlide = new Map(s.annotationSetsBySlide);
+        const activeAnnotationSetBySlide = new Map(s.activeAnnotationSetBySlide);
+        const annotationsBySlide = new Map(s.annotationsBySlide);
         const visibility = new Map(s.layerVisibility);
         visibility.delete(id);
-        const annotationsBySet = new Map(s.annotationsBySet);
-        annotationsBySet.delete(id);
         
-        // If deleted set was active, select next one
-        let activeId = s.activeAnnotationSetId;
-        if (activeId === id) {
-          activeId = newSets[0]?.id ?? null;
+        // Remove from all slides
+        for (const [slideId, sets] of annotationSetsBySlide) {
+          const newSets = sets.filter((set) => set.id !== id);
+          annotationSetsBySlide.set(slideId, newSets);
+          
+          // Update active set if needed
+          if (activeAnnotationSetBySlide.get(slideId) === id) {
+            activeAnnotationSetBySlide.set(slideId, newSets[0]?.id ?? null);
+          }
+          
+          // Remove annotations for this set
+          const slideAnnotations = annotationsBySlide.get(slideId);
+          if (slideAnnotations) {
+            const newSlideAnnotations = new Map(slideAnnotations);
+            newSlideAnnotations.delete(id);
+            annotationsBySlide.set(slideId, newSlideAnnotations);
+          }
         }
 
         return {
           ...s,
-          annotationSets: newSets,
-          activeAnnotationSetId: activeId,
+          annotationSetsBySlide,
+          activeAnnotationSetBySlide,
+          annotationsBySlide,
           layerVisibility: visibility,
-          annotationsBySet,
         };
       });
 
@@ -369,17 +453,22 @@ function createAnnotationStore() {
      */
     async createAnnotation(data: CreateAnnotationRequest): Promise<Annotation> {
       const state = get({ subscribe });
-      if (!state.activeAnnotationSetId) {
+      const slideId = state.currentSlideId;
+      const activeSetId = slideId ? state.activeAnnotationSetBySlide.get(slideId) : null;
+      
+      if (!slideId || !activeSetId) {
         throw new Error('No annotation set selected');
       }
 
-      const created = await apiCreateAnnotation(state.activeAnnotationSetId, data);
+      const created = await apiCreateAnnotation(activeSetId, data);
       
       update((s) => {
-        const annotationsBySet = new Map(s.annotationsBySet);
-        const existing = annotationsBySet.get(state.activeAnnotationSetId!) ?? [];
-        annotationsBySet.set(state.activeAnnotationSetId!, [...existing, created]);
-        return { ...s, annotationsBySet };
+        const annotationsBySlide = new Map(s.annotationsBySlide);
+        const slideAnnotations = new Map(annotationsBySlide.get(slideId) ?? new Map());
+        const existing = slideAnnotations.get(activeSetId) ?? [];
+        slideAnnotations.set(activeSetId, [...existing, created]);
+        annotationsBySlide.set(slideId, slideAnnotations);
+        return { ...s, annotationsBySlide };
       });
 
       return created;
@@ -392,17 +481,22 @@ function createAnnotationStore() {
       const updated = await apiUpdateAnnotation(id, data);
       
       update((s) => {
-        const annotationsBySet = new Map(s.annotationsBySet);
-        for (const [setId, annotations] of annotationsBySet) {
-          const idx = annotations.findIndex((a) => a.id === id);
-          if (idx >= 0) {
-            const newAnnotations = [...annotations];
-            newAnnotations[idx] = updated;
-            annotationsBySet.set(setId, newAnnotations);
-            break;
+        const annotationsBySlide = new Map(s.annotationsBySlide);
+        // Search all slides for the annotation
+        outer: for (const [slideId, slideAnnotations] of annotationsBySlide) {
+          const newSlideAnnotations = new Map(slideAnnotations);
+          for (const [setId, annotations] of newSlideAnnotations) {
+            const idx = annotations.findIndex((a) => a.id === id);
+            if (idx >= 0) {
+              const newAnnotations = [...annotations];
+              newAnnotations[idx] = updated;
+              newSlideAnnotations.set(setId, newAnnotations);
+              annotationsBySlide.set(slideId, newSlideAnnotations);
+              break outer;
+            }
           }
         }
-        return { ...s, annotationsBySet };
+        return { ...s, annotationsBySlide };
       });
 
       return updated;
@@ -415,12 +509,17 @@ function createAnnotationStore() {
       await apiDeleteAnnotation(id);
       
       update((s) => {
-        const annotationsBySet = new Map(s.annotationsBySet);
-        for (const [setId, annotations] of annotationsBySet) {
-          const filtered = annotations.filter((a) => a.id !== id);
-          if (filtered.length !== annotations.length) {
-            annotationsBySet.set(setId, filtered);
-            break;
+        const annotationsBySlide = new Map(s.annotationsBySlide);
+        // Search all slides for the annotation
+        outer: for (const [slideId, slideAnnotations] of annotationsBySlide) {
+          const newSlideAnnotations = new Map(slideAnnotations);
+          for (const [setId, annotations] of newSlideAnnotations) {
+            const filtered = annotations.filter((a) => a.id !== id);
+            if (filtered.length !== annotations.length) {
+              newSlideAnnotations.set(setId, filtered);
+              annotationsBySlide.set(slideId, newSlideAnnotations);
+              break outer;
+            }
           }
         }
         
@@ -432,7 +531,7 @@ function createAnnotationStore() {
 
         return {
           ...s,
-          annotationsBySet,
+          annotationsBySlide,
           selectedAnnotationId: selectedId,
           highlightedAnnotationId: highlightedId,
         };
@@ -446,14 +545,61 @@ function createAnnotationStore() {
       update((s) => ({
         ...s,
         currentSlideId: null,
-        annotationSets: [],
-        activeAnnotationSetId: null,
-        annotationsBySet: new Map(),
+        annotationSetsBySlide: new Map(),
+        activeAnnotationSetBySlide: new Map(),
+        annotationsBySlide: new Map(),
         highlightedAnnotationId: null,
         selectedAnnotationId: null,
-        isLoading: false,
+        loadingSlides: new Set(),
         error: null,
       }));
+    },
+
+    /**
+     * Clear annotation data for a specific slide (e.g., when closing a tab).
+     */
+    clearSlide(slideId: string): void {
+      update((s) => {
+        const annotationSetsBySlide = new Map(s.annotationSetsBySlide);
+        const activeAnnotationSetBySlide = new Map(s.activeAnnotationSetBySlide);
+        const annotationsBySlide = new Map(s.annotationsBySlide);
+        const loadingSlides = new Set(s.loadingSlides);
+        
+        annotationSetsBySlide.delete(slideId);
+        activeAnnotationSetBySlide.delete(slideId);
+        annotationsBySlide.delete(slideId);
+        loadingSlides.delete(slideId);
+        
+        return {
+          ...s,
+          annotationSetsBySlide,
+          activeAnnotationSetBySlide,
+          annotationsBySlide,
+          loadingSlides,
+          currentSlideId: s.currentSlideId === slideId ? null : s.currentSlideId,
+        };
+      });
+    },
+
+    /**
+     * Get annotation sets for a specific slide.
+     */
+    getAnnotationSetsForSlide(slideId: string): AnnotationSet[] {
+      return get({ subscribe }).annotationSetsBySlide.get(slideId) ?? [];
+    },
+
+    /**
+     * Get annotations for a specific slide.
+     */
+    getAnnotationsForSlide(slideId: string): Map<string, Annotation[]> {
+      return get({ subscribe }).annotationsBySlide.get(slideId) ?? new Map();
+    },
+
+    /**
+     * Get the active annotation set ID for a specific slide.
+     */
+    getActiveSetIdForSlide(slideId: string): string | null {
+      return get({ subscribe }).activeAnnotationSetBySlide.get(slideId) ?? null;
     },
   };
 }
@@ -515,15 +661,26 @@ function createSidebarLayoutStore() {
 export const annotationStore = createAnnotationStore();
 export const sidebarLayoutStore = createSidebarLayoutStore();
 
-// Derived stores for convenience
-export const annotationSets = derived(annotationStore, ($s) => $s.annotationSets);
-export const activeAnnotationSet = derived(annotationStore, ($s) =>
-  $s.annotationSets.find((set) => set.id === $s.activeAnnotationSetId) ?? null
+// Derived stores for convenience (for the current/focused slide)
+export const annotationSets = derived(annotationStore, ($s) => 
+  $s.currentSlideId ? $s.annotationSetsBySlide.get($s.currentSlideId) ?? [] : []
 );
-export const activeAnnotations = derived(annotationStore, ($s) =>
-  $s.activeAnnotationSetId ? $s.annotationsBySet.get($s.activeAnnotationSetId) ?? [] : []
+export const activeAnnotationSet = derived(annotationStore, ($s) => {
+  if (!$s.currentSlideId) return null;
+  const sets = $s.annotationSetsBySlide.get($s.currentSlideId) ?? [];
+  const activeId = $s.activeAnnotationSetBySlide.get($s.currentSlideId);
+  return sets.find((set) => set.id === activeId) ?? null;
+});
+export const activeAnnotations = derived(annotationStore, ($s) => {
+  if (!$s.currentSlideId) return [];
+  const activeId = $s.activeAnnotationSetBySlide.get($s.currentSlideId);
+  if (!activeId) return [];
+  const slideAnnotations = $s.annotationsBySlide.get($s.currentSlideId);
+  return slideAnnotations?.get(activeId) ?? [];
+});
+export const isAnnotationLoading = derived(annotationStore, ($s) => 
+  $s.currentSlideId ? $s.loadingSlides.has($s.currentSlideId) : false
 );
-export const isAnnotationLoading = derived(annotationStore, ($s) => $s.isLoading);
 export const annotationError = derived(annotationStore, ($s) => $s.error);
 
 // Visibility helpers
@@ -549,11 +706,26 @@ export const LAYER_COLORS = [
 ];
 
 /** Get the color for an annotation layer by its index or set ID */
-export function getLayerColor(setIdOrIndex: string | number): string {
+export function getLayerColor(setIdOrIndex: string | number, slideId?: string): string {
   if (typeof setIdOrIndex === 'number') {
     return LAYER_COLORS[setIdOrIndex % LAYER_COLORS.length];
   }
   const state = get(annotationStore);
-  const idx = state.annotationSets.findIndex((s) => s.id === setIdOrIndex);
-  return LAYER_COLORS[Math.max(0, idx) % LAYER_COLORS.length];
+  // Look up in the specified slide, or currentSlideId, or search all slides
+  const targetSlideId = slideId ?? state.currentSlideId;
+  if (targetSlideId) {
+    const sets = state.annotationSetsBySlide.get(targetSlideId) ?? [];
+    const idx = sets.findIndex((s) => s.id === setIdOrIndex);
+    if (idx >= 0) {
+      return LAYER_COLORS[idx % LAYER_COLORS.length];
+    }
+  }
+  // Fallback: search all slides
+  for (const [, sets] of state.annotationSetsBySlide) {
+    const idx = sets.findIndex((s) => s.id === setIdOrIndex);
+    if (idx >= 0) {
+      return LAYER_COLORS[idx % LAYER_COLORS.length];
+    }
+  }
+  return LAYER_COLORS[0];
 }
