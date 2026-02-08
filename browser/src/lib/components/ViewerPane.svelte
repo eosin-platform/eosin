@@ -1730,8 +1730,7 @@
   }
 
   function handleTouchEnd(e: TouchEvent) {
-    // Prevent synthetic click events
-    e.preventDefault();
+    const wasDragging = isDragging;
     
     cancelLongPress();
     
@@ -1743,6 +1742,12 @@
       lastMouseX = e.touches[0].clientX;
       lastMouseY = e.touches[0].clientY;
       lastTouchDistance = 0;
+    }
+    
+    // Only prevent default (blocking click events) when dragging/panning or context menu is visible
+    // This allows synthetic clicks to reach annotations for selection
+    if (wasDragging || contextMenuVisible || annotationMenuVisible) {
+      e.preventDefault();
     }
   }
 
