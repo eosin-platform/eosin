@@ -12,6 +12,11 @@
   // This is the key optimization - render once to ImageBitmap, then just drawImage
   const maskBitmapCache = new Map<string, ImageBitmap>();
 
+  // Track which mask tile is being hovered (only when cursor is over a painted pixel)
+  let hoveredMaskId = $state<string | null>(null);
+  // Hover highlight color (light cyan for distinction)
+  const MASK_HOVER_COLOR = '#00e5ff';
+
   interface Props {
     /** Slide ID for this overlay - filters annotations to this slide */
     slideId: string | null;
@@ -213,6 +218,36 @@
     }
   });
   
+  // Pre-create hover bitmap when a mask is hovered (so color change is instant)
+  $effect(() => {
+    if (!hoveredMaskId || !globalVisible || !Array.isArray(visibleAnnotations)) return;
+    
+    const maskEntry = visibleAnnotations.find(a => 
+      a && a.annotation && a.annotation.id === hoveredMaskId && a.annotation.kind === 'mask_patch'
+    );
+    if (!maskEntry) return;
+    
+    const annotation = maskEntry.annotation;
+    const geo = annotation.geometry as MaskGeometry;
+    if (!geo || !geo.data_base64) return;
+    
+    const cacheKey = `${annotation.id}:${MASK_HOVER_COLOR}`;
+    if (maskBitmapCache.has(cacheKey) || pendingBitmaps.has(cacheKey)) return;
+    
+    const maskData = getCachedMaskData(annotation.id, geo.data_base64);
+    if (!maskData) return;
+    
+    // Create hover bitmap
+    pendingBitmaps.add(cacheKey);
+    getOrCreateMaskBitmap(annotation.id, maskData, geo.width, geo.height, MASK_HOVER_COLOR, 0.5)
+      .then(() => {
+        pendingBitmaps.delete(cacheKey);
+        if (maskCanvas) {
+          maskCanvas.dispatchEvent(new Event('bitmapReady'));
+        }
+      });
+  });
+  
   // Listen for bitmap ready events to trigger re-render
   let bitmapReadyTrigger = $state(0);
   $effect(() => {
@@ -258,7 +293,11 @@
       const geo = annotation.geometry as MaskGeometry;
       if (!geo || !geo.data_base64) continue;
       
-      const bitmap = getMaskBitmap(annotation.id, color);
+      const isHovered = hoveredMaskId === annotation.id;
+      // Use hover color if hovered, otherwise normal layer color
+      const renderColor = isHovered ? MASK_HOVER_COLOR : color;
+      const bitmap = getMaskBitmap(annotation.id, renderColor);
+      
       if (bitmap) {
         // Fast path: use pre-rendered bitmap
         const screenX = (geo.x0_level0 - viewportX) * viewportZoom;
@@ -266,6 +305,16 @@
         const screenWidth = geo.width * viewportZoom;
         const screenHeight = geo.height * viewportZoom;
         ctx.drawImage(bitmap, screenX, screenY, screenWidth, screenHeight);
+      } else if (isHovered) {
+        // Hover bitmap not ready yet - trigger creation and fall back to normal color
+        const normalBitmap = getMaskBitmap(annotation.id, color);
+        if (normalBitmap) {
+          const screenX = (geo.x0_level0 - viewportX) * viewportZoom;
+          const screenY = (geo.y0_level0 - viewportY) * viewportZoom;
+          const screenWidth = geo.width * viewportZoom;
+          const screenHeight = geo.height * viewportZoom;
+          ctx.drawImage(normalBitmap, screenX, screenY, screenWidth, screenHeight);
+        }
       }
       // If bitmap not ready yet, it will be rendered on next trigger
     }
@@ -518,6 +567,62 @@
     annotationStore.setHighlightedAnnotation(null);
   }
 
+  // Handle mask-specific mousemove to check if cursor is over a painted pixel
+  function handleMaskMouseMove(e: MouseEvent, annotation: Annotation) {
+    const geo = annotation.geometry as MaskGeometry;
+    if (!geo || !geo.data_base64) {
+      if (hoveredMaskId === annotation.id) hoveredMaskId = null;
+      return;
+    }
+
+    // Get mask data (cached)
+    const maskData = getCachedMaskData(annotation.id, geo.data_base64);
+    if (!maskData) {
+      if (hoveredMaskId === annotation.id) hoveredMaskId = null;
+      return;
+    }
+
+    // Convert screen position to image coordinates
+    const target = e.currentTarget as SVGElement;
+    const svg = target.ownerSVGElement;
+    if (!svg) return;
+    const rect = svg.getBoundingClientRect();
+    const screenX = e.clientX - rect.left;
+    const screenY = e.clientY - rect.top;
+    const imgX = viewportX + screenX / viewportZoom;
+    const imgY = viewportY + screenY / viewportZoom;
+
+    // Convert to mask-local coordinates
+    const maskX = Math.floor(imgX - geo.x0_level0);
+    const maskY = Math.floor(imgY - geo.y0_level0);
+
+    // Check bounds
+    if (maskX < 0 || maskX >= geo.width || maskY < 0 || maskY >= geo.height) {
+      if (hoveredMaskId === annotation.id) hoveredMaskId = null;
+      return;
+    }
+
+    // Check if pixel is painted
+    const bitIndex = maskY * geo.width + maskX;
+    const byteIndex = Math.floor(bitIndex / 8);
+    const bitOffset = bitIndex % 8;
+    const isPainted = byteIndex < maskData.length && (maskData[byteIndex] & (1 << bitOffset)) !== 0;
+
+    if (isPainted) {
+      hoveredMaskId = annotation.id;
+      annotationStore.setHighlightedAnnotation(annotation.id);
+    } else {
+      if (hoveredMaskId === annotation.id) hoveredMaskId = null;
+      annotationStore.setHighlightedAnnotation(null);
+    }
+  }
+
+  // Handle mask mouse leave
+  function handleMaskMouseLeave(annotation: Annotation) {
+    if (hoveredMaskId === annotation.id) hoveredMaskId = null;
+    annotationStore.setHighlightedAnnotation(null);
+  }
+
   // Build SVG path for polygon
   function buildPolygonPath(path: [number, number][]): string {
     if (path.length === 0) return '';
@@ -739,8 +844,8 @@
             onclick={(e) => handleClick(e, annotation)}
             onmousedown={(e) => handleRightMouseDown(e, annotation)}
             oncontextmenu={handleContextMenu}
-            onmouseenter={() => handleMouseEnter(annotation)}
-            onmouseleave={handleMouseLeave}
+            onmousemove={(e) => handleMaskMouseMove(e, annotation)}
+            onmouseleave={() => handleMaskMouseLeave(annotation)}
           />
         {/if}
       {/if}
