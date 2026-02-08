@@ -129,6 +129,7 @@ browser:
   logLevel: warning
   iamPublicEndpoint: https://iam.eosin.ai
   frustaPublicEndpoint: wss://frusta.eosin.ai/ws
+  metaPublicEndpoint: https://api.eosin.ai
   resources:
     limits:
       memory: "256Mi"

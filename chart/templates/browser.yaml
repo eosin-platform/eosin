@@ -35,6 +35,8 @@ spec:
           value: {{ .Values.browser.iamPublicEndpoint | quote }}
         - name: META_ENDPOINT
           value: http://{{ .Release.Name }}-meta
+        - name: META_PUBLIC_ENDPOINT
+          value: {{ .Values.browser.metaPublicEndpoint | quote }}
         # Trust X-Forwarded headers from the ingress controller
         - name: PROTOCOL_HEADER
           value: x-forwarded-proto
