@@ -71,7 +71,7 @@
   let visibleAnnotations = $derived.by(() => {
     if (!globalVisible) return [];
     
-    const result: Array<{ annotation: Annotation; setId: string; color: string }> = [];
+    const result: Array<{ annotation: Annotation; setId: string; setName: string; color: string }> = [];
     
     for (const set of annotationSets) {
       if (!layerVisibility.get(set.id)) continue;
@@ -80,7 +80,7 @@
       const color = getLayerColor(set.id);
       
       for (const annotation of annotations) {
-        result.push({ annotation, setId: set.id, color });
+        result.push({ annotation, setId: set.id, setName: set.name, color });
       }
     }
     
@@ -217,7 +217,7 @@
       </filter>
     </defs>
 
-    {#each visibleAnnotations as { annotation, color } (annotation.id)}
+    {#each visibleAnnotations as { annotation, color, setName } (annotation.id)}
       {#if isInView(annotation)}
         {@const isHighlighted = highlightedId === annotation.id}
         {@const isSelected = selectedId === annotation.id}
@@ -236,6 +236,7 @@
             onmouseenter={() => handleMouseEnter(annotation)}
             onmouseleave={handleMouseLeave}
           >
+            <title>{setName}</title>
             <circle 
               cx={screen.x} 
               cy={screen.y} 
@@ -265,6 +266,7 @@
             onmouseenter={() => handleMouseEnter(annotation)}
             onmouseleave={handleMouseLeave}
           >
+            <title>{setName}</title>
             <ellipse 
               cx={screen.x} 
               cy={screen.y} 
@@ -299,6 +301,7 @@
             onmouseenter={() => handleMouseEnter(annotation)}
             onmouseleave={handleMouseLeave}
           >
+            <title>{setName}</title>
             <path 
               d={pathD}
               fill={color}
@@ -323,6 +326,7 @@
             onmouseenter={() => handleMouseEnter(annotation)}
             onmouseleave={handleMouseLeave}
           >
+            <title>{setName}</title>
             <path 
               d={pathD}
               fill="none"
@@ -351,6 +355,7 @@
             onmouseenter={() => handleMouseEnter(annotation)}
             onmouseleave={handleMouseLeave}
           >
+            <title>{setName}</title>
             <rect 
               x={screen.x} 
               y={screen.y} 
