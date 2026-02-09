@@ -665,12 +665,12 @@
 
   .layer-item:hover,
   .annotation-item:hover {
-    background: #252525;
+    background: var(--secondary-muted);
   }
 
   .layer-item.active {
-    background: #0066cc33;
-    border-left: 2px solid #0066cc;
+    background: var(--secondary-muted);
+    border-left: 2px solid var(--secondary-hex);
     padding-left: calc(0.5rem - 2px);
   }
 
@@ -723,7 +723,7 @@
     font-size: 0.8125rem;
     color: #fff;
     background: #333;
-    border: 1px solid #0066cc;
+    border: 1px solid var(--primary-hex);
     border-radius: 3px;
     padding: 0.125rem 0.25rem;
     outline: none;
@@ -807,7 +807,7 @@
     width: 14px;
     height: 14px;
     border: 2px solid #333;
-    border-top-color: #0066cc;
+    border-top-color: var(--primary-hex);
     border-radius: 50%;
     animation: spin 0.8s linear infinite;
   }
@@ -870,7 +870,7 @@
 
   .form-group input:focus,
   .form-group select:focus {
-    border-color: #0066cc;
+    border-color: var(--secondary-hex);
   }
 
   .dialog-actions {
@@ -891,12 +891,12 @@
   }
 
   .btn.primary {
-    background: #0066cc;
+    background: var(--primary-hex);
     color: #fff;
   }
 
   .btn.primary:hover:not(:disabled) {
-    background: #0077ee;
+    background: var(--primary-hex);
   }
 
   .btn.primary:disabled {
@@ -981,7 +981,7 @@
   }
 
   .context-menu-item:hover {
-    background: #0066cc;
+    background: var(--primary-hex);
     color: #fff;
   }
 

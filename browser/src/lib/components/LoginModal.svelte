@@ -250,7 +250,7 @@
 
 	.form-group input:focus {
 		outline: none;
-		border-color: #3b82f6;
+		border-color: var(--secondary-hex);
 		background: rgba(255, 255, 255, 0.1);
 	}
 
@@ -283,7 +283,7 @@
 		justify-content: center;
 		gap: 8px;
 		padding: 12px 16px;
-		background: #3b82f6;
+		background: var(--primary-hex);
 		border: none;
 		border-radius: 6px;
 		font-size: 14px;
@@ -296,7 +296,7 @@
 	}
 
 	.submit-btn:hover:not(:disabled) {
-		background: #2563eb;
+		background: var(--primary-hover);
 	}
 
 	.submit-btn:active:not(:disabled) {
@@ -338,7 +338,7 @@
 		border: none;
 		padding: 4px 8px;
 		font-size: 13px;
-		color: #60a5fa;
+		color: var(--secondary-hex);
 		cursor: pointer;
 		transition: color 0.15s;
 	}

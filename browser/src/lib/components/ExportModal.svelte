@@ -1882,8 +1882,8 @@
 	}
 
 	.preset-btn.active {
-		background: rgba(59, 130, 246, 0.2);
-		border-color: #3b82f6;
+		background: var(--secondary-muted);
+		border-color: var(--secondary-hex);
 		color: #fff;
 	}
 
@@ -1947,7 +1947,7 @@
 	}
 
 	.toggle-switch.active .toggle-track {
-		background: #3b82f6;
+		background: var(--secondary-hex);
 	}
 
 	.toggle-thumb {
@@ -1992,8 +1992,8 @@
 	}
 
 	.format-btn.active {
-		background: rgba(59, 130, 246, 0.15);
-		border-color: #3b82f6;
+		background: var(--secondary-muted);
+		border-color: var(--secondary-hex);
 		color: #fff;
 	}
 
@@ -2102,12 +2102,12 @@
 	}
 
 	.btn-primary {
-		background: #3b82f6;
+		background: var(--primary-hex);
 		color: #fff;
 	}
 
 	.btn-primary:hover:not(:disabled) {
-		background: #2563eb;
+		background: var(--primary-hover);
 	}
 
 	.btn-primary:active:not(:disabled) {
@@ -2242,7 +2242,7 @@
 
 	.stroke-param-input:focus {
 		outline: none;
-		border-color: #3b82f6;
+		border-color: var(--secondary-hex);
 	}
 
 	.stroke-param-input:disabled {
@@ -2314,8 +2314,8 @@
 	}
 
 	.alpha-input:focus {
-		border-color: #3b82f6;
-		background: rgba(59, 130, 246, 0.1);
+		border-color: var(--secondary-hex);
+		background: var(--secondary-muted);
 	}
 
 	.alpha-input:disabled {
@@ -2361,8 +2361,8 @@
 	}
 
 	.thickness-input:focus {
-		border-color: #3b82f6;
-		background: rgba(59, 130, 246, 0.1);
+		border-color: var(--secondary-hex);
+		background: var(--secondary-muted);
 	}
 
 	.thickness-input:disabled {
@@ -2402,7 +2402,7 @@
 	}
 
 	.line-style-select:focus {
-		border-color: #3b82f6;
+		border-color: var(--primary-hex);
 	}
 
 	.line-style-select:disabled {

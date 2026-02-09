@@ -325,7 +325,7 @@
     
     // Render painting preview tiles (these change constantly, so render directly)
     if (modifyPhase === 'mask-paint' && maskAllTiles && Array.isArray(maskAllTiles) && maskAllTiles.length > 0) {
-      const previewColor = '#3b82f6';
+      const previewColor = '#FE0E94'; // secondary color
       for (const tile of maskAllTiles) {
         if (!tile || !tile.origin || !tile.data) continue;
         renderMaskToCanvasDirect(ctx, tile.data, tile.origin.x, tile.origin.y, 512, 512, previewColor, 0.5);
@@ -1213,7 +1213,7 @@
     <!-- Mask painting mode: tile boundaries and brush cursor -->
     <!-- Mask pixels are rendered on canvas for performance -->
     {#if modifyPhase === 'mask-paint'}
-      {@const previewColor = '#3b82f6'}
+      {@const previewColor = '#FE0E94'}
       
       <!-- Tile boundaries -->
       {#if maskAllTiles && maskAllTiles.length > 0}

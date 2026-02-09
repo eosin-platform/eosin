@@ -227,7 +227,7 @@
   }
 
   .context-menu-item:hover:not(.disabled) {
-    background: #0066cc;
+    background: var(--secondary-hex);
     color: #fff;
   }
 

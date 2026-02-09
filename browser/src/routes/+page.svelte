@@ -467,7 +467,7 @@
     width: 14px;
     height: 14px;
     border: 2px solid #333;
-    border-top-color: #0066cc;
+    border-top-color: var(--secondary-hex);
     border-radius: 50%;
     animation: spin 0.8s linear infinite;
   }

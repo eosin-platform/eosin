@@ -389,7 +389,7 @@
   .tab.active {
     background: #1a1a1a;
     color: #eee;
-    border-bottom: 2px solid #0066cc;
+    border-bottom: 2px solid var(--secondary-hex);
   }
 
   .tab-label {
@@ -434,7 +434,7 @@
   }
 
   .tab.drop-before {
-    box-shadow: inset 2px 0 0 0 #0066cc;
+    box-shadow: inset 2px 0 0 0 var(--secondary-hex);
   }
 
   /* Touch device adaptations - larger touch targets */

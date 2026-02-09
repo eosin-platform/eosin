@@ -886,12 +886,12 @@
   }
 
   .slide-item:hover {
-    background: #222;
+    background: var(--secondary-muted);
     color: #fff;
   }
 
   .slide-item.active {
-    background: #0066cc;
+    background: var(--primary-hex);
     color: #fff;
   }
 
@@ -979,7 +979,7 @@
     width: 16px;
     height: 16px;
     border: 2px solid #333;
-    border-top-color: #0066cc;
+    border-top-color: var(--secondary-hex);
     border-radius: 50%;
     animation: spin 0.8s linear infinite;
   }
@@ -1055,14 +1055,14 @@
   }
 
   .pull-arrow.released {
-    color: #0066cc;
+    color: var(--primary-hex);
   }
 
   .pull-indicator .spinner {
     width: 16px;
     height: 16px;
     border: 2px solid #333;
-    border-top-color: #0066cc;
+    border-top-color: var(--primary-hex);
     border-radius: 50%;
     animation: spin 0.8s linear infinite;
   }

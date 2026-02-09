@@ -3204,8 +3204,8 @@
         const endX = (measurement.endImage.x - viewport.x) * viewport.zoom;
         const endY = (measurement.endImage.y - viewport.y) * viewport.zoom;
 
-        // Draw measurement line (matching MeasurementOverlay.svelte style)
-        ctx.strokeStyle = '#3b82f6';
+        // Draw measurement line (matching MeasurementOverlay.svelte style) - secondary color
+        ctx.strokeStyle = '#FE0E94';
         ctx.lineWidth = 2;
         ctx.lineCap = 'round';
         ctx.setLineDash([]);
@@ -3215,7 +3215,7 @@
         ctx.stroke();
 
         // Draw end points
-        ctx.fillStyle = '#3b82f6';
+        ctx.fillStyle = '#FE0E94';
         ctx.beginPath();
         ctx.arc(startX, startY, 4, 0, Math.PI * 2);
         ctx.fill();
@@ -3735,7 +3735,7 @@
   }
 
   .getting-started li strong {
-    color: #60a5fa;
+    color: var(--secondary-hex);
   }
 
   .getting-started kbd {
@@ -3828,7 +3828,7 @@
     appearance: none;
     width: 14px;
     height: 14px;
-    background: #3b82f6;
+    background: var(--secondary-hex);
     border-radius: 50%;
     cursor: pointer;
     transition: transform 0.1s;
@@ -3841,7 +3841,7 @@
   .zoom-slider::-moz-range-thumb {
     width: 14px;
     height: 14px;
-    background: #3b82f6;
+    background: var(--secondary-hex);
     border: none;
     border-radius: 50%;
     cursor: pointer;

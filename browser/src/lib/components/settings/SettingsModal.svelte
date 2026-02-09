@@ -954,7 +954,7 @@
 	}
 
 	.tab-btn.active {
-		background: #3b82f6;
+		background: var(--primary-hex);
 		color: white;
 	}
 
@@ -1016,7 +1016,7 @@
 	}
 
 	.about-link {
-		color: #60a5fa;
+		color: var(--secondary-hex);
 		text-decoration: none;
 	}
 
@@ -1108,7 +1108,7 @@
 	}
 
 	.toggle-btn.active .toggle-track {
-		background: #3b82f6;
+		background: var(--secondary-hex);
 	}
 
 	.toggle-thumb {
@@ -1151,7 +1151,7 @@
 		appearance: none;
 		width: 18px;
 		height: 18px;
-		background: #3b82f6;
+		background: var(--secondary-hex);
 		border-radius: 50%;
 		cursor: pointer;
 	}
@@ -1159,7 +1159,7 @@
 	.slider::-moz-range-thumb {
 		width: 18px;
 		height: 18px;
-		background: #3b82f6;
+		background: var(--secondary-hex);
 		border: none;
 		border-radius: 50%;
 		cursor: pointer;
@@ -1190,8 +1190,8 @@
 	}
 
 	.select-input:focus {
-		border-color: #3b82f6;
-		box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3);
+		border-color: var(--secondary-hex);
+		box-shadow: 0 0 0 2px var(--secondary-muted);
 	}
 
 	.radio-group {
@@ -1220,7 +1220,7 @@
 	.radio-label input[type='radio'] {
 		width: 1rem;
 		height: 1rem;
-		accent-color: #3b82f6;
+		accent-color: var(--secondary-hex);
 	}
 
 	.color-palette {
@@ -1254,7 +1254,7 @@
 	.text-btn {
 		background: none;
 		border: none;
-		color: #3b82f6;
+		color: var(--secondary-hex);
 		font-size: 0.8125rem;
 		cursor: pointer;
 		padding: 0;
@@ -1262,7 +1262,7 @@
 	}
 
 	.text-btn:hover {
-		color: #60a5fa;
+		color: var(--secondary-hover);
 	}
 
 	.reset-btn {
@@ -1339,13 +1339,13 @@
 	}
 
 	.segment.active {
-		background: #3b82f6;
+		background: var(--primary-hex);
 		color: white;
 	}
 
 	.primary-btn {
 		padding: 0.625rem 1.5rem;
-		background: #3b82f6;
+		background: var(--primary-hex);
 		border: none;
 		border-radius: 0.5rem;
 		color: white;
@@ -1356,7 +1356,7 @@
 	}
 
 	.primary-btn:hover {
-		background: #2563eb;
+		background: var(--primary-hover);
 	}
 
 	/* Responsive */

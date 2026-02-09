@@ -422,19 +422,19 @@
 
   .viewport-rect {
     position: absolute;
-    border: 2px solid #3b82f6;
-    background: rgba(59, 130, 246, 0.2);
+    border: 2px solid var(--secondary-hex);
+    background: var(--secondary-muted);
     box-sizing: border-box;
     pointer-events: none;
     transition: background 0.1s ease;
   }
 
   .viewport-rect.dragging {
-    background: rgba(59, 130, 246, 0.35);
-    border-color: #60a5fa;
+    background: rgba(254, 14, 148, 0.35);
+    border-color: var(--secondary-hover);
   }
 
   .minimap:hover .viewport-rect {
-    border-color: #60a5fa;
+    border-color: var(--secondary-hover);
   }
 </style>

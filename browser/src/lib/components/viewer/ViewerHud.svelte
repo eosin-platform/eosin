@@ -266,7 +266,7 @@
   .brush-preview {
     border: 1.5px solid rgba(255, 255, 255, 0.8);
     border-radius: 50%;
-    background: rgba(59, 130, 246, 0.4);
+    background: var(--secondary-muted);
     min-width: 6px;
     min-height: 6px;
     max-width: 24px;
@@ -298,8 +298,8 @@
   }
 
   .zoom-input:focus {
-    border-color: #3b82f6;
-    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3);
+    border-color: var(--secondary-hex);
+    box-shadow: 0 0 0 2px var(--secondary-muted);
   }
 
   .magnification {
@@ -323,13 +323,14 @@
   }
 
   .icon-btn:hover {
-    background: #4b5563;
+    background: var(--secondary-muted);
+    border-color: var(--secondary-hex);
     color: #e5e7eb;
   }
 
   .icon-btn.active {
-    background: #3b82f6;
-    border-color: #3b82f6;
+    background: var(--primary-hex);
+    border-color: var(--primary-hex);
     color: white;
   }
 

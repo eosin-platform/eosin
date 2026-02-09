@@ -543,7 +543,7 @@
     appearance: none;
     width: 14px;
     height: 14px;
-    background: #3b82f6;
+    background: var(--secondary-hex);
     border-radius: 50%;
     cursor: pointer;
   }
@@ -551,7 +551,7 @@
   .slider::-moz-range-thumb {
     width: 14px;
     height: 14px;
-    background: #3b82f6;
+    background: var(--secondary-hex);
     border: none;
     border-radius: 50%;
     cursor: pointer;
@@ -582,7 +582,7 @@
   }
 
   .select-input:focus {
-    border-color: #3b82f6;
+    border-color: var(--secondary-hex);
   }
 
   .segmented-control {
@@ -612,7 +612,7 @@
   }
 
   .segment.active {
-    background: #3b82f6;
+    background: var(--secondary-hex);
     color: white;
   }
 
@@ -645,7 +645,7 @@
   }
 
   .toggle-btn.active .toggle-track {
-    background: #3b82f6;
+    background: var(--secondary-hex);
   }
 
   .toggle-thumb {

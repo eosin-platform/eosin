@@ -1,6 +1,40 @@
 @import 'tailwindcss';
 @plugin '@tailwindcss/typography';
 
+/* Eosin Design System Color Palette */
+@theme {
+  /* Primary - Main actions, key UI chrome */
+  --color-primary: rgb(94, 74, 239);
+  --color-primary-foreground: rgb(255, 255, 255);
+  --color-primary-muted: rgba(94, 74, 239, 0.2);
+  --color-primary-hover: rgb(76, 59, 217);
+  
+  /* Secondary - Accents, hover states, focus rings */
+  --color-secondary: rgb(254, 14, 148);
+  --color-secondary-foreground: rgb(255, 255, 255);
+  --color-secondary-muted: rgba(254, 14, 148, 0.2);
+  --color-secondary-hover: rgb(230, 10, 130);
+}
+
+/* CSS Custom Properties for component use */
+:root {
+  --vh: 1vh;
+  
+  /* Primary palette */
+  --primary: 94 74 239;
+  --primary-hex: #5E4AEF;
+  --primary-foreground: 255 255 255;
+  --primary-muted: rgba(94, 74, 239, 0.2);
+  --primary-hover: #4C3BD9;
+  
+  /* Secondary palette */
+  --secondary: 254 14 148;
+  --secondary-hex: #FE0E94;
+  --secondary-foreground: 255 255 255;
+  --secondary-muted: rgba(254, 14, 148, 0.2);
+  --secondary-hover: #E60A82;
+}
+
 /* Mobile-friendly global styles */
 html, body {
   touch-action: manipulation;
@@ -17,11 +51,6 @@ html, body {
   background: #111;
 }
 
-/* CSS custom property for safe viewport height (set by JS as fallback) */
-:root {
-  --vh: 1vh;
-}
-
 /* Prevent text selection on interactive elements */
 button, a {
   -webkit-touch-callout: none;
@@ -32,4 +61,19 @@ button, a {
 /* Ensure smooth scrolling on iOS */
 .sidebar, .main-content {
   -webkit-overflow-scrolling: touch;
+}
+
+/* Global focus ring using secondary color */
+*:focus-visible {
+  outline: 2px solid var(--secondary-hex);
+  outline-offset: 2px;
+}
+
+/* Link styling - secondary for differentiation */
+a:not(.btn):not([class*="primary"]) {
+  color: var(--secondary-hex);
+}
+
+a:not(.btn):not([class*="primary"]):hover {
+  color: var(--secondary-hover);
 }

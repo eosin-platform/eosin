@@ -323,7 +323,7 @@
   }
 
   .context-menu-item:hover {
-    background: #0066cc;
+    background: var(--secondary-hex);
     color: #fff;
   }
 

@@ -786,9 +786,9 @@
   }
 
   .login-btn:hover {
-    background: rgba(59, 130, 246, 0.2);
-    border-color: #3b82f6;
-    color: #60a5fa;
+    background: var(--secondary-muted);
+    border-color: var(--secondary-hex);
+    color: var(--secondary-hex);
   }
 
   .logout-btn:hover {
@@ -829,12 +829,12 @@
   .menu-btn:hover,
   .settings-btn:hover,
   .help-btn:hover {
-    background: #333;
+    background: var(--secondary-muted);
     color: #fff;
   }
 
   .help-btn.active {
-    background: #3b82f6;
+    background: var(--primary-hex);
     color: white;
   }
 
@@ -843,26 +843,26 @@
     0% {
       transform: scale(1);
       box-shadow: 
-        0 0 0 0 rgba(59, 130, 246, 0.7),
-        0 0 0 0 rgba(59, 130, 246, 0.4);
+        0 0 0 0 rgba(254, 14, 148, 0.7),
+        0 0 0 0 rgba(254, 14, 148, 0.4);
     }
     50% {
       transform: scale(1.1);
       box-shadow: 
-        0 0 16px 4px rgba(59, 130, 246, 0.6),
-        0 0 32px 8px rgba(59, 130, 246, 0.3);
+        0 0 16px 4px rgba(254, 14, 148, 0.6),
+        0 0 32px 8px rgba(254, 14, 148, 0.3);
     }
     100% {
       transform: scale(1);
       box-shadow: 
-        0 0 0 0 rgba(59, 130, 246, 0.7),
-        0 0 0 0 rgba(59, 130, 246, 0.4);
+        0 0 0 0 rgba(254, 14, 148, 0.7),
+        0 0 0 0 rgba(254, 14, 148, 0.4);
     }
   }
 
   .help-btn.pulsing {
     animation: help-pulse 0.75s ease-in-out 2;
-    background: linear-gradient(135deg, rgba(59, 130, 246, 0.9), rgba(99, 102, 241, 0.9));
+    background: linear-gradient(135deg, rgba(254, 14, 148, 0.9), rgba(94, 74, 239, 0.9));
     color: white;
   }
 
@@ -1012,8 +1012,8 @@
   /* Citation card styling */
   .citation-card {
     grid-column: 1 / -1;
-    background: rgba(59, 130, 246, 0.08);
-    border-color: rgba(59, 130, 246, 0.25);
+    background: var(--secondary-muted);
+    border-color: rgba(254, 14, 148, 0.25);
   }
 
   .creator-card {
@@ -1034,7 +1034,7 @@
   .citation-link {
     display: inline-block;
     font-size: 12px;
-    color: #60a5fa;
+    color: var(--secondary-hex);
     text-decoration: none;
     transition: color 0.15s;
   }

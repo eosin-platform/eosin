@@ -215,7 +215,7 @@
   }
 
   .divider:hover {
-    background: #0066cc;
+    background: var(--secondary-hex);
   }
 
   .divider-line {
@@ -225,6 +225,6 @@
   }
 
   .divider:hover .divider-line {
-    background: #0066cc;
+    background: var(--secondary-hex);
   }
 </style>
