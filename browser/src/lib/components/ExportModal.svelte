@@ -653,44 +653,47 @@
 			</div>
 
 			<div class="export-body">
-				<!-- Preview Section -->
-				<div class="preview-section">
-					<div class="section-label">Preview</div>
-					<div class="preview-container">
-						{#if isGeneratingPreview}
-							<div class="preview-loading">
-								<div class="spinner"></div>
-								<span>Generating preview...</span>
-							</div>
-						{:else if previewDataUrl}
-							<img src={previewDataUrl} alt="Export preview" class="preview-image" />
-						{:else}
-							<div class="preview-placeholder">
-								<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-									<rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-									<circle cx="8.5" cy="8.5" r="1.5"></circle>
-									<polyline points="21 15 16 10 5 21"></polyline>
-								</svg>
-								<span>No preview available</span>
+				<!-- Preview Column (fixed, no scroll) -->
+				<div class="preview-column">
+					<div class="preview-section">
+						<div class="section-label">Preview</div>
+						<div class="preview-container">
+							{#if isGeneratingPreview}
+								<div class="preview-loading">
+									<div class="spinner"></div>
+									<span>Generating preview...</span>
+								</div>
+							{:else if previewDataUrl}
+								<img src={previewDataUrl} alt="Export preview" class="preview-image" />
+							{:else}
+								<div class="preview-placeholder">
+									<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+										<rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+										<circle cx="8.5" cy="8.5" r="1.5"></circle>
+										<polyline points="21 15 16 10 5 21"></polyline>
+									</svg>
+									<span>No preview available</span>
+								</div>
+							{/if}
+						</div>
+						{#if estimatedSize}
+							<div class="size-estimate">
+								Estimated size: <strong>{estimatedSize}</strong>
 							</div>
 						{/if}
-					</div>
-					{#if estimatedSize}
-						<div class="size-estimate">
-							Estimated size: <strong>{estimatedSize}</strong>
+						<div class="dimensions-display">
+							<span class="dimensions-icon">
+								<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+								</svg>
+							</span>
+							<span class="dimensions-text">{exportWidth} × {exportHeight} px</span>
 						</div>
-					{/if}
-					<div class="dimensions-display">
-						<span class="dimensions-icon">
-							<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-								<rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-							</svg>
-						</span>
-						<span class="dimensions-text">{exportWidth} × {exportHeight} px</span>
 					</div>
 				</div>
 
-				<!-- Options Section -->
+				<!-- Settings Column (scrollable) -->
+				<div class="settings-column">
 				<div class="options-section">
 					<div class="section-label">Export Options</div>
 
@@ -1016,6 +1019,7 @@
 					{/if}
 				</div>
 			</div>
+			</div>
 
 			<!-- Footer -->
 			<div class="export-footer">
@@ -1075,7 +1079,7 @@
 		display: flex;
 		flex-direction: column;
 		width: 100%;
-		max-width: 560px;
+		max-width: 800px;
 		max-height: calc(100vh - 48px);
 		background: #1a1a1a;
 		border: 1px solid rgba(255, 255, 255, 0.12);
@@ -1139,28 +1143,44 @@
 
 	.export-body {
 		display: flex;
-		flex-direction: column;
+		flex-direction: row;
 		gap: 20px;
 		padding: 20px;
+		overflow: hidden;
+		flex: 1;
+		min-height: 0;
+	}
+
+	.preview-column {
+		flex: 0 0 auto;
+		width: 320px;
+		display: flex;
+		flex-direction: column;
+	}
+
+	.settings-column {
+		flex: 1;
+		min-width: 0;
 		overflow-y: auto;
 		scrollbar-width: thin;
 		scrollbar-color: #333 transparent;
+		padding-right: 8px;
 	}
 
-	.export-body::-webkit-scrollbar {
+	.settings-column::-webkit-scrollbar {
 		width: 9px;
 	}
 
-	.export-body::-webkit-scrollbar-track {
+	.settings-column::-webkit-scrollbar-track {
 		background: transparent;
 	}
 
-	.export-body::-webkit-scrollbar-thumb {
+	.settings-column::-webkit-scrollbar-thumb {
 		background: #333;
 		border-radius: 3px;
 	}
 
-	.export-body::-webkit-scrollbar-thumb:hover {
+	.settings-column::-webkit-scrollbar-thumb:hover {
 		background: #555;
 	}
 
@@ -1604,7 +1624,7 @@
 	}
 
 	/* Mobile responsiveness */
-	@media (max-width: 480px) {
+	@media (max-width: 700px) {
 		.export-overlay {
 			padding: 12px;
 		}
@@ -1614,7 +1634,19 @@
 		}
 
 		.export-body {
+			flex-direction: column;
 			padding: 16px;
+			overflow-y: auto;
+		}
+
+		.preview-column {
+			width: 100%;
+			flex: 0 0 auto;
+		}
+
+		.settings-column {
+			overflow-y: visible;
+			padding-right: 0;
 		}
 
 		.format-buttons {
