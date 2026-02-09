@@ -20,6 +20,10 @@ export interface Tab {
   height: number;
   /** Viewport state saved when the tab was last deactivated */
   savedViewport: SavedViewport | null;
+  /** Measurement tool state: [startX, startY, endX, endY] in image space */
+  savedMeasurement?: [number, number, number, number] | null;
+  /** ROI state: [startX, startY, endX, endY] in image space */
+  savedRoi?: [number, number, number, number] | null;
 }
 
 export interface Pane {
@@ -200,8 +204,18 @@ function createTabStore() {
    * Open a slide in the current tab (replaces active tab content),
    * or creates a new tab if none exists.
    */
-  function open(slideId: string, label: string, width: number, height: number, initialViewport?: SavedViewport | null) {
+  function open(
+    slideId: string,
+    label: string,
+    width: number,
+    height: number,
+    initialViewport?: SavedViewport | null,
+    initialMeasurement?: [number, number, number, number] | null,
+    initialRoi?: [number, number, number, number] | null,
+  ) {
     const vp = initialViewport ?? null;
+    const measurement = initialMeasurement ?? null;
+    const roi = initialRoi ?? null;
     splitState.update((s) => {
       const pane = getFocusedPane(s);
       if (pane.activeTabId) {
@@ -209,7 +223,7 @@ function createTabStore() {
           ...p,
           tabs: p.tabs.map((tab) =>
             tab.tabId === p.activeTabId
-              ? { ...tab, slideId, label, width, height, savedViewport: vp }
+              ? { ...tab, slideId, label, width, height, savedViewport: vp, savedMeasurement: measurement, savedRoi: roi }
               : tab,
           ),
         }));
@@ -217,7 +231,7 @@ function createTabStore() {
         const tabId = generateTabId();
         return updatePane(s, pane.paneId, (p) => ({
           ...p,
-          tabs: [...p.tabs, { tabId, slideId, label, width, height, savedViewport: vp }],
+          tabs: [...p.tabs, { tabId, slideId, label, width, height, savedViewport: vp, savedMeasurement: measurement, savedRoi: roi }],
           activeTabId: tabId,
         }));
       }
@@ -344,6 +358,36 @@ function createTabStore() {
       return updatePane(s, pane.paneId, (p) => ({
         ...p,
         tabs: p.tabs.map((tab) => (tab.tabId === tabId ? { ...tab, savedViewport: vp } : tab)),
+      }));
+    });
+  }
+
+  /**
+   * Save measurement coordinates for a specific tab.
+   * Coordinates are [startX, startY, endX, endY] in image space.
+   */
+  function saveMeasurement(tabId: string, measurement: [number, number, number, number] | null) {
+    splitState.update((s) => {
+      const pane = getPaneForTab(s, tabId);
+      if (!pane) return s;
+      return updatePane(s, pane.paneId, (p) => ({
+        ...p,
+        tabs: p.tabs.map((tab) => (tab.tabId === tabId ? { ...tab, savedMeasurement: measurement } : tab)),
+      }));
+    });
+  }
+
+  /**
+   * Save ROI coordinates for a specific tab.
+   * Coordinates are [startX, startY, endX, endY] in image space.
+   */
+  function saveRoi(tabId: string, roi: [number, number, number, number] | null) {
+    splitState.update((s) => {
+      const pane = getPaneForTab(s, tabId);
+      if (!pane) return s;
+      return updatePane(s, pane.paneId, (p) => ({
+        ...p,
+        tabs: p.tabs.map((tab) => (tab.tabId === tabId ? { ...tab, savedRoi: roi } : tab)),
       }));
     });
   }
@@ -700,6 +744,8 @@ function createTabStore() {
     setActive,
     setActiveInPane,
     saveViewport,
+    saveMeasurement,
+    saveRoi,
     reorder,
 
     // Pane operations

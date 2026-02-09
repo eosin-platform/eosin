@@ -113,6 +113,10 @@ export interface SlideInfo {
   brightness: number | null;
   /** Optional contrast from permalink (-100 to 100) */
   contrast: number | null;
+  /** Optional measurement from permalink: [startX, startY, endX, endY] */
+  measurement: [number, number, number, number] | null;
+  /** Optional ROI from permalink: [startX, startY, endX, endY] */
+  roi: [number, number, number, number] | null;
 }
 
 /**
@@ -194,6 +198,34 @@ function parseContrast(url: URL): number | null {
   const contrast = parseFloat(value);
   if (!isFinite(contrast) || contrast < -100 || contrast > 100) return null;
   return contrast;
+}
+
+/**
+ * Parse measurement coordinates from URL if present and valid.
+ * Format: "startX,startY,endX,endY" (4 comma-separated numbers)
+ */
+function parseMeasurement(url: URL): [number, number, number, number] | null {
+  const value = url.searchParams.get('measure');
+  if (value === null) return null;
+  const parts = value.split(',');
+  if (parts.length !== 4) return null;
+  const nums = parts.map(p => parseFloat(p));
+  if (nums.some(n => !isFinite(n))) return null;
+  return nums as [number, number, number, number];
+}
+
+/**
+ * Parse ROI coordinates from URL if present and valid.
+ * Format: "startX,startY,endX,endY" (4 comma-separated numbers)
+ */
+function parseRoi(url: URL): [number, number, number, number] | null {
+  const value = url.searchParams.get('roi');
+  if (value === null) return null;
+  const parts = value.split(',');
+  if (parts.length !== 4) return null;
+  const nums = parts.map(p => parseFloat(p));
+  if (nums.some(n => !isFinite(n))) return null;
+  return nums as [number, number, number, number];
 }
 
 /** Parsed session info for the ?v= parameter */
@@ -280,6 +312,8 @@ export const load = async ({ url }: { url: URL }) => {
       gamma: parseGamma(url),
       brightness: parseBrightness(url),
       contrast: parseContrast(url),
+      measurement: parseMeasurement(url),
+      roi: parseRoi(url),
     };
 
     return { slide, error: null, session: null };

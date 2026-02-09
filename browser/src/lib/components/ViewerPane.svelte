@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, untrack } from 'svelte';
   import { browser } from '$app/environment';
   import {
     type ConnectionState,
@@ -233,14 +233,44 @@
   // Auto-save measurement state when confirmed
   $effect(() => {
     if (measurement.mode === 'confirmed' && measurement.startImage && measurement.endImage && activeSlideId) {
-      saveMeasurementState(activeSlideId, measurement);
+      // Capture values to avoid tracking inside untrack
+      const slideId = activeSlideId;
+      const tabHandle = activeTabHandle;
+      const startX = measurement.startImage.x;
+      const startY = measurement.startImage.y;
+      const endX = measurement.endImage.x;
+      const endY = measurement.endImage.y;
+      const measurementCopy = { ...measurement };
+      
+      untrack(() => {
+        saveMeasurementState(slideId, measurementCopy);
+        // Also save to tab store for URL sync
+        if (tabHandle) {
+          tabStore.saveMeasurement(tabHandle, [startX, startY, endX, endY]);
+        }
+      });
     }
   });
 
   // Auto-save ROI state when confirmed
   $effect(() => {
     if (roi.mode === 'confirmed' && roi.startImage && roi.endImage && activeSlideId) {
-      saveRoiState(activeSlideId, roi);
+      // Capture values to avoid tracking inside untrack
+      const slideId = activeSlideId;
+      const tabHandle = activeTabHandle;
+      const startX = roi.startImage.x;
+      const startY = roi.startImage.y;
+      const endX = roi.endImage.x;
+      const endY = roi.endImage.y;
+      const roiCopy = { ...roi };
+      
+      untrack(() => {
+        saveRoiState(slideId, roiCopy);
+        // Also save to tab store for URL sync
+        if (tabHandle) {
+          tabStore.saveRoi(tabHandle, [startX, startY, endX, endY]);
+        }
+      });
     }
   });
 
@@ -1039,30 +1069,40 @@
       viewport = centerViewport(rect.width, rect.height, newImageDesc.width, newImageDesc.height);
     }
 
-    // Restore measurement state from localStorage for this slide
-    const savedMeasurement = loadMeasurementState(tab.slideId);
-    if (savedMeasurement) {
+    // Restore measurement state from URL (tab.savedMeasurement) or localStorage
+    const urlMeasurementTuple = tab.savedMeasurement;
+    // Convert tuple [startX, startY, endX, endY] to object format
+    const urlMeasurement = urlMeasurementTuple 
+      ? { startImage: { x: urlMeasurementTuple[0], y: urlMeasurementTuple[1] }, endImage: { x: urlMeasurementTuple[2], y: urlMeasurementTuple[3] } }
+      : null;
+    const storedMeasurement = urlMeasurement ?? loadMeasurementState(tab.slideId);
+    if (storedMeasurement) {
       measurement = {
         active: true,
         mode: 'confirmed',
         startScreen: null,
         endScreen: null,
-        startImage: savedMeasurement.startImage,
-        endImage: savedMeasurement.endImage,
+        startImage: storedMeasurement.startImage,
+        endImage: storedMeasurement.endImage,
         isDragging: false,
       };
     } else {
       cancelMeasurement();
     }
 
-    // Restore ROI state from localStorage for this slide
-    const savedRoi = loadRoiState(tab.slideId);
-    if (savedRoi) {
+    // Restore ROI state from URL (tab.savedRoi) or localStorage
+    const urlRoiTuple = tab.savedRoi;
+    // Convert tuple [startX, startY, endX, endY] to object format
+    const urlRoi = urlRoiTuple
+      ? { startImage: { x: urlRoiTuple[0], y: urlRoiTuple[1] }, endImage: { x: urlRoiTuple[2], y: urlRoiTuple[3] } }
+      : null;
+    const storedRoi = urlRoi ?? loadRoiState(tab.slideId);
+    if (storedRoi) {
       roi = {
         active: true,
         mode: 'confirmed',
-        startImage: savedRoi.startImage,
-        endImage: savedRoi.endImage,
+        startImage: storedRoi.startImage,
+        endImage: storedRoi.endImage,
         isDragging: false,
       };
     } else {
@@ -1413,6 +1453,10 @@
     if (activeSlideId) {
       clearMeasurementState(activeSlideId);
     }
+    // Clear from tab store for URL sync
+    if (activeTabHandle) {
+      tabStore.saveMeasurement(activeTabHandle, null);
+    }
     measurement = {
       active: false,
       mode: null,
@@ -1428,6 +1472,10 @@
   function cancelRoi() {
     if (activeSlideId) {
       clearRoiState(activeSlideId);
+    }
+    // Clear from tab store for URL sync
+    if (activeTabHandle) {
+      tabStore.saveRoi(activeTabHandle, null);
     }
     roi = {
       active: false,

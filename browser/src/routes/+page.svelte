@@ -225,6 +225,8 @@
         data.slide.width,
         data.slide.height,
         data.slide.viewport,
+        data.slide.measurement,
+        data.slide.roi,
       );
       
       // Reset image settings to factory defaults first, then apply URL values.

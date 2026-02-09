@@ -30,6 +30,10 @@ export interface SingleSlideUrlState {
   gamma: number;
   brightness: number;
   contrast: number;
+  /** Measurement tool coordinates: [startX, startY, endX, endY] in image space */
+  measurement?: [number, number, number, number];
+  /** ROI coordinates: [startX, startY, endX, endY] in image space */
+  roi?: [number, number, number, number];
 }
 
 /** Per-tab state for the encoded session */
@@ -44,6 +48,10 @@ export interface TabState {
   h: number;
   /** Viewport: x, y, zoom */
   v?: [number, number, number];
+  /** Measurement: [startX, startY, endX, endY] in image space */
+  m?: [number, number, number, number];
+  /** ROI: [startX, startY, endX, endY] in image space */
+  o?: [number, number, number, number];
 }
 
 /** Per-pane state */
@@ -167,6 +175,16 @@ export function buildSingleSlideUrl(state: SingleSlideUrlState): URLSearchParams
     params.set('contrast', roundForUrl(state.contrast).toString());
   }
   
+  // Measurement tool coordinates (if active)
+  if (state.measurement) {
+    params.set('measure', state.measurement.map(v => roundForUrl(v)).join(','));
+  }
+  
+  // ROI coordinates (if active)
+  if (state.roi) {
+    params.set('roi', state.roi.map(v => roundForUrl(v)).join(','));
+  }
+  
   return params;
 }
 
@@ -212,6 +230,14 @@ export function buildSessionUrl(splitState: SplitState, imageSettings: {
               roundForUrl(tab.savedViewport.y),
               roundForUrl(tab.savedViewport.zoom, 6),
             ];
+          }
+          // Include measurement if saved
+          if (tab.savedMeasurement) {
+            tabState.m = tab.savedMeasurement.map(v => roundForUrl(v)) as [number, number, number, number];
+          }
+          // Include ROI if saved
+          if (tab.savedRoi) {
+            tabState.o = tab.savedRoi.map(v => roundForUrl(v)) as [number, number, number, number];
           }
           return tabState;
         }),
@@ -376,6 +402,8 @@ export function createUrlSyncManager() {
         gamma: currentSettings.image.gamma,
         brightness: currentSettings.image.brightness,
         contrast: currentSettings.image.contrast,
+        measurement: activeTab.savedMeasurement || undefined,
+        roi: activeTab.savedRoi || undefined,
       };
       
       const params = buildSingleSlideUrl(state);
@@ -557,6 +585,8 @@ export function sessionStateToSplitState(
         width: tabState.w,
         height: tabState.h,
         savedViewport,
+        savedMeasurement: tabState.m || null,
+        savedRoi: tabState.o || null,
       };
     });
     
