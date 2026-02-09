@@ -1452,22 +1452,8 @@
         e.preventDefault();
         return;
       }
-      // In confirmed mode, start a new measurement from this click (unless context menu is open)
-      if (measurement.active && measurement.mode === 'confirmed' && !contextMenuVisible) {
-        const imagePos = screenToImage(e.clientX, e.clientY);
-        measurement = {
-          active: true,
-          mode: 'placing',
-          startScreen: { x: e.clientX, y: e.clientY },
-          endScreen: { x: e.clientX, y: e.clientY },
-          startImage: imagePos,
-          endImage: imagePos,
-          isDragging: false,
-        };
-        e.preventDefault();
-        return;
-      }
       // ROI tool: If in 'pending' mode, start ROI from this click
+      // Check pending modes before confirmed modes so new tool takes priority
       if (roi.active && roi.mode === 'pending') {
         const imagePos = screenToImage(e.clientX, e.clientY);
         roi = {
@@ -1491,6 +1477,21 @@
       }
       // ROI: In toggle mode, prevent panning - confirmation happens on mouseup
       if (roi.active && roi.mode === 'toggle') {
+        e.preventDefault();
+        return;
+      }
+      // In confirmed mode, start a new measurement from this click (unless context menu is open)
+      if (measurement.active && measurement.mode === 'confirmed' && !contextMenuVisible) {
+        const imagePos = screenToImage(e.clientX, e.clientY);
+        measurement = {
+          active: true,
+          mode: 'placing',
+          startScreen: { x: e.clientX, y: e.clientY },
+          endScreen: { x: e.clientX, y: e.clientY },
+          startImage: imagePos,
+          endImage: imagePos,
+          isDragging: false,
+        };
         e.preventDefault();
         return;
       }
