@@ -2,7 +2,8 @@
  * Export modal store for managing export dialog state.
  */
 
-import { writable } from 'svelte/store';
+import { writable, get } from 'svelte/store';
+import { browser } from '$app/environment';
 
 /** RGBA color with components 0-255 for RGB and 0-1 for alpha */
 export interface RgbaColor {
@@ -99,7 +100,7 @@ const defaultRoiOutline: RoiOutlineOptions = {
 
 const defaultRoiOverlay: RoiOverlayOptions = {
   enabled: false,
-  color: { r: 0, g: 0, b: 0, a: 0.2 },
+  color: { r: 0, g: 0, b: 0, a: 0.4 },
 };
 
 const defaultOptions: ExportOptions = {
@@ -144,6 +145,43 @@ const initialState: ExportModalState = {
   roi: { ...defaultRoi },
 };
 
+// LocalStorage key for persisting export options
+const EXPORT_OPTIONS_KEY = 'eosin-export-options';
+
+// Load saved options from localStorage
+function loadSavedOptions(): Partial<ExportOptions> {
+  if (!browser) return {};
+  try {
+    const stored = localStorage.getItem(EXPORT_OPTIONS_KEY);
+    if (stored) {
+      return JSON.parse(stored);
+    }
+  } catch (e) {
+    console.warn('Failed to load export options:', e);
+  }
+  return {};
+}
+
+// Save options to localStorage
+function saveOptions(options: ExportOptions) {
+  if (!browser) return;
+  try {
+    localStorage.setItem(EXPORT_OPTIONS_KEY, JSON.stringify(options));
+  } catch (e) {
+    console.warn('Failed to save export options:', e);
+  }
+}
+
+// Clear saved options from localStorage
+function clearSavedOptions() {
+  if (!browser) return;
+  try {
+    localStorage.removeItem(EXPORT_OPTIONS_KEY);
+  } catch (e) {
+    // Ignore
+  }
+}
+
 function createExportStore() {
   const { subscribe, set, update } = writable<ExportModalState>(initialState);
 
@@ -164,6 +202,7 @@ function createExportStore() {
       measurement: MeasurementExportState,
       roi: RoiExportState
     ) {
+      const savedOptions = loadSavedOptions();
       update((state) => ({
         ...state,
         open: true,
@@ -178,14 +217,17 @@ function createExportStore() {
         roi,
         options: { 
           ...defaultOptions,
+          ...savedOptions,
           // Only enable measurement/ROI options if they are active
           showMeasurement: measurement.active && measurement.startImage !== null && measurement.endImage !== null,
           roiOutline: {
             ...defaultRoiOutline,
+            ...(savedOptions.roiOutline || {}),
             enabled: roi.active && roi.startImage !== null && roi.endImage !== null,
           },
           roiOverlay: {
             ...defaultRoiOverlay,
+            ...(savedOptions.roiOverlay || {}),
             enabled: false,
           },
         },
@@ -203,10 +245,40 @@ function createExportStore() {
      * Update export options.
      */
     updateOptions(options: Partial<ExportOptions>) {
-      update((state) => ({
-        ...state,
-        options: { ...state.options, ...options },
-      }));
+      update((state) => {
+        const newOptions = { ...state.options, ...options };
+        saveOptions(newOptions);
+        return {
+          ...state,
+          options: newOptions,
+        };
+      });
+    },
+
+    /**
+     * Reset export options to defaults.
+     */
+    resetOptions() {
+      clearSavedOptions();
+      update((state) => {
+        const hasMeasurement = state.measurement.active && state.measurement.startImage !== null && state.measurement.endImage !== null;
+        const hasRoi = state.roi.active && state.roi.startImage !== null && state.roi.endImage !== null;
+        return {
+          ...state,
+          options: {
+            ...defaultOptions,
+            showMeasurement: hasMeasurement,
+            roiOutline: {
+              ...defaultRoiOutline,
+              enabled: hasRoi,
+            },
+            roiOverlay: {
+              ...defaultRoiOverlay,
+              enabled: false,
+            },
+          },
+        };
+      });
     },
   };
 }

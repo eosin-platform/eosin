@@ -488,6 +488,10 @@
 		exportStore.close();
 	}
 
+	function handleReset() {
+		exportStore.resetOptions();
+	}
+
 	function handleKeydown(event: KeyboardEvent) {
 		if (event.key === 'Escape') {
 			closeModal();
@@ -1036,6 +1040,9 @@
 						Export
 					{/if}
 				</button>
+				<button class="btn btn-tertiary" onclick={handleReset} type="button">
+					Reset
+				</button>
 			</div>
 		</div>
 	</div>
@@ -1560,6 +1567,18 @@
 	.btn-primary:disabled {
 		opacity: 0.6;
 		cursor: not-allowed;
+	}
+
+	.btn-tertiary {
+		background: transparent;
+		color: rgba(255, 255, 255, 0.5);
+		border: 1px solid rgba(255, 255, 255, 0.15);
+	}
+
+	.btn-tertiary:hover {
+		background: rgba(255, 255, 255, 0.05);
+		color: rgba(255, 255, 255, 0.7);
+		border-color: rgba(255, 255, 255, 0.25);
 	}
 
 	/* Spinner */
