@@ -247,6 +247,22 @@
 
     <div class="menu-divider"></div>
 
+    <button 
+      class="context-menu-item" 
+      class:disabled={!isLoggedIn}
+      role="menuitem" 
+      onclick={handleAnalyzeRegion}
+      title={!isLoggedIn ? 'Log in to use ROI analysis' : ''}
+    >
+      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path>
+        <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path>
+      </svg>
+      Analyze Region
+    </button>
+
+    <div class="menu-divider"></div>
+
     <button class="context-menu-item" role="menuitem" onclick={handleSaveImage}>
       <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
@@ -269,22 +285,6 @@
         <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
       </svg>
       Copy Image
-    </button>
-
-    <div class="menu-divider"></div>
-
-    <button 
-      class="context-menu-item" 
-      class:disabled={!isLoggedIn}
-      role="menuitem" 
-      onclick={handleAnalyzeRegion}
-      title={!isLoggedIn ? 'Log in to use ROI analysis' : ''}
-    >
-      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path>
-        <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path>
-      </svg>
-      Analyze Region
     </button>
   </div>
 {/if}
