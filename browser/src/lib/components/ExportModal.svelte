@@ -1,21 +1,27 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { browser } from '$app/environment';
-	import { exportStore, type ExportOptions } from '$lib/stores/export';
+	import { exportStore, type ExportOptions, type ImageFilters } from '$lib/stores/export';
 
 	// Store state
 	let isOpen = $state(false);
-	let canvas = $state<HTMLCanvasElement | null>(null);
-	let annotationLayer = $state<HTMLElement | null>(null);
+	let viewportContainer = $state<HTMLElement | null>(null);
 	let filename = $state('export');
+	let filters = $state<ImageFilters>({
+		brightness: 0,
+		contrast: 0,
+		gamma: 1,
+	});
+	let viewportWidth = $state(0);
+	let viewportHeight = $state(0);
 	let options = $state<ExportOptions>({
 		includeAnnotations: true,
 		format: 'png',
 		quality: 0.92,
+		dpi: 96,
 	});
 
 	// Preview state
-	let previewCanvas = $state<HTMLCanvasElement | null>(null);
 	let previewDataUrl = $state<string | null>(null);
 	let isGeneratingPreview = $state(false);
 	let isExporting = $state(false);
@@ -23,12 +29,23 @@
 	// Estimated file size
 	let estimatedSize = $state<string>('');
 
+	// DPI input for text field
+	let dpiInputValue = $state('96');
+
+	// Computed export dimensions based on DPI
+	// Base DPI is 96 (standard screen), so the scale factor is dpi / 96
+	let exportWidth = $derived(Math.round(viewportWidth * (options.dpi / 96)));
+	let exportHeight = $derived(Math.round(viewportHeight * (options.dpi / 96)));
+
 	const unsubExport = exportStore.subscribe((state) => {
 		isOpen = state.open;
-		canvas = state.canvas;
-		annotationLayer = state.annotationLayer;
+		viewportContainer = state.viewportContainer;
 		filename = state.filename;
+		filters = state.filters;
+		viewportWidth = state.viewportWidth;
+		viewportHeight = state.viewportHeight;
 		options = state.options;
+		dpiInputValue = String(state.options.dpi);
 	});
 
 	onDestroy(() => {
@@ -37,13 +54,13 @@
 
 	// Generate preview when modal opens or options change
 	$effect(() => {
-		if (isOpen && canvas) {
+		if (isOpen && viewportContainer) {
 			generatePreview();
 		}
 	});
 
 	async function generatePreview() {
-		if (!canvas || !browser) return;
+		if (!viewportContainer || !browser) return;
 
 		isGeneratingPreview = true;
 		try {
@@ -90,35 +107,111 @@
 		}
 	}
 
-	async function createCompositeCanvas(): Promise<HTMLCanvasElement | null> {
-		if (!canvas) return null;
+	/**
+	 * Apply brightness, contrast, and gamma adjustments to image data.
+	 * This replicates the CSS filter behavior for accurate export.
+	 */
+	function applyFilters(imageData: ImageData, filters: ImageFilters): void {
+		const data = imageData.data;
+		const { brightness, contrast, gamma } = filters;
 
-		const width = canvas.width;
-		const height = canvas.height;
+		// Convert settings to multipliers (matching CSS filter behavior)
+		const brightnessMultiplier = 1 + (brightness / 100);
+		const contrastMultiplier = 1 + (contrast / 100);
+		// Gamma applied as power function to normalized values
+		const gammaExp = gamma !== 1 ? 1 / gamma : 1;
+		// Additional brightness from gamma approximation (matching ViewerPane)
+		const gammaBrightness = gamma !== 1 ? Math.pow(0.5, gamma - 1) : 1;
+		const totalBrightness = brightnessMultiplier * gammaBrightness;
+
+		// Pre-calculate lookup table for performance
+		const lut = new Uint8ClampedArray(256);
+		for (let i = 0; i < 256; i++) {
+			let value = i / 255;
+			
+			// Apply contrast (centered around 0.5)
+			value = (value - 0.5) * contrastMultiplier + 0.5;
+			
+			// Apply gamma correction
+			if (gammaExp !== 1 && value > 0) {
+				value = Math.pow(value, gammaExp);
+			}
+			
+			// Apply brightness
+			value = value * totalBrightness;
+			
+			// Clamp and convert back to 0-255
+			lut[i] = Math.round(Math.max(0, Math.min(255, value * 255)));
+		}
+
+		// Apply lookup table to all pixels
+		for (let i = 0; i < data.length; i += 4) {
+			data[i] = lut[data[i]];       // R
+			data[i + 1] = lut[data[i + 1]]; // G
+			data[i + 2] = lut[data[i + 2]]; // B
+			// Alpha channel (i + 3) is not modified
+		}
+	}
+
+	async function createCompositeCanvas(): Promise<HTMLCanvasElement | null> {
+		if (!viewportContainer || viewportWidth === 0 || viewportHeight === 0) return null;
+
+		// Find the image layer canvas (the main tile renderer canvas)
+		const imageLayer = viewportContainer.querySelector('.image-layer');
+		const imageCanvas = imageLayer?.querySelector('canvas') as HTMLCanvasElement | null;
+		if (!imageCanvas) return null;
+
+		// Calculate source dimensions (the canvas may have different size due to device pixel ratio)
+		const sourceWidth = imageCanvas.width;
+		const sourceHeight = imageCanvas.height;
+		
+		// Calculate export dimensions based on viewport size and DPI
+		// Base DPI is 96, so scale factor is dpi / 96
+		const scaleFactor = options.dpi / 96;
+		const outputWidth = Math.round(viewportWidth * scaleFactor);
+		const outputHeight = Math.round(viewportHeight * scaleFactor);
 
 		const compositeCanvas = document.createElement('canvas');
-		compositeCanvas.width = width;
-		compositeCanvas.height = height;
+		compositeCanvas.width = outputWidth;
+		compositeCanvas.height = outputHeight;
 		const ctx = compositeCanvas.getContext('2d');
 		if (!ctx) return null;
 
-		// Draw the main image canvas
-		ctx.drawImage(canvas, 0, 0);
+		// Enable high-quality image scaling
+		ctx.imageSmoothingEnabled = true;
+		ctx.imageSmoothingQuality = 'high';
+
+		// Draw the main image canvas scaled to the output size
+		ctx.drawImage(imageCanvas, 0, 0, sourceWidth, sourceHeight, 0, 0, outputWidth, outputHeight);
+
+		// Apply brightness/contrast/gamma filters to the image data
+		const hasFilters = filters.brightness !== 0 || filters.contrast !== 0 || filters.gamma !== 1;
+		if (hasFilters) {
+			const imageData = ctx.getImageData(0, 0, outputWidth, outputHeight);
+			applyFilters(imageData, filters);
+			ctx.putImageData(imageData, 0, 0);
+		}
 
 		// Overlay annotations if enabled
-		if (options.includeAnnotations && annotationLayer) {
-			// Find all canvas and SVG elements in the annotation layer
-			const annotationCanvases = annotationLayer.querySelectorAll('canvas');
-			const annotationSvgs = annotationLayer.querySelectorAll('svg');
-
-			// Draw annotation canvases
-			for (const annotCanvas of annotationCanvases) {
-				ctx.drawImage(annotCanvas as HTMLCanvasElement, 0, 0);
+		if (options.includeAnnotations) {
+			// Find specifically the annotation overlay elements by their known classes
+			// These are positioned to match the viewport, so we need to scale them appropriately
+			
+			// Mask canvas has class "mask-canvas"
+			const maskCanvas = viewportContainer.querySelector('canvas.mask-canvas') as HTMLCanvasElement | null;
+			if (maskCanvas) {
+				try {
+					// Scale the mask canvas to match output dimensions
+					ctx.drawImage(maskCanvas, 0, 0, maskCanvas.width, maskCanvas.height, 0, 0, outputWidth, outputHeight);
+				} catch (e) {
+					console.warn('Failed to draw mask canvas:', e);
+				}
 			}
-
-			// Render SVGs to canvas
-			for (const svg of annotationSvgs) {
-				await renderSvgToCanvas(svg as SVGSVGElement, ctx, width, height);
+			
+			// Annotation SVG overlay has class "annotation-overlay"
+			const annotationSvg = viewportContainer.querySelector('svg.annotation-overlay') as SVGSVGElement | null;
+			if (annotationSvg) {
+				await renderSvgToCanvas(annotationSvg, ctx, outputWidth, outputHeight);
 			}
 		}
 
@@ -131,14 +224,32 @@
 		width: number,
 		height: number
 	) {
+		// Get the SVG's bounding box to check if it's visible
+		const rect = svg.getBoundingClientRect();
+		if (rect.width === 0 || rect.height === 0) return;
+
 		// Clone the SVG to avoid modifying the original
 		const svgClone = svg.cloneNode(true) as SVGSVGElement;
+		
+		// Set explicit dimensions matching the canvas
 		svgClone.setAttribute('width', String(width));
 		svgClone.setAttribute('height', String(height));
+		
+		// Ensure the viewBox matches the canvas dimensions
+		svgClone.setAttribute('viewBox', `0 0 ${width} ${height}`);
+		
+		// Remove any transforms that might be applied at the container level
+		svgClone.style.transform = 'none';
+		svgClone.style.position = 'static';
 
 		// Serialize to string
 		const serializer = new XMLSerializer();
-		const svgString = serializer.serializeToString(svgClone);
+		let svgString = serializer.serializeToString(svgClone);
+		
+		// Ensure proper XML namespace
+		if (!svgString.includes('xmlns=')) {
+			svgString = svgString.replace('<svg', '<svg xmlns="http://www.w3.org/2000/svg"');
+		}
 
 		// Create a blob URL
 		const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
@@ -167,7 +278,7 @@
 	}
 
 	async function handleExport() {
-		if (!canvas) return;
+		if (!viewportContainer) return;
 
 		isExporting = true;
 		try {
@@ -221,6 +332,33 @@
 		const target = event.target as HTMLInputElement;
 		exportStore.updateOptions({ quality: parseFloat(target.value) });
 	}
+
+	function handleDpiSliderChange(event: Event) {
+		const target = event.target as HTMLInputElement;
+		const dpi = parseInt(target.value, 10);
+		dpiInputValue = String(dpi);
+		exportStore.updateOptions({ dpi });
+	}
+
+	function handleDpiInputChange(event: Event) {
+		const target = event.target as HTMLInputElement;
+		const value = target.value.trim();
+		dpiInputValue = value;
+		
+		const dpi = parseInt(value, 10);
+		if (!isNaN(dpi) && dpi >= 72 && dpi <= 600) {
+			exportStore.updateOptions({ dpi });
+		}
+	}
+
+	function handleDpiInputBlur() {
+		// Clamp value on blur
+		let dpi = parseInt(dpiInputValue, 10);
+		if (isNaN(dpi) || dpi < 72) dpi = 72;
+		if (dpi > 600) dpi = 600;
+		dpiInputValue = String(dpi);
+		exportStore.updateOptions({ dpi });
+	}
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
@@ -270,11 +408,87 @@
 							Estimated size: <strong>{estimatedSize}</strong>
 						</div>
 					{/if}
+					<div class="dimensions-display">
+						<span class="dimensions-icon">
+							<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+							</svg>
+						</span>
+						<span class="dimensions-text">{exportWidth} × {exportHeight} px</span>
+					</div>
 				</div>
 
 				<!-- Options Section -->
 				<div class="options-section">
 					<div class="section-label">Export Options</div>
+
+					<!-- DPI Control -->
+					<div class="option-group">
+						<div class="option-label-standalone">
+							<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect>
+								<line x1="7" y1="2" x2="7" y2="22"></line>
+								<line x1="17" y1="2" x2="17" y2="22"></line>
+								<line x1="2" y1="12" x2="22" y2="12"></line>
+								<line x1="2" y1="7" x2="7" y2="7"></line>
+								<line x1="2" y1="17" x2="7" y2="17"></line>
+								<line x1="17" y1="7" x2="22" y2="7"></line>
+								<line x1="17" y1="17" x2="22" y2="17"></line>
+							</svg>
+							<span>Resolution (DPI)</span>
+						</div>
+						<div class="dpi-control">
+							<input
+								type="range"
+								id="dpi-slider"
+								min="72"
+								max="600"
+								step="1"
+								value={options.dpi}
+								oninput={handleDpiSliderChange}
+								class="dpi-slider"
+								aria-label="DPI slider"
+							/>
+							<div class="dpi-input-wrapper">
+								<input
+									type="text"
+									id="dpi-input"
+									value={dpiInputValue}
+									oninput={handleDpiInputChange}
+									onblur={handleDpiInputBlur}
+									class="dpi-input"
+									aria-label="DPI value"
+								/>
+								<span class="dpi-unit">dpi</span>
+							</div>
+						</div>
+						<div class="dpi-presets">
+							<button
+								class="preset-btn"
+								class:active={options.dpi === 72}
+								onclick={() => { dpiInputValue = '72'; exportStore.updateOptions({ dpi: 72 }); }}
+								type="button"
+							>72</button>
+							<button
+								class="preset-btn"
+								class:active={options.dpi === 96}
+								onclick={() => { dpiInputValue = '96'; exportStore.updateOptions({ dpi: 96 }); }}
+								type="button"
+							>96</button>
+							<button
+								class="preset-btn"
+								class:active={options.dpi === 150}
+								onclick={() => { dpiInputValue = '150'; exportStore.updateOptions({ dpi: 150 }); }}
+								type="button"
+							>150</button>
+							<button
+								class="preset-btn"
+								class:active={options.dpi === 300}
+								onclick={() => { dpiInputValue = '300'; exportStore.updateOptions({ dpi: 300 }); }}
+								type="button"
+							>300</button>
+						</div>
+					</div>
 
 					<!-- Annotations Toggle -->
 					<div class="option-group">
@@ -543,6 +757,128 @@
 
 	.size-estimate strong {
 		color: rgba(255, 255, 255, 0.8);
+	}
+
+	.dimensions-display {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 6px;
+		margin-top: 6px;
+		font-size: 13px;
+		color: rgba(255, 255, 255, 0.6);
+	}
+
+	.dimensions-icon {
+		color: rgba(255, 255, 255, 0.4);
+		display: flex;
+		align-items: center;
+	}
+
+	.dimensions-text {
+		font-family: ui-monospace, 'SF Mono', 'Cascadia Code', 'Segoe UI Mono', monospace;
+		letter-spacing: -0.02em;
+	}
+
+	/* DPI Control */
+	.dpi-control {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+	}
+
+	.dpi-slider {
+		flex: 1;
+		height: 6px;
+		background: rgba(255, 255, 255, 0.1);
+		border-radius: 3px;
+		outline: none;
+		-webkit-appearance: none;
+		appearance: none;
+		cursor: pointer;
+	}
+
+	.dpi-slider::-webkit-slider-thumb {
+		-webkit-appearance: none;
+		width: 18px;
+		height: 18px;
+		background: #fff;
+		border-radius: 50%;
+		box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+		cursor: pointer;
+		transition: transform 0.1s ease;
+	}
+
+	.dpi-slider::-webkit-slider-thumb:hover {
+		transform: scale(1.1);
+	}
+
+	.dpi-slider::-moz-range-thumb {
+		width: 18px;
+		height: 18px;
+		background: #fff;
+		border: none;
+		border-radius: 50%;
+		box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+		cursor: pointer;
+	}
+
+	.dpi-input-wrapper {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		background: rgba(255, 255, 255, 0.06);
+		border: 1px solid rgba(255, 255, 255, 0.12);
+		border-radius: 6px;
+		padding: 6px 10px;
+	}
+
+	.dpi-input {
+		width: 48px;
+		background: transparent;
+		border: none;
+		font-size: 14px;
+		font-family: ui-monospace, 'SF Mono', 'Cascadia Code', 'Segoe UI Mono', monospace;
+		color: #fff;
+		text-align: right;
+		outline: none;
+	}
+
+	.dpi-input:focus {
+		outline: none;
+	}
+
+	.dpi-unit {
+		font-size: 12px;
+		color: rgba(255, 255, 255, 0.5);
+	}
+
+	.dpi-presets {
+		display: flex;
+		gap: 6px;
+		margin-top: 8px;
+	}
+
+	.preset-btn {
+		padding: 4px 10px;
+		background: rgba(255, 255, 255, 0.06);
+		border: 1px solid rgba(255, 255, 255, 0.1);
+		border-radius: 4px;
+		font-size: 12px;
+		color: rgba(255, 255, 255, 0.7);
+		cursor: pointer;
+		transition: all 0.15s ease;
+	}
+
+	.preset-btn:hover {
+		background: rgba(255, 255, 255, 0.1);
+		border-color: rgba(255, 255, 255, 0.2);
+	}
+
+	.preset-btn.active {
+		background: rgba(59, 130, 246, 0.2);
+		border-color: #3b82f6;
+		color: #fff;
 	}
 
 	/* Options Section */

@@ -2775,14 +2775,16 @@
   }
 
   function handleExportAs() {
-    const canvas = container?.querySelector('canvas') as HTMLCanvasElement | null;
-    if (!canvas) return;
+    if (!container) return;
 
-    // Find the annotation overlay element
-    const annotationLayer = container?.querySelector('.annotation-layer') as HTMLElement | null ??
-                           container?.querySelector('[class*="annotation"]') as HTMLElement | null;
+    // Get current image filter settings
+    const filters = {
+      brightness: $imageSettings.brightness,
+      contrast: $imageSettings.contrast,
+      gamma: $imageSettings.gamma,
+    };
 
-    exportStore.open(canvas, annotationLayer, activeSlideId || 'viewport');
+    exportStore.open(container, activeSlideId || 'viewport', filters, viewport.width, viewport.height);
   }
 
   async function handleCopyImage() {

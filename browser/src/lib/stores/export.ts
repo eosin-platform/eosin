@@ -11,17 +11,31 @@ export interface ExportOptions {
   format: 'png' | 'jpeg';
   /** JPEG quality (0-1), only used when format is 'jpeg' */
   quality: number;
+  /** Export DPI (dots per inch) - affects output resolution */
+  dpi: number;
+}
+
+export interface ImageFilters {
+  /** Brightness adjustment (-100 to 100) */
+  brightness: number;
+  /** Contrast adjustment (-100 to 100) */
+  contrast: number;
+  /** Gamma adjustment */
+  gamma: number;
 }
 
 export interface ExportModalState {
   /** Whether the export modal is open */
   open: boolean;
-  /** Canvas element to export from */
-  canvas: HTMLCanvasElement | null;
-  /** Annotation overlay element to composite */
-  annotationLayer: HTMLElement | null;
+  /** The viewport container element */
+  viewportContainer: HTMLElement | null;
   /** Suggested filename (without extension) */
   filename: string;
+  /** Image filter settings */
+  filters: ImageFilters;
+  /** Viewport dimensions (display pixels) */
+  viewportWidth: number;
+  viewportHeight: number;
   /** Export options */
   options: ExportOptions;
 }
@@ -30,13 +44,22 @@ const defaultOptions: ExportOptions = {
   includeAnnotations: true,
   format: 'png',
   quality: 0.92,
+  dpi: 96,
+};
+
+const defaultFilters: ImageFilters = {
+  brightness: 0,
+  contrast: 0,
+  gamma: 1,
 };
 
 const initialState: ExportModalState = {
   open: false,
-  canvas: null,
-  annotationLayer: null,
+  viewportContainer: null,
   filename: 'export',
+  filters: { ...defaultFilters },
+  viewportWidth: 0,
+  viewportHeight: 0,
   options: { ...defaultOptions },
 };
 
@@ -47,15 +70,17 @@ function createExportStore() {
     subscribe,
     
     /**
-     * Open the export modal with the given canvas and options.
+     * Open the export modal with the given viewport container.
      */
-    open(canvas: HTMLCanvasElement, annotationLayer: HTMLElement | null, filename: string) {
+    open(viewportContainer: HTMLElement, filename: string, filters: ImageFilters, viewportWidth: number, viewportHeight: number) {
       update((state) => ({
         ...state,
         open: true,
-        canvas,
-        annotationLayer,
+        viewportContainer,
         filename,
+        filters,
+        viewportWidth,
+        viewportHeight,
         options: { ...defaultOptions },
       }));
     },
