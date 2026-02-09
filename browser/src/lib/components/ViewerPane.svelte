@@ -108,6 +108,8 @@
     endScreen: { x: number; y: number } | null;
     startImage: { x: number; y: number } | null;
     endImage: { x: number; y: number } | null;
+    /** True if dragging during placing mode (click-and-drag usage) */
+    isDragging?: boolean;
   }
   
   let measurement = $state<MeasurementState>({
@@ -117,6 +119,7 @@
     endScreen: null,
     startImage: null,
     endImage: null,
+    isDragging: false,
   });
 
   // Progress
@@ -373,6 +376,7 @@
           endScreen: null,
           startImage: null,
           endImage: null,
+          isDragging: false,
         };
         showHudNotification('Click to start measuring');
       }
@@ -963,6 +967,7 @@
             endScreen: null,
             startImage: null,
             endImage: null,
+            isDragging: false,
           };
           showHudNotification('Click to start measuring');
         }
@@ -1220,6 +1225,7 @@
       endScreen: null,
       startImage: null,
       endImage: null,
+      isDragging: false,
     };
   }
 
@@ -1327,6 +1333,7 @@
         endScreen: { x: e.clientX, y: e.clientY },
         startImage: imagePos,
         endImage: imagePos,
+        isDragging: false,
       };
       return;
     }
@@ -1353,6 +1360,7 @@
           endScreen: { x: e.clientX, y: e.clientY },
           startImage: imagePos,
           endImage: imagePos,
+          isDragging: false,
         };
         e.preventDefault();
         return;
@@ -1381,6 +1389,7 @@
           endScreen: { x: e.clientX, y: e.clientY },
           startImage: imagePos,
           endImage: imagePos,
+          isDragging: false,
         };
         e.preventDefault();
         return;
@@ -1482,10 +1491,13 @@
     // Handle measurement mode (placing or toggle mode) - don't update if confirmed
     if (measurement.active && measurement.startImage && (measurement.mode === 'placing' || measurement.mode === 'toggle')) {
       const imagePos = screenToImage(e.clientX, e.clientY);
+      // Check if left button is held during placing - indicates click-and-drag usage
+      const isHoldingButton = (e.buttons & 1) !== 0;
       measurement = {
         ...measurement,
         endScreen: { x: e.clientX, y: e.clientY },
         endImage: imagePos,
+        isDragging: measurement.mode === 'placing' && isHoldingButton ? true : measurement.isDragging,
       };
     }
 
@@ -1525,14 +1537,15 @@
       return;
     }
     
-    // Confirm measurement on second click mouseup
-    if (e && e.button === 0 && measurement.active && measurement.mode === 'toggle') {
+    // Confirm measurement on mouseup in toggle mode OR placing mode with drag
+    if (e && e.button === 0 && measurement.active && (measurement.mode === 'toggle' || (measurement.mode === 'placing' && measurement.isDragging))) {
       const imagePos = screenToImage(e.clientX, e.clientY);
       measurement = {
         ...measurement,
         mode: 'confirmed',
         endScreen: { x: e.clientX, y: e.clientY },
         endImage: imagePos,
+        isDragging: false,
       };
       return;
     }
