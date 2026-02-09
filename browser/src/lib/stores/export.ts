@@ -4,7 +4,7 @@
 
 import { writable, get } from 'svelte/store';
 import { browser } from '$app/environment';
-import { PRIMARY_RGB } from '$lib/theme/colors';
+import { PRIMARY_RGB, MEASUREMENT_RGB } from '$lib/theme/colors';
 
 /** RGBA color with components 0-255 for RGB and 0-1 for alpha */
 export interface RgbaColor {
@@ -127,7 +127,7 @@ const defaultRoiOverlay: RoiOverlayOptions = {
 };
 
 const defaultMeasurementOptions: MeasurementOptions = {
-  color: { ...PRIMARY_RGB, a: 1 }, // Primary color
+  color: { ...MEASUREMENT_RGB, a: 1 }, // Measurement green
   thickness: 2,
   lineStyle: 'solid',
   lineCap: 'round',

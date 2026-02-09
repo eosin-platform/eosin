@@ -33,6 +33,9 @@
   --secondary-foreground: 255 255 255;
   --secondary-muted: rgba(254, 14, 148, 0.2);
   --secondary-hover: #E60A82;
+  
+  /* Measurement tool */
+  --measurement-hex: #17CC00;
 }
 
 /* Mobile-friendly global styles */

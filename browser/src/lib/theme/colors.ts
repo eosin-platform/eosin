@@ -20,6 +20,11 @@ export const colors = {
     muted: 'rgba(254, 14, 148, 0.2)',
     hover: '#E60A82',
   },
+  measurement: {
+    DEFAULT: '#17CC00',
+    rgb: { r: 23, g: 204, b: 0 },
+    foreground: '#FFFFFF',
+  },
 } as const;
 
 // Convenience exports
@@ -27,3 +32,5 @@ export const PRIMARY = colors.primary.DEFAULT;
 export const PRIMARY_RGB = colors.primary.rgb;
 export const SECONDARY = colors.secondary.DEFAULT;
 export const SECONDARY_RGB = colors.secondary.rgb;
+export const MEASUREMENT = colors.measurement.DEFAULT;
+export const MEASUREMENT_RGB = colors.measurement.rgb;

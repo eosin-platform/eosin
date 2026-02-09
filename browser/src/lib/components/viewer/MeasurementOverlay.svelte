@@ -193,14 +193,14 @@
   }
 
   .measurement-line {
-    stroke: var(--secondary-hex);
+    stroke: var(--measurement-hex);
     stroke-width: 2;
     stroke-linecap: round;
     filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));
   }
 
   .measurement-point {
-    fill: var(--secondary-hex);
+    fill: var(--measurement-hex);
     stroke: white;
     stroke-width: 2;
     filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));

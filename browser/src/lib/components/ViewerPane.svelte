@@ -3204,8 +3204,8 @@
         const endX = (measurement.endImage.x - viewport.x) * viewport.zoom;
         const endY = (measurement.endImage.y - viewport.y) * viewport.zoom;
 
-        // Draw measurement line (matching MeasurementOverlay.svelte style) - secondary color
-        ctx.strokeStyle = '#FE0E94';
+        // Draw measurement line (matching MeasurementOverlay.svelte style) - measurement green
+        ctx.strokeStyle = '#17CC00';
         ctx.lineWidth = 2;
         ctx.lineCap = 'round';
         ctx.setLineDash([]);
@@ -3215,7 +3215,7 @@
         ctx.stroke();
 
         // Draw end points
-        ctx.fillStyle = '#FE0E94';
+        ctx.fillStyle = '#17CC00';
         ctx.beginPath();
         ctx.arc(startX, startY, 4, 0, Math.PI * 2);
         ctx.fill();
