@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { browser } from '$app/environment';
-	import { exportStore, type ExportOptions, type ImageFilters } from '$lib/stores/export';
+	import { exportStore, type ExportOptions, type ImageFilters, type MeasurementExportState, type RoiExportState, type RgbaColor, type LineStyle, type RoiOutlineOptions, type RoiOverlayOptions } from '$lib/stores/export';
+	import { settings, type MeasurementUnit } from '$lib/stores/settings';
 
 	// Store state
 	let isOpen = $state(false);
@@ -14,11 +15,34 @@
 	});
 	let viewportWidth = $state(0);
 	let viewportHeight = $state(0);
+	let micronsPerPixel = $state(0.25);
+	let viewportState = $state<{ x: number; y: number; zoom: number } | null>(null);
+	let measurement = $state<MeasurementExportState>({
+		active: false,
+		startImage: null,
+		endImage: null,
+	});
+	let roi = $state<RoiExportState>({
+		active: false,
+		startImage: null,
+		endImage: null,
+	});
 	let options = $state<ExportOptions>({
 		includeAnnotations: true,
 		format: 'png',
 		quality: 0.92,
 		dpi: 96,
+		showMeasurement: true,
+		roiOutline: {
+			enabled: true,
+			color: { r: 251, g: 191, b: 36, a: 1 },
+			thickness: 2,
+			lineStyle: 'dashed',
+		},
+		roiOverlay: {
+			enabled: false,
+			color: { r: 0, g: 0, b: 0, a: 0.2 },
+		},
 	});
 
 	// Preview state
@@ -37,6 +61,10 @@
 	let exportWidth = $derived(Math.round(viewportWidth * (options.dpi / 96)));
 	let exportHeight = $derived(Math.round(viewportHeight * (options.dpi / 96)));
 
+	// Check if measurement/ROI are available
+	let hasMeasurement = $derived(measurement.active && measurement.startImage !== null && measurement.endImage !== null);
+	let hasRoi = $derived(roi.active && roi.startImage !== null && roi.endImage !== null);
+
 	const unsubExport = exportStore.subscribe((state) => {
 		isOpen = state.open;
 		viewportContainer = state.viewportContainer;
@@ -44,6 +72,10 @@
 		filters = state.filters;
 		viewportWidth = state.viewportWidth;
 		viewportHeight = state.viewportHeight;
+		micronsPerPixel = state.micronsPerPixel;
+		viewportState = state.viewportState;
+		measurement = state.measurement;
+		roi = state.roi;
 		options = state.options;
 		dpiInputValue = String(state.options.dpi);
 	});
@@ -54,6 +86,8 @@
 
 	// Generate preview when modal opens or options change
 	$effect(() => {
+		// Track all options that affect the preview
+		const _trackOptions = JSON.stringify(options);
 		if (isOpen && viewportContainer) {
 			generatePreview();
 		}
@@ -215,7 +249,147 @@
 			}
 		}
 
+		// Render ROI overlays if ROI is active
+		if (hasRoi && viewportState && roi.startImage && roi.endImage) {
+			// Convert image coordinates to output canvas coordinates
+			const scaleX = outputWidth / viewportWidth;
+			const scaleY = outputHeight / viewportHeight;
+			
+			// Calculate screen coordinates (same as in RoiOverlay.svelte)
+			const screenStartX = (roi.startImage.x - viewportState.x) * viewportState.zoom;
+			const screenStartY = (roi.startImage.y - viewportState.y) * viewportState.zoom;
+			const screenEndX = (roi.endImage.x - viewportState.x) * viewportState.zoom;
+			const screenEndY = (roi.endImage.y - viewportState.y) * viewportState.zoom;
+			
+			// Scale to output dimensions
+			const roiX = Math.min(screenStartX, screenEndX) * scaleX;
+			const roiY = Math.min(screenStartY, screenEndY) * scaleY;
+			const roiWidth = Math.abs(screenEndX - screenStartX) * scaleX;
+			const roiHeight = Math.abs(screenEndY - screenStartY) * scaleY;
+			
+			// Draw outside overlay first (so outline goes on top)
+			if (options.roiOverlay.enabled) {
+				const overlayColor = rgbaToCss(options.roiOverlay.color);
+				ctx.fillStyle = overlayColor;
+				
+				// Fill everything outside the ROI
+				// Top region
+				ctx.fillRect(0, 0, outputWidth, roiY);
+				// Bottom region
+				ctx.fillRect(0, roiY + roiHeight, outputWidth, outputHeight - roiY - roiHeight);
+				// Left region
+				ctx.fillRect(0, roiY, roiX, roiHeight);
+				// Right region
+				ctx.fillRect(roiX + roiWidth, roiY, outputWidth - roiX - roiWidth, roiHeight);
+			}
+			
+			// Draw ROI outline
+			if (options.roiOutline.enabled) {
+				ctx.strokeStyle = rgbaToCss(options.roiOutline.color);
+				ctx.lineWidth = options.roiOutline.thickness * scaleX; // Scale line thickness
+				ctx.lineCap = 'round';
+				
+				// Set line style
+				if (options.roiOutline.lineStyle === 'dashed') {
+					ctx.setLineDash([8 * scaleX, 4 * scaleX]);
+				} else if (options.roiOutline.lineStyle === 'dotted') {
+					ctx.setLineDash([2 * scaleX, 4 * scaleX]);
+				} else {
+					ctx.setLineDash([]);
+				}
+				
+				ctx.strokeRect(roiX, roiY, roiWidth, roiHeight);
+				ctx.setLineDash([]); // Reset
+			}
+		}
+
+		// Render measurement overlay if enabled and active
+		if (options.showMeasurement && hasMeasurement && viewportState && measurement.startImage && measurement.endImage) {
+			// Convert image coordinates to output canvas coordinates
+			const scaleX = outputWidth / viewportWidth;
+			const scaleY = outputHeight / viewportHeight;
+			
+			// Calculate screen coordinates
+			const startX = (measurement.startImage.x - viewportState.x) * viewportState.zoom * scaleX;
+			const startY = (measurement.startImage.y - viewportState.y) * viewportState.zoom * scaleY;
+			const endX = (measurement.endImage.x - viewportState.x) * viewportState.zoom * scaleX;
+			const endY = (measurement.endImage.y - viewportState.y) * viewportState.zoom * scaleY;
+			
+			// Draw measurement line
+			ctx.strokeStyle = '#3b82f6';
+			ctx.lineWidth = 2 * scaleX;
+			ctx.lineCap = 'round';
+			ctx.setLineDash([]);
+			
+			ctx.beginPath();
+			ctx.moveTo(startX, startY);
+			ctx.lineTo(endX, endY);
+			ctx.stroke();
+			
+			// Draw end points
+			ctx.fillStyle = '#3b82f6';
+			const pointRadius = 4 * scaleX;
+			
+			ctx.beginPath();
+			ctx.arc(startX, startY, pointRadius, 0, Math.PI * 2);
+			ctx.fill();
+			
+			ctx.beginPath();
+			ctx.arc(endX, endY, pointRadius, 0, Math.PI * 2);
+			ctx.fill();
+			
+			// Calculate distance and draw label
+			const dx = measurement.endImage.x - measurement.startImage.x;
+			const dy = measurement.endImage.y - measurement.startImage.y;
+			const distancePixels = Math.sqrt(dx * dx + dy * dy);
+			const distanceMicrons = distancePixels * micronsPerPixel;
+			const displayText = formatMeasurementDistance(distanceMicrons);
+			
+			// Label position (midpoint)
+			const midX = (startX + endX) / 2;
+			const midY = (startY + endY) / 2;
+			
+			// Draw label background
+			ctx.font = `${12 * scaleX}px system-ui, -apple-system, sans-serif`;
+			const textMetrics = ctx.measureText(displayText);
+			const textWidth = textMetrics.width + 12 * scaleX;
+			const textHeight = 20 * scaleX;
+			
+			ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+			ctx.beginPath();
+			ctx.roundRect(midX - textWidth / 2, midY - textHeight / 2 - 15 * scaleY, textWidth, textHeight, 4 * scaleX);
+			ctx.fill();
+			
+			// Draw label text
+			ctx.fillStyle = 'white';
+			ctx.textAlign = 'center';
+			ctx.textBaseline = 'middle';
+			ctx.fillText(displayText, midX, midY - 15 * scaleY);
+		}
+
 		return compositeCanvas;
+	}
+
+	// Format measurement distance (similar to MeasurementOverlay)
+	function formatMeasurementDistance(microns: number): string {
+		const units = $settings.measurements?.units ?? 'um';
+		switch (units) {
+			case 'um':
+				if (microns >= 1000) {
+					return `${(microns / 1000).toFixed(microns >= 10000 ? 0 : 1)} mm`;
+				}
+				return `${microns.toFixed(1)} µm`;
+			case 'mm':
+				return `${(microns / 1000).toFixed(microns >= 1000 ? 1 : 3)} mm`;
+			case 'in':
+				const inches = microns / 25400;
+				if (inches >= 0.1) {
+					return `${inches.toFixed(2)} in`;
+				}
+				return `${(inches * 1000).toFixed(1)} mil`;
+			default:
+				return `${microns.toFixed(1)} µm`;
+		}
 	}
 
 	async function renderSvgToCanvas(
@@ -358,6 +532,92 @@
 		if (dpi > 600) dpi = 600;
 		dpiInputValue = String(dpi);
 		exportStore.updateOptions({ dpi });
+	}
+
+	// Measurement toggle
+	function handleMeasurementToggle() {
+		exportStore.updateOptions({ showMeasurement: !options.showMeasurement });
+	}
+
+	// ROI outline handlers
+	function handleRoiOutlineToggle() {
+		exportStore.updateOptions({
+			roiOutline: { ...options.roiOutline, enabled: !options.roiOutline.enabled }
+		});
+	}
+
+	function handleRoiOutlineColorChange(event: Event) {
+		const target = event.target as HTMLInputElement;
+		const hex = target.value;
+		const r = parseInt(hex.slice(1, 3), 16);
+		const g = parseInt(hex.slice(3, 5), 16);
+		const b = parseInt(hex.slice(5, 7), 16);
+		exportStore.updateOptions({
+			roiOutline: { ...options.roiOutline, color: { ...options.roiOutline.color, r, g, b } }
+		});
+	}
+
+	function handleRoiOutlineAlphaChange(event: Event) {
+		const target = event.target as HTMLInputElement;
+		const a = Math.max(0, Math.min(100, parseInt(target.value, 10) || 0)) / 100;
+		exportStore.updateOptions({
+			roiOutline: { ...options.roiOutline, color: { ...options.roiOutline.color, a } }
+		});
+	}
+
+	function handleRoiOutlineThicknessChange(event: Event) {
+		const target = event.target as HTMLInputElement;
+		const thickness = Math.max(1, Math.min(10, parseInt(target.value, 10) || 2));
+		exportStore.updateOptions({
+			roiOutline: { ...options.roiOutline, thickness }
+		});
+	}
+
+	function handleRoiOutlineStyleChange(event: Event) {
+		const target = event.target as HTMLSelectElement;
+		const lineStyle = target.value as LineStyle;
+		exportStore.updateOptions({
+			roiOutline: { ...options.roiOutline, lineStyle }
+		});
+	}
+
+	// ROI overlay handlers
+	function handleRoiOverlayToggle() {
+		exportStore.updateOptions({
+			roiOverlay: { ...options.roiOverlay, enabled: !options.roiOverlay.enabled }
+		});
+	}
+
+	function handleRoiOverlayColorChange(event: Event) {
+		const target = event.target as HTMLInputElement;
+		const hex = target.value;
+		const r = parseInt(hex.slice(1, 3), 16);
+		const g = parseInt(hex.slice(3, 5), 16);
+		const b = parseInt(hex.slice(5, 7), 16);
+		exportStore.updateOptions({
+			roiOverlay: { ...options.roiOverlay, color: { ...options.roiOverlay.color, r, g, b } }
+		});
+	}
+
+	function handleRoiOverlayAlphaChange(event: Event) {
+		const target = event.target as HTMLInputElement;
+		const a = Math.max(0, Math.min(100, parseInt(target.value, 10) || 0)) / 100;
+		exportStore.updateOptions({
+			roiOverlay: { ...options.roiOverlay, color: { ...options.roiOverlay.color, a } }
+		});
+	}
+
+	// Helper to convert RGBA to hex (for color picker)
+	function rgbaToHex(color: RgbaColor): string {
+		const r = color.r.toString(16).padStart(2, '0');
+		const g = color.g.toString(16).padStart(2, '0');
+		const b = color.b.toString(16).padStart(2, '0');
+		return `#${r}${g}${b}`;
+	}
+
+	// Helper to convert RGBA to CSS string
+	function rgbaToCss(color: RgbaColor): string {
+		return `rgba(${color.r}, ${color.g}, ${color.b}, ${color.a})`;
 	}
 </script>
 
@@ -523,6 +783,175 @@
 							</button>
 						</label>
 					</div>
+
+					<!-- Measurement Toggle -->
+					{#if hasMeasurement}
+						<div class="option-group">
+							<label class="option-row toggle-option">
+								<div class="option-label">
+									<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+										<path d="M21.3 8.7 8.7 21.3c-1 1-2.5 1-3.4 0l-2.6-2.6c-1-1-1-2.5 0-3.4L15.3 2.7c1-1 2.5-1 3.4 0l2.6 2.6c1 1 1 2.5 0 3.4Z"></path>
+										<path d="m7.5 10.5 2 2"></path>
+										<path d="m10.5 7.5 2 2"></path>
+									</svg>
+									<span>Show Measurement</span>
+								</div>
+								<button
+									class="toggle-switch"
+									class:active={options.showMeasurement}
+									onclick={handleMeasurementToggle}
+									aria-pressed={options.showMeasurement}
+									aria-label="Toggle show measurement"
+									type="button"
+								>
+									<span class="toggle-track">
+										<span class="toggle-thumb"></span>
+									</span>
+								</button>
+							</label>
+						</div>
+					{/if}
+
+					<!-- Region of Interest Section -->
+					{#if hasRoi}
+						<div class="section-label" style="margin-top: 8px;">Region of Interest</div>
+						
+						<!-- ROI Outline -->
+						<div class="option-group roi-section">
+							<label class="option-row toggle-option">
+								<div class="option-label">
+									<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+										<rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+									</svg>
+									<span>Show Outline</span>
+								</div>
+								<button
+									class="toggle-switch"
+									class:active={options.roiOutline.enabled}
+									onclick={handleRoiOutlineToggle}
+									aria-pressed={options.roiOutline.enabled}
+									aria-label="Toggle ROI outline"
+									type="button"
+								>
+									<span class="toggle-track">
+										<span class="toggle-thumb"></span>
+									</span>
+								</button>
+							</label>
+							
+							<!-- Outline sub-options -->
+							<div class="sub-options" class:disabled={!options.roiOutline.enabled}>
+								<!-- Color picker -->
+								<div class="sub-option-row">
+									<span class="sub-option-label">Color</span>
+									<div class="color-picker-wrapper">
+										<input
+											type="color"
+											class="color-picker"
+											value={rgbaToHex(options.roiOutline.color)}
+											oninput={(e) => handleRoiOutlineColorChange(e)}
+											disabled={!options.roiOutline.enabled}
+										/>
+										<input
+											type="number"
+											class="alpha-input"
+											min="0"
+											max="100"
+											step="5"
+											value={Math.round(options.roiOutline.color.a * 100)}
+											oninput={(e) => handleRoiOutlineAlphaChange(e)}
+											disabled={!options.roiOutline.enabled}
+											title="Opacity %"
+										/>
+										<span class="alpha-label">%</span>
+									</div>
+								</div>
+								
+								<!-- Thickness -->
+								<div class="sub-option-row">
+									<span class="sub-option-label">Thickness</span>
+									<input
+										type="number"
+										class="thickness-input"
+										min="1"
+										max="10"
+										step="1"
+										value={options.roiOutline.thickness}
+										oninput={(e) => handleRoiOutlineThicknessChange(e)}
+										disabled={!options.roiOutline.enabled}
+									/>
+								</div>
+								
+								<!-- Line style -->
+								<div class="sub-option-row">
+									<span class="sub-option-label">Style</span>
+									<select
+										class="line-style-select"
+										value={options.roiOutline.lineStyle}
+										onchange={(e) => handleRoiOutlineStyleChange(e)}
+										disabled={!options.roiOutline.enabled}
+									>
+										<option value="solid">Solid</option>
+										<option value="dashed">Dashed</option>
+										<option value="dotted">Dotted</option>
+									</select>
+								</div>
+							</div>
+						</div>
+						
+						<!-- Outside Overlay -->
+						<div class="option-group roi-section">
+							<label class="option-row toggle-option">
+								<div class="option-label">
+									<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+										<rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+										<path d="M3 3l18 18"></path>
+									</svg>
+									<span>Outside Overlay</span>
+								</div>
+								<button
+									class="toggle-switch"
+									class:active={options.roiOverlay.enabled}
+									onclick={handleRoiOverlayToggle}
+									aria-pressed={options.roiOverlay.enabled}
+									aria-label="Toggle outside overlay"
+									type="button"
+								>
+									<span class="toggle-track">
+										<span class="toggle-thumb"></span>
+									</span>
+								</button>
+							</label>
+							
+							<!-- Overlay color -->
+							<div class="sub-options" class:disabled={!options.roiOverlay.enabled}>
+								<div class="sub-option-row">
+									<span class="sub-option-label">Color</span>
+									<div class="color-picker-wrapper">
+										<input
+											type="color"
+											class="color-picker"
+											value={rgbaToHex(options.roiOverlay.color)}
+											oninput={(e) => handleRoiOverlayColorChange(e)}
+											disabled={!options.roiOverlay.enabled}
+										/>
+										<input
+											type="number"
+											class="alpha-input"
+											min="0"
+											max="100"
+											step="5"
+											value={Math.round(options.roiOverlay.color.a * 100)}
+											oninput={(e) => handleRoiOverlayAlphaChange(e)}
+											disabled={!options.roiOverlay.enabled}
+											title="Opacity %"
+										/>
+										<span class="alpha-label">%</span>
+									</div>
+								</div>
+							</div>
+						</div>
+					{/if}
 
 					<!-- Format Selection -->
 					<div class="option-group">
@@ -1180,5 +1609,124 @@
 		.btn {
 			width: 100%;
 		}
+	}
+
+	/* ROI Section Styles */
+	.roi-section {
+		margin-left: 0;
+	}
+
+	.sub-options {
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+		margin-top: 10px;
+		padding-left: 28px;
+		transition: opacity 0.2s;
+	}
+
+	.sub-options.disabled {
+		opacity: 0.4;
+		pointer-events: none;
+	}
+
+	.sub-option-row {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+	}
+
+	.sub-option-label {
+		font-size: 12px;
+		color: rgba(255, 255, 255, 0.7);
+		min-width: 65px;
+	}
+
+	.color-picker-wrapper {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+	}
+
+	.color-picker {
+		width: 28px;
+		height: 24px;
+		padding: 0;
+		border: 1px solid rgba(255, 255, 255, 0.15);
+		border-radius: 4px;
+		background: transparent;
+		cursor: pointer;
+	}
+
+	.color-picker::-webkit-color-swatch-wrapper {
+		padding: 2px;
+	}
+
+	.color-picker::-webkit-color-swatch {
+		border-radius: 2px;
+		border: none;
+	}
+
+	.color-picker:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.alpha-input {
+		width: 44px;
+		padding: 4px 6px;
+		font-size: 12px;
+		background: rgba(255, 255, 255, 0.06);
+		border: 1px solid rgba(255, 255, 255, 0.15);
+		border-radius: 4px;
+		color: white;
+		text-align: center;
+	}
+
+	.alpha-input:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.alpha-label {
+		font-size: 11px;
+		color: rgba(255, 255, 255, 0.5);
+	}
+
+	.thickness-input {
+		width: 50px;
+		padding: 4px 8px;
+		font-size: 12px;
+		background: rgba(255, 255, 255, 0.06);
+		border: 1px solid rgba(255, 255, 255, 0.15);
+		border-radius: 4px;
+		color: white;
+		text-align: center;
+	}
+
+	.thickness-input:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.line-style-select {
+		padding: 4px 8px;
+		font-size: 12px;
+		background: rgba(255, 255, 255, 0.06);
+		border: 1px solid rgba(255, 255, 255, 0.15);
+		border-radius: 4px;
+		color: white;
+		cursor: pointer;
+		min-width: 80px;
+	}
+
+	.line-style-select:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.line-style-select option {
+		background: #1a1a1a;
+		color: white;
 	}
 </style>

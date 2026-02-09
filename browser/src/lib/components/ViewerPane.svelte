@@ -2918,7 +2918,38 @@
       gamma: $imageSettings.gamma,
     };
 
-    exportStore.open(container, activeSlideId || 'viewport', filters, viewport.width, viewport.height);
+    // Prepare measurement state for export
+    const measurementState = {
+      active: measurement.active,
+      startImage: measurement.startImage,
+      endImage: measurement.endImage,
+    };
+
+    // Prepare ROI state for export
+    const roiState = {
+      active: roi.active,
+      startImage: roi.startImage,
+      endImage: roi.endImage,
+    };
+
+    // Viewport state for coordinate conversion
+    const viewportState = {
+      x: viewport.x,
+      y: viewport.y,
+      zoom: viewport.zoom,
+    };
+
+    exportStore.open(
+      container,
+      activeSlideId || 'viewport',
+      filters,
+      viewport.width,
+      viewport.height,
+      viewportState,
+      0.25, // micronsPerPixel - default value
+      measurementState,
+      roiState
+    );
   }
 
   async function handleCopyImage() {
