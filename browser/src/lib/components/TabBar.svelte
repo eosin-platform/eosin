@@ -18,6 +18,7 @@
   const unsubProgress = liveProgress.subscribe((v) => (progressMap = v));
 
   import { onDestroy } from 'svelte';
+	import { PRIMARY_RGB } from '$lib/theme/colors';
   onDestroy(() => {
     unsubSplit();
     unsubProgress();
@@ -342,7 +343,7 @@
   }
 
   .tab-bar.focused {
-    border-bottom: 2px solid #0088ff;
+    border-bottom: 2px solid rgb(94, 74, 239);
   }
 
   .tab-bar::-webkit-scrollbar {
