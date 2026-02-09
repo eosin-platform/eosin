@@ -28,10 +28,12 @@
   import AnnotationOverlay from '$lib/components/viewer/AnnotationOverlay.svelte';
   import ViewportContextMenu from '$lib/components/ViewportContextMenu.svelte';
   import AnnotationContextMenu from '$lib/components/AnnotationContextMenu.svelte';
+  import ExportModal from '$lib/components/ExportModal.svelte';
   import { annotationStore, activeAnnotationSet } from '$lib/stores/annotations';
   import { authStore } from '$lib/stores/auth';
   import { toastStore } from '$lib/stores/toast';
   import { navigationTarget } from '$lib/stores/navigation';
+  import { exportStore } from '$lib/stores/export';
   import type { Annotation, PointGeometry, EllipseGeometry, PolygonGeometry, MaskGeometry } from '$lib/api/annotations';
   import { tabStore, type Tab } from '$lib/stores/tabs';
   import { acquireCache, releaseCache } from '$lib/stores/slideCache';
@@ -2772,6 +2774,17 @@
     }
   }
 
+  function handleExportAs() {
+    const canvas = container?.querySelector('canvas') as HTMLCanvasElement | null;
+    if (!canvas) return;
+
+    // Find the annotation overlay element
+    const annotationLayer = container?.querySelector('.annotation-layer') as HTMLElement | null ??
+                           container?.querySelector('[class*="annotation"]') as HTMLElement | null;
+
+    exportStore.open(canvas, annotationLayer, activeSlideId || 'viewport');
+  }
+
   async function handleCopyImage() {
     const canvas = container?.querySelector('canvas') as HTMLCanvasElement | null;
     if (!canvas) return;
@@ -3013,6 +3026,7 @@
     imageX={contextMenuImageX}
     imageY={contextMenuImageY}
     onSaveImage={handleSaveImage}
+    onExportAs={handleExportAs}
     onCopyImage={handleCopyImage}
     onClose={handleContextMenuClose}
     onStartPointCreation={handleStartPointCreation}
@@ -3031,6 +3045,9 @@
     onClose={handleAnnotationMenuClose}
     onModify={handleAnnotationModify}
   />
+
+  <!-- Export modal dialog -->
+  <ExportModal />
 </div>
 
 <style>

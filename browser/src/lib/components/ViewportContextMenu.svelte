@@ -16,6 +16,8 @@
     imageY?: number;
     /** Callback for "Save Image As..." action */
     onSaveImage: () => void;
+    /** Callback for "Export As..." action */
+    onExportAs: () => void;
     /** Callback for "Copy Image" action */
     onCopyImage: () => void;
     /** Callback to dismiss the menu */
@@ -34,7 +36,7 @@
     onStartMaskPainting?: () => void;
   }
 
-  let { x, y, visible, imageX, imageY, onSaveImage, onCopyImage, onClose, onAnnotationCreated, onStartPointCreation, onStartEllipseCreation, onStartPolygonCreation, onStartFreehandLasso, onStartMaskPainting }: Props = $props();
+  let { x, y, visible, imageX, imageY, onSaveImage, onExportAs, onCopyImage, onClose, onAnnotationCreated, onStartPointCreation, onStartEllipseCreation, onStartPolygonCreation, onStartFreehandLasso, onStartMaskPainting }: Props = $props();
 
   let menuEl = $state<HTMLDivElement>();
   let showAnnotationSubmenu = $state(false);
@@ -62,6 +64,11 @@
 
   function handleSaveImage() {
     onSaveImage();
+    onClose();
+  }
+
+  function handleExportAs() {
+    onExportAs();
     onClose();
   }
 
@@ -242,6 +249,14 @@
         <line x1="12" y1="15" x2="12" y2="3"></line>
       </svg>
       Save Image As...
+    </button>
+    <button class="context-menu-item" role="menuitem" onclick={handleExportAs}>
+      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"></path>
+        <path d="M12 12v9"></path>
+        <path d="m8 17 4 4 4-4"></path>
+      </svg>
+      Export As...
     </button>
     <button class="context-menu-item" role="menuitem" onclick={handleCopyImage}>
       <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
