@@ -1371,8 +1371,17 @@
         e.preventDefault();
         return;
       }
-      // Block left-click panning when measurement is confirmed (use right-click to pan)
+      // In confirmed mode, start a new measurement from this click
       if (measurement.active && measurement.mode === 'confirmed') {
+        const imagePos = screenToImage(e.clientX, e.clientY);
+        measurement = {
+          active: true,
+          mode: 'placing',
+          startScreen: { x: e.clientX, y: e.clientY },
+          endScreen: { x: e.clientX, y: e.clientY },
+          startImage: imagePos,
+          endImage: imagePos,
+        };
         e.preventDefault();
         return;
       }
