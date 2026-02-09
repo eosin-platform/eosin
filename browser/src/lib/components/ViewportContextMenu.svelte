@@ -269,7 +269,7 @@
         <path d="M12 12v9"></path>
         <path d="m8 17 4 4 4-4"></path>
       </svg>
-      Export As...
+      Export Image
     </button>
     <button class="context-menu-item" role="menuitem" onclick={handleCopyImage}>
       <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
