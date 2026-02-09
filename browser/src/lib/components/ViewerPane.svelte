@@ -1252,6 +1252,14 @@
 
   $effect(() => {
     if (!paneActiveTab) {
+      // Deactivate measurement and ROI tools when tab is closed
+      // (before clearing activeSlideId/activeTabHandle which they use)
+      if (measurement.active) {
+        cancelMeasurement();
+      }
+      if (roi.active) {
+        cancelRoi();
+      }
       closeCurrentSlide();
       if (activeSlideId) {
         releaseCache(activeSlideId);

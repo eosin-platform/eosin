@@ -465,7 +465,6 @@
           <div class="help-row"><kbd>Click + Drag</kbd><span>Pan the viewport</span></div>
           <div class="help-row"><kbd>Scroll Wheel</kbd><span>Zoom in/out at cursor</span></div>
           <div class="help-row"><kbd>Pinch</kbd><span>Zoom on touch devices</span></div>
-          <div class="help-row"><kbd>Dbl-click Gamma</kbd><span>Reset to 1.0</span></div>
         </div>
 
         <div class="help-card">
