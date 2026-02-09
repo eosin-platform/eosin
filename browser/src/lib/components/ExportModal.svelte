@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { browser } from '$app/environment';
-	import { exportStore, type ExportOptions, type ImageFilters, type MeasurementExportState, type RoiExportState, type RgbaColor, type LineStyle, type RoiOutlineOptions, type RoiOverlayOptions } from '$lib/stores/export';
+	import { exportStore, type ExportOptions, type ImageFilters, type MeasurementExportState, type RoiExportState, type RgbaColor, type LineStyle, type LineCap, type RoiOutlineOptions, type RoiOverlayOptions, type MeasurementOptions } from '$lib/stores/export';
 	import { settings, type MeasurementUnit } from '$lib/stores/settings';
 
 	// Store state
@@ -33,15 +33,29 @@
 		quality: 0.92,
 		dpi: 96,
 		showMeasurement: true,
+		measurementOptions: {
+			color: { r: 59, g: 130, b: 246, a: 1 },
+			thickness: 2,
+			lineStyle: 'solid',
+			lineCap: 'round',
+			dashLength: 8,
+			dashSpacing: 4,
+			dotSpacing: 4,
+			fontSize: 20,
+		},
 		roiOutline: {
 			enabled: true,
 			color: { r: 251, g: 191, b: 36, a: 1 },
 			thickness: 2,
 			lineStyle: 'dashed',
+			lineCap: 'round',
+			dashLength: 8,
+			dashSpacing: 4,
+			dotSpacing: 4,
 		},
 		roiOverlay: {
 			enabled: false,
-			color: { r: 0, g: 0, b: 0, a: 0.2 },
+			color: { r: 0, g: 0, b: 0, a: 0.4 },
 		},
 	});
 
@@ -101,8 +115,8 @@
 			const compositeCanvas = await createCompositeCanvas();
 			if (!compositeCanvas) return;
 
-			// Generate preview at reduced size for performance
-			const maxPreviewSize = 400;
+			// Generate preview at high quality
+			const maxPreviewSize = 1600;
 			const scale = Math.min(
 				maxPreviewSize / compositeCanvas.width,
 				maxPreviewSize / compositeCanvas.height,
@@ -287,13 +301,14 @@
 			if (options.roiOutline.enabled) {
 				ctx.strokeStyle = rgbaToCss(options.roiOutline.color);
 				ctx.lineWidth = options.roiOutline.thickness * scaleX; // Scale line thickness
-				ctx.lineCap = 'round';
+				ctx.lineCap = options.roiOutline.lineCap;
+				ctx.lineJoin = options.roiOutline.lineCap === 'round' ? 'round' : 'miter';
 				
 				// Set line style
 				if (options.roiOutline.lineStyle === 'dashed') {
-					ctx.setLineDash([8 * scaleX, 4 * scaleX]);
+					ctx.setLineDash([options.roiOutline.dashLength * scaleX, options.roiOutline.dashSpacing * scaleX]);
 				} else if (options.roiOutline.lineStyle === 'dotted') {
-					ctx.setLineDash([2 * scaleX, 4 * scaleX]);
+					ctx.setLineDash([options.roiOutline.thickness * scaleX, options.roiOutline.dotSpacing * scaleX]);
 				} else {
 					ctx.setLineDash([]);
 				}
@@ -316,18 +331,28 @@
 			const endY = (measurement.endImage.y - viewportState.y) * viewportState.zoom * scaleY;
 			
 			// Draw measurement line
-			ctx.strokeStyle = '#3b82f6';
-			ctx.lineWidth = 2 * scaleX;
-			ctx.lineCap = 'round';
-			ctx.setLineDash([]);
+			const measureColor = rgbaToCss(options.measurementOptions.color);
+			ctx.strokeStyle = measureColor;
+			ctx.lineWidth = options.measurementOptions.thickness * scaleX;
+			ctx.lineCap = options.measurementOptions.lineCap;
+			
+			// Set line style
+			if (options.measurementOptions.lineStyle === 'dashed') {
+				ctx.setLineDash([options.measurementOptions.dashLength * scaleX, options.measurementOptions.dashSpacing * scaleX]);
+			} else if (options.measurementOptions.lineStyle === 'dotted') {
+				ctx.setLineDash([options.measurementOptions.thickness * scaleX, options.measurementOptions.dotSpacing * scaleX]);
+			} else {
+				ctx.setLineDash([]);
+			}
 			
 			ctx.beginPath();
 			ctx.moveTo(startX, startY);
 			ctx.lineTo(endX, endY);
 			ctx.stroke();
+			ctx.setLineDash([]);
 			
 			// Draw end points
-			ctx.fillStyle = '#3b82f6';
+			ctx.fillStyle = measureColor;
 			const pointRadius = 4 * scaleX;
 			
 			ctx.beginPath();
@@ -350,10 +375,11 @@
 			const midY = (startY + endY) / 2;
 			
 			// Draw label background
-			ctx.font = `${12 * scaleX}px system-ui, -apple-system, sans-serif`;
+			const fontSize = options.measurementOptions.fontSize * scaleX;
+			ctx.font = `${fontSize}px system-ui, -apple-system, sans-serif`;
 			const textMetrics = ctx.measureText(displayText);
 			const textWidth = textMetrics.width + 12 * scaleX;
-			const textHeight = 20 * scaleX;
+			const textHeight = (fontSize * 1.5) + 4 * scaleX;
 			
 			ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
 			ctx.beginPath();
@@ -543,6 +569,107 @@
 		exportStore.updateOptions({ showMeasurement: !options.showMeasurement });
 	}
 
+	// Measurement option handlers
+	function handleMeasurementColorChange(event: Event) {
+		const target = event.target as HTMLInputElement;
+		const hex = target.value;
+		const r = parseInt(hex.slice(1, 3), 16);
+		const g = parseInt(hex.slice(3, 5), 16);
+		const b = parseInt(hex.slice(5, 7), 16);
+		exportStore.updateOptions({
+			measurementOptions: { ...options.measurementOptions, color: { ...options.measurementOptions.color, r, g, b } }
+		});
+	}
+
+	function handleMeasurementAlphaChange(event: Event) {
+		const target = event.target as HTMLInputElement;
+		const a = Math.max(0, Math.min(100, parseInt(target.value, 10) || 0)) / 100;
+		exportStore.updateOptions({
+			measurementOptions: { ...options.measurementOptions, color: { ...options.measurementOptions.color, a } }
+		});
+	}
+
+	function handleMeasurementThicknessChange(event: Event) {
+		const target = event.target as HTMLInputElement;
+		const thickness = Math.max(1, Math.min(10, parseInt(target.value, 10) || 2));
+		exportStore.updateOptions({
+			measurementOptions: { ...options.measurementOptions, thickness }
+		});
+	}
+
+	function handleMeasurementStyleChange(event: Event) {
+		const target = event.target as HTMLSelectElement;
+		const lineStyle = target.value as LineStyle;
+		exportStore.updateOptions({
+			measurementOptions: { ...options.measurementOptions, lineStyle }
+		});
+	}
+
+	function handleMeasurementCapChange(event: Event) {
+		const target = event.target as HTMLSelectElement;
+		const lineCap = target.value as LineCap;
+		exportStore.updateOptions({
+			measurementOptions: { ...options.measurementOptions, lineCap }
+		});
+	}
+
+	function handleMeasurementDashLengthChange(event: Event) {
+		const target = event.target as HTMLInputElement;
+		const dashLength = Math.max(1, Math.min(50, parseInt(target.value, 10) || 8));
+		exportStore.updateOptions({
+			measurementOptions: { ...options.measurementOptions, dashLength }
+		});
+	}
+
+	function handleMeasurementDashSpacingChange(event: Event) {
+		const target = event.target as HTMLInputElement;
+		const dashSpacing = Math.max(1, Math.min(50, parseInt(target.value, 10) || 4));
+		exportStore.updateOptions({
+			measurementOptions: { ...options.measurementOptions, dashSpacing }
+		});
+	}
+
+	function handleMeasurementDotSpacingChange(event: Event) {
+		const target = event.target as HTMLInputElement;
+		const dotSpacing = Math.max(1, Math.min(50, parseInt(target.value, 10) || 4));
+		exportStore.updateOptions({
+			measurementOptions: { ...options.measurementOptions, dotSpacing }
+		});
+	}
+
+	function handleMeasurementFontSizeChange(event: Event) {
+		const target = event.target as HTMLInputElement;
+		const value = target.value.trim();
+		if (value === '') {
+			// Allow empty during editing, will be filled with default on blur
+			return;
+		}
+		const parsed = parseInt(value, 10);
+		if (!isNaN(parsed)) {
+			const fontSize = Math.max(6, Math.min(128, parsed));
+			exportStore.updateOptions({
+				measurementOptions: { ...options.measurementOptions, fontSize }
+			});
+		}
+	}
+
+	function handleMeasurementFontSizeBlur(event: Event) {
+		const target = event.target as HTMLInputElement;
+		const value = target.value.trim();
+		if (value === '') {
+			// Default to 20 when empty
+			exportStore.updateOptions({
+				measurementOptions: { ...options.measurementOptions, fontSize: 20 }
+			});
+		} else {
+			const parsed = parseInt(value, 10);
+			const fontSize = Math.max(6, Math.min(128, isNaN(parsed) ? 20 : parsed));
+			exportStore.updateOptions({
+				measurementOptions: { ...options.measurementOptions, fontSize }
+			});
+		}
+	}
+
 	// ROI outline handlers
 	function handleRoiOutlineToggle() {
 		exportStore.updateOptions({
@@ -582,6 +709,38 @@
 		const lineStyle = target.value as LineStyle;
 		exportStore.updateOptions({
 			roiOutline: { ...options.roiOutline, lineStyle }
+		});
+	}
+
+	function handleRoiOutlineCapChange(event: Event) {
+		const target = event.target as HTMLSelectElement;
+		const lineCap = target.value as LineCap;
+		exportStore.updateOptions({
+			roiOutline: { ...options.roiOutline, lineCap }
+		});
+	}
+
+	function handleRoiOutlineDashLengthChange(event: Event) {
+		const target = event.target as HTMLInputElement;
+		const dashLength = Math.max(1, Math.min(50, parseInt(target.value, 10) || 8));
+		exportStore.updateOptions({
+			roiOutline: { ...options.roiOutline, dashLength }
+		});
+	}
+
+	function handleRoiOutlineDashSpacingChange(event: Event) {
+		const target = event.target as HTMLInputElement;
+		const dashSpacing = Math.max(1, Math.min(50, parseInt(target.value, 10) || 4));
+		exportStore.updateOptions({
+			roiOutline: { ...options.roiOutline, dashSpacing }
+		});
+	}
+
+	function handleRoiOutlineDotSpacingChange(event: Event) {
+		const target = event.target as HTMLInputElement;
+		const dotSpacing = Math.max(1, Math.min(50, parseInt(target.value, 10) || 4));
+		exportStore.updateOptions({
+			roiOutline: { ...options.roiOutline, dotSpacing }
 		});
 	}
 
@@ -652,48 +811,45 @@
 				</button>
 			</div>
 
-			<div class="export-body">
-				<!-- Preview Column (fixed, no scroll) -->
-				<div class="preview-column">
-					<div class="preview-section">
-						<div class="section-label">Preview</div>
-						<div class="preview-container">
-							{#if isGeneratingPreview}
-								<div class="preview-loading">
-									<div class="spinner"></div>
-									<span>Generating preview...</span>
-								</div>
-							{:else if previewDataUrl}
-								<img src={previewDataUrl} alt="Export preview" class="preview-image" />
-							{:else}
-								<div class="preview-placeholder">
-									<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-										<rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-										<circle cx="8.5" cy="8.5" r="1.5"></circle>
-										<polyline points="21 15 16 10 5 21"></polyline>
-									</svg>
-									<span>No preview available</span>
-								</div>
-							{/if}
+			<!-- Preview Section (fixed, no scroll) -->
+			<div class="preview-section">
+				<div class="section-label">Preview</div>
+				<div class="preview-container">
+					{#if isGeneratingPreview}
+						<div class="preview-loading">
+							<div class="spinner"></div>
+							<span>Generating preview...</span>
 						</div>
-						{#if estimatedSize}
-							<div class="size-estimate">
-								Estimated size: <strong>{estimatedSize}</strong>
-							</div>
-						{/if}
-						<div class="dimensions-display">
-							<span class="dimensions-icon">
-								<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-									<rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-								</svg>
-							</span>
-							<span class="dimensions-text">{exportWidth} × {exportHeight} px</span>
+					{:else if previewDataUrl}
+						<img src={previewDataUrl} alt="Export preview" class="preview-image" />
+					{:else}
+						<div class="preview-placeholder">
+							<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+								<rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+								<circle cx="8.5" cy="8.5" r="1.5"></circle>
+								<polyline points="21 15 16 10 5 21"></polyline>
+							</svg>
+							<span>No preview available</span>
 						</div>
-					</div>
+					{/if}
 				</div>
+				{#if estimatedSize}
+					<div class="size-estimate">
+						Estimated size: <strong>{estimatedSize}</strong>
+					</div>
+				{/if}
+				<div class="dimensions-display">
+					<span class="dimensions-icon">
+						<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+						</svg>
+					</span>
+					<span class="dimensions-text">{exportWidth} × {exportHeight} px</span>
+				</div>
+			</div>
 
-				<!-- Settings Column (scrollable) -->
-				<div class="settings-column">
+			<!-- Settings Section (scrollable) -->
+			<div class="settings-scrollable">
 				<div class="options-section">
 					<div class="section-label">Export Options</div>
 
@@ -791,174 +947,355 @@
 						</label>
 					</div>
 
-					<!-- Measurement Toggle -->
-					{#if hasMeasurement}
-						<div class="option-group">
-							<label class="option-row toggle-option">
-								<div class="option-label">
-									<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-										<path d="M21.3 8.7 8.7 21.3c-1 1-2.5 1-3.4 0l-2.6-2.6c-1-1-1-2.5 0-3.4L15.3 2.7c1-1 2.5-1 3.4 0l2.6 2.6c1 1 1 2.5 0 3.4Z"></path>
-										<path d="m7.5 10.5 2 2"></path>
-										<path d="m10.5 7.5 2 2"></path>
-									</svg>
-									<span>Show Measurement</span>
-								</div>
-								<button
-									class="toggle-switch"
-									class:active={options.showMeasurement}
-									onclick={handleMeasurementToggle}
-									aria-pressed={options.showMeasurement}
-									aria-label="Toggle show measurement"
-									type="button"
-								>
-									<span class="toggle-track">
-										<span class="toggle-thumb"></span>
-									</span>
-								</button>
-							</label>
-						</div>
-					{/if}
-
-					<!-- Region of Interest Section -->
-					{#if hasRoi}
-						<div class="section-label" style="margin-top: 8px;">Region of Interest</div>
+					<!-- Measurement Section -->
+					<div class="section-label" style="margin-top: 8px;">Measurement</div>
+					<div class="option-group measurement-section" class:section-disabled={!hasMeasurement} title={!hasMeasurement ? 'No measurement set. Use the measurement tool to add one.' : ''}>
+						<label class="option-row toggle-option">
+							<div class="option-label">
+								<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<path d="M21.3 8.7 8.7 21.3c-1 1-2.5 1-3.4 0l-2.6-2.6c-1-1-1-2.5 0-3.4L15.3 2.7c1-1 2.5-1 3.4 0l2.6 2.6c1 1 1 2.5 0 3.4Z"></path>
+									<path d="m7.5 10.5 2 2"></path>
+									<path d="m10.5 7.5 2 2"></path>
+								</svg>
+								<span>Show Measurement</span>
+							</div>
+							<button
+								class="toggle-switch"
+								class:active={options.showMeasurement && hasMeasurement}
+								onclick={handleMeasurementToggle}
+								aria-pressed={options.showMeasurement}
+								aria-label="Toggle show measurement"
+								type="button"
+								disabled={!hasMeasurement}
+							>
+								<span class="toggle-track">
+									<span class="toggle-thumb"></span>
+								</span>
+							</button>
+						</label>
 						
-						<!-- ROI Outline -->
-						<div class="option-group roi-section">
-							<label class="option-row toggle-option">
-								<div class="option-label">
-									<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-										<rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-									</svg>
-									<span>Show Outline</span>
-								</div>
-								<button
-									class="toggle-switch"
-									class:active={options.roiOutline.enabled}
-									onclick={handleRoiOutlineToggle}
-									aria-pressed={options.roiOutline.enabled}
-									aria-label="Toggle ROI outline"
-									type="button"
-								>
-									<span class="toggle-track">
-										<span class="toggle-thumb"></span>
-									</span>
-								</button>
-							</label>
-							
-							<!-- Outline sub-options -->
-							<div class="sub-options" class:disabled={!options.roiOutline.enabled}>
-								<!-- Color picker -->
-								<div class="sub-option-row">
-									<span class="sub-option-label">Color</span>
-									<div class="color-picker-wrapper">
-										<input
-											type="color"
-											class="color-picker"
-											value={rgbaToHex(options.roiOutline.color)}
-											oninput={(e) => handleRoiOutlineColorChange(e)}
-											disabled={!options.roiOutline.enabled}
-										/>
-										<input
-											type="number"
-											class="alpha-input"
-											min="0"
-											max="100"
-											step="5"
-											value={Math.round(options.roiOutline.color.a * 100)}
-											oninput={(e) => handleRoiOutlineAlphaChange(e)}
-											disabled={!options.roiOutline.enabled}
-											title="Opacity %"
-										/>
-										<span class="alpha-label">%</span>
-									</div>
-								</div>
-								
-								<!-- Thickness -->
-								<div class="sub-option-row">
-									<span class="sub-option-label">Thickness</span>
+						<!-- Measurement sub-options -->
+						<div class="sub-options" class:disabled={!options.showMeasurement || !hasMeasurement}>
+							<!-- Color picker -->
+							<div class="sub-option-row">
+								<span class="sub-option-label">Color</span>
+								<div class="color-picker-wrapper">
+									<input
+										type="color"
+										class="color-picker"
+										value={rgbaToHex(options.measurementOptions.color)}
+										oninput={(e) => handleMeasurementColorChange(e)}
+										disabled={!options.showMeasurement || !hasMeasurement}
+									/>
 									<input
 										type="number"
-										class="thickness-input"
-										min="1"
-										max="10"
-										step="1"
-										value={options.roiOutline.thickness}
-										oninput={(e) => handleRoiOutlineThicknessChange(e)}
-										disabled={!options.roiOutline.enabled}
+										class="alpha-input"
+										min="0"
+										max="100"
+										step="5"
+										value={Math.round(options.measurementOptions.color.a * 100)}
+										oninput={(e) => handleMeasurementAlphaChange(e)}
+										disabled={!options.showMeasurement || !hasMeasurement}
+										title="Opacity %"
 									/>
+									<span class="alpha-label">%</span>
 								</div>
-								
-								<!-- Line style -->
-								<div class="sub-option-row">
-									<span class="sub-option-label">Style</span>
+							</div>
+							
+							<!-- Thickness -->
+							<div class="sub-option-row">
+								<span class="sub-option-label">Thickness</span>
+								<input
+									type="number"
+									class="thickness-input"
+									min="1"
+									max="10"
+									step="1"
+									value={options.measurementOptions.thickness}
+									oninput={(e) => handleMeasurementThicknessChange(e)}
+									disabled={!options.showMeasurement || !hasMeasurement}
+								/>
+							</div>
+							
+							<!-- Stroke style -->
+							<div class="sub-option-row">
+								<span class="sub-option-label">Stroke Style</span>
+								<div class="stroke-style-wrapper">
 									<select
 										class="line-style-select"
-										value={options.roiOutline.lineStyle}
-										onchange={(e) => handleRoiOutlineStyleChange(e)}
-										disabled={!options.roiOutline.enabled}
+										value={options.measurementOptions.lineStyle}
+										onchange={(e) => handleMeasurementStyleChange(e)}
+										disabled={!options.showMeasurement || !hasMeasurement}
 									>
 										<option value="solid">Solid</option>
 										<option value="dashed">Dashed</option>
 										<option value="dotted">Dotted</option>
 									</select>
-								</div>
-							</div>
-						</div>
-						
-						<!-- Outside Overlay -->
-						<div class="option-group roi-section">
-							<label class="option-row toggle-option">
-								<div class="option-label">
-									<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-										<rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-										<path d="M3 3l18 18"></path>
-									</svg>
-									<span>Outside Overlay</span>
-								</div>
-								<button
-									class="toggle-switch"
-									class:active={options.roiOverlay.enabled}
-									onclick={handleRoiOverlayToggle}
-									aria-pressed={options.roiOverlay.enabled}
-									aria-label="Toggle outside overlay"
-									type="button"
-								>
-									<span class="toggle-track">
-										<span class="toggle-thumb"></span>
-									</span>
-								</button>
-							</label>
-							
-							<!-- Overlay color -->
-							<div class="sub-options" class:disabled={!options.roiOverlay.enabled}>
-								<div class="sub-option-row">
-									<span class="sub-option-label">Color</span>
-									<div class="color-picker-wrapper">
+									{#if options.measurementOptions.lineStyle === 'dashed'}
 										<input
-											type="color"
-											class="color-picker"
-											value={rgbaToHex(options.roiOverlay.color)}
-											oninput={(e) => handleRoiOverlayColorChange(e)}
-											disabled={!options.roiOverlay.enabled}
+											type="number"
+											class="stroke-param-input"
+											min="1"
+											max="50"
+											step="1"
+											value={options.measurementOptions.dashLength}
+											oninput={(e) => handleMeasurementDashLengthChange(e)}
+											disabled={!options.showMeasurement || !hasMeasurement}
+											title="Dash length"
 										/>
 										<input
 											type="number"
-											class="alpha-input"
-											min="0"
-											max="100"
-											step="5"
-											value={Math.round(options.roiOverlay.color.a * 100)}
-											oninput={(e) => handleRoiOverlayAlphaChange(e)}
-											disabled={!options.roiOverlay.enabled}
-											title="Opacity %"
+											class="stroke-param-input"
+											min="1"
+											max="50"
+											step="1"
+											value={options.measurementOptions.dashSpacing}
+											oninput={(e) => handleMeasurementDashSpacingChange(e)}
+											disabled={!options.showMeasurement || !hasMeasurement}
+											title="Dash spacing"
 										/>
-										<span class="alpha-label">%</span>
-									</div>
+									{:else if options.measurementOptions.lineStyle === 'dotted'}
+										<input
+											type="number"
+											class="stroke-param-input"
+											min="1"
+											max="50"
+											step="1"
+											value={options.measurementOptions.dotSpacing}
+											oninput={(e) => handleMeasurementDotSpacingChange(e)}
+											disabled={!options.showMeasurement || !hasMeasurement}
+											title="Dot spacing"
+										/>
+									{/if}
+								</div>
+							</div>
+							
+							<!-- Cap style -->
+							<div class="sub-option-row">
+								<span class="sub-option-label">Cap Style</span>
+								<select
+									class="line-style-select"
+									value={options.measurementOptions.lineCap}
+									onchange={(e) => handleMeasurementCapChange(e)}
+									disabled={!options.showMeasurement || !hasMeasurement}
+								>
+									<option value="round">Round</option>
+									<option value="square">Square</option>
+									<option value="butt">Flat</option>
+								</select>
+							</div>
+							
+							<!-- Font size -->
+							<div class="sub-option-row">
+								<span class="sub-option-label">Font Size</span>
+								<input
+									type="number"
+									class="thickness-input"
+									min="6"
+									max="128"
+									step="1"
+									value={options.measurementOptions.fontSize}
+									oninput={(e) => handleMeasurementFontSizeChange(e)}
+									onblur={(e) => handleMeasurementFontSizeBlur(e)}
+									disabled={!options.showMeasurement || !hasMeasurement}
+								/>
+							</div>
+						</div>
+					</div>
+
+					<!-- Region of Interest Section -->
+					<div class="section-label" style="margin-top: 8px;">Region of Interest</div>
+					
+					<!-- ROI Outline -->
+					<div class="option-group roi-section" class:section-disabled={!hasRoi} title={!hasRoi ? 'No ROI set. Use the ROI tool to define a region.' : ''}>
+						<label class="option-row toggle-option">
+							<div class="option-label">
+								<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+								</svg>
+								<span>Show Outline</span>
+							</div>
+							<button
+								class="toggle-switch"
+								class:active={options.roiOutline.enabled && hasRoi}
+								onclick={handleRoiOutlineToggle}
+								aria-pressed={options.roiOutline.enabled}
+								aria-label="Toggle ROI outline"
+								type="button"
+								disabled={!hasRoi}
+							>
+								<span class="toggle-track">
+									<span class="toggle-thumb"></span>
+								</span>
+							</button>
+						</label>
+						
+						<!-- Outline sub-options -->
+						<div class="sub-options" class:disabled={!options.roiOutline.enabled || !hasRoi}>
+							<!-- Color picker -->
+							<div class="sub-option-row">
+								<span class="sub-option-label">Color</span>
+								<div class="color-picker-wrapper">
+									<input
+										type="color"
+										class="color-picker"
+										value={rgbaToHex(options.roiOutline.color)}
+										oninput={(e) => handleRoiOutlineColorChange(e)}
+										disabled={!options.roiOutline.enabled || !hasRoi}
+									/>
+									<input
+										type="number"
+										class="alpha-input"
+										min="0"
+										max="100"
+										step="5"
+										value={Math.round(options.roiOutline.color.a * 100)}
+										oninput={(e) => handleRoiOutlineAlphaChange(e)}
+										disabled={!options.roiOutline.enabled || !hasRoi}
+										title="Opacity %"
+									/>
+									<span class="alpha-label">%</span>
+								</div>
+							</div>
+							
+							<!-- Thickness -->
+							<div class="sub-option-row">
+								<span class="sub-option-label">Thickness</span>
+								<input
+									type="number"
+									class="thickness-input"
+									min="1"
+									max="10"
+									step="1"
+									value={options.roiOutline.thickness}
+									oninput={(e) => handleRoiOutlineThicknessChange(e)}
+									disabled={!options.roiOutline.enabled || !hasRoi}
+								/>
+							</div>
+							
+							<!-- Line style -->
+							<div class="sub-option-row">
+								<span class="sub-option-label">Stroke Style</span>
+								<div class="stroke-style-wrapper">
+									<select
+										class="line-style-select"
+										value={options.roiOutline.lineStyle}
+										onchange={(e) => handleRoiOutlineStyleChange(e)}
+										disabled={!options.roiOutline.enabled || !hasRoi}
+									>
+										<option value="solid">Solid</option>
+										<option value="dashed">Dashed</option>
+										<option value="dotted">Dotted</option>
+									</select>
+									{#if options.roiOutline.lineStyle === 'dashed'}
+										<input
+											type="number"
+											class="stroke-param-input"
+											min="1"
+											max="50"
+											step="1"
+											value={options.roiOutline.dashLength}
+											oninput={(e) => handleRoiOutlineDashLengthChange(e)}
+											disabled={!options.roiOutline.enabled || !hasRoi}
+											title="Dash length"
+										/>
+										<input
+											type="number"
+											class="stroke-param-input"
+											min="1"
+											max="50"
+											step="1"
+											value={options.roiOutline.dashSpacing}
+											oninput={(e) => handleRoiOutlineDashSpacingChange(e)}
+											disabled={!options.roiOutline.enabled || !hasRoi}
+											title="Dash spacing"
+										/>
+									{:else if options.roiOutline.lineStyle === 'dotted'}
+										<input
+											type="number"
+											class="stroke-param-input"
+											min="1"
+											max="50"
+											step="1"
+											value={options.roiOutline.dotSpacing}
+											oninput={(e) => handleRoiOutlineDotSpacingChange(e)}
+											disabled={!options.roiOutline.enabled || !hasRoi}
+											title="Dot spacing"
+										/>
+									{/if}
+								</div>
+							</div>
+							
+							<!-- Cap style -->
+							<div class="sub-option-row">
+								<span class="sub-option-label">Cap Style</span>
+								<select
+									class="line-style-select"
+									value={options.roiOutline.lineCap}
+									onchange={(e) => handleRoiOutlineCapChange(e)}
+									disabled={!options.roiOutline.enabled || !hasRoi}
+								>
+									<option value="round">Round</option>
+									<option value="square">Square</option>
+									<option value="butt">Flat</option>
+								</select>
+							</div>
+						</div>
+					</div>
+					
+					<!-- Outside Overlay -->
+					<div class="option-group roi-section" class:section-disabled={!hasRoi} title={!hasRoi ? 'No ROI set. Use the ROI tool to define a region.' : ''}>
+						<label class="option-row toggle-option">
+							<div class="option-label">
+								<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+									<path d="M3 3l18 18"></path>
+								</svg>
+								<span>Outside Overlay</span>
+							</div>
+							<button
+								class="toggle-switch"
+								class:active={options.roiOverlay.enabled && hasRoi}
+								onclick={handleRoiOverlayToggle}
+								aria-pressed={options.roiOverlay.enabled}
+								aria-label="Toggle outside overlay"
+								type="button"
+								disabled={!hasRoi}
+							>
+								<span class="toggle-track">
+									<span class="toggle-thumb"></span>
+								</span>
+							</button>
+						</label>
+						
+						<!-- Overlay color -->
+						<div class="sub-options" class:disabled={!options.roiOverlay.enabled || !hasRoi}>
+							<div class="sub-option-row">
+								<span class="sub-option-label">Color</span>
+								<div class="color-picker-wrapper">
+									<input
+										type="color"
+										class="color-picker"
+										value={rgbaToHex(options.roiOverlay.color)}
+										oninput={(e) => handleRoiOverlayColorChange(e)}
+										disabled={!options.roiOverlay.enabled || !hasRoi}
+									/>
+									<input
+										type="number"
+										class="alpha-input"
+										min="0"
+										max="100"
+										step="5"
+										value={Math.round(options.roiOverlay.color.a * 100)}
+										oninput={(e) => handleRoiOverlayAlphaChange(e)}
+										disabled={!options.roiOverlay.enabled || !hasRoi}
+										title="Opacity %"
+									/>
+									<span class="alpha-label">%</span>
 								</div>
 							</div>
 						</div>
-					{/if}
+					</div>
 
 					<!-- Format Selection -->
 					<div class="option-group">
@@ -1019,34 +1356,35 @@
 					{/if}
 				</div>
 			</div>
-			</div>
 
 			<!-- Footer -->
 			<div class="export-footer">
-				<button class="btn btn-secondary" onclick={closeModal} type="button">
-					Cancel
-				</button>
-				<button
-					class="btn btn-primary"
-					onclick={handleExport}
-					disabled={isExporting || isGeneratingPreview}
-					type="button"
-				>
-					{#if isExporting}
-						<span class="spinner small"></span>
-						Exporting...
-					{:else}
-						<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-							<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-							<polyline points="7 10 12 15 17 10"></polyline>
-							<line x1="12" y1="15" x2="12" y2="3"></line>
-						</svg>
-						Export
-					{/if}
-				</button>
 				<button class="btn btn-tertiary" onclick={handleReset} type="button">
 					Reset
 				</button>
+				<div class="footer-right">
+					<button class="btn btn-secondary" onclick={closeModal} type="button">
+						Cancel
+					</button>
+					<button
+						class="btn btn-primary"
+						onclick={handleExport}
+						disabled={isExporting || isGeneratingPreview}
+						type="button"
+					>
+						{#if isExporting}
+							<span class="spinner small"></span>
+							Exporting...
+						{:else}
+							<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+								<polyline points="7 10 12 15 17 10"></polyline>
+								<line x1="12" y1="15" x2="12" y2="3"></line>
+							</svg>
+							Export
+						{/if}
+					</button>
+				</div>
 			</div>
 		</div>
 	</div>
@@ -1064,6 +1402,7 @@
 		backdrop-filter: blur(4px);
 		z-index: 10001;
 		animation: fadeIn 0.15s ease-out;
+		cursor: default;
 	}
 
 	@keyframes fadeIn {
@@ -1079,7 +1418,7 @@
 		display: flex;
 		flex-direction: column;
 		width: 100%;
-		max-width: 800px;
+		max-width: 560px;
 		max-height: calc(100vh - 48px);
 		background: #1a1a1a;
 		border: 1px solid rgba(255, 255, 255, 0.12);
@@ -1087,6 +1426,7 @@
 		box-shadow: 0 24px 48px rgba(0, 0, 0, 0.5);
 		overflow: hidden;
 		animation: slideUp 0.2s ease-out;
+		cursor: default;
 	}
 
 	@keyframes slideUp {
@@ -1141,47 +1481,44 @@
 		height: 18px;
 	}
 
-	.export-body {
-		display: flex;
-		flex-direction: row;
-		gap: 20px;
-		padding: 20px;
-		overflow: hidden;
-		flex: 1;
-		min-height: 0;
-	}
-
-	.preview-column {
+	/* Preview Section (fixed, outside scroll) */
+	.preview-section {
 		flex: 0 0 auto;
-		width: 320px;
 		display: flex;
 		flex-direction: column;
+		padding: 16px 20px;
+		border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 	}
 
-	.settings-column {
-		flex: 1;
-		min-width: 0;
+	/* Settings scrollable area */
+	.settings-scrollable {
+		display: flex;
+		flex-direction: column;
+		gap: 16px;
+		padding: 16px 20px;
 		overflow-y: auto;
+		flex: 1;
+		min-height: 0;
 		scrollbar-width: thin;
-		scrollbar-color: #333 transparent;
-		padding-right: 8px;
+		scrollbar-color: #444 transparent;
+		background: rgba(0, 0, 0, 0.5);
 	}
 
-	.settings-column::-webkit-scrollbar {
+	.settings-scrollable::-webkit-scrollbar {
 		width: 9px;
 	}
 
-	.settings-column::-webkit-scrollbar-track {
+	.settings-scrollable::-webkit-scrollbar-track {
 		background: transparent;
 	}
 
-	.settings-column::-webkit-scrollbar-thumb {
-		background: #333;
+	.settings-scrollable::-webkit-scrollbar-thumb {
+		background: #444;
 		border-radius: 3px;
 	}
 
-	.settings-column::-webkit-scrollbar-thumb:hover {
-		background: #555;
+	.settings-scrollable::-webkit-scrollbar-thumb:hover {
+		background: #666;
 	}
 
 	.section-label {
@@ -1193,18 +1530,30 @@
 		margin-bottom: 10px;
 	}
 
-	/* Preview Section */
-	.preview-section {
-		display: flex;
-		flex-direction: column;
-	}
+	/* Preview Container */
 
 	.preview-container {
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		height: 280px;
-		background: #0d0d0d;
+		height: 200px;
+		/* Crosshatch pattern to indicate non-export area */
+		background-color: #1a1a1a;
+		background-image: 
+			repeating-linear-gradient(
+				45deg,
+				transparent,
+				transparent 8px,
+				rgba(255, 255, 255, 0.03) 8px,
+				rgba(255, 255, 255, 0.03) 9px
+			),
+			repeating-linear-gradient(
+				-45deg,
+				transparent,
+				transparent 8px,
+				rgba(255, 255, 255, 0.03) 8px,
+				rgba(255, 255, 255, 0.03) 9px
+			);
 		border: 1px solid rgba(255, 255, 255, 0.08);
 		border-radius: 8px;
 		overflow: hidden;
@@ -1212,8 +1561,10 @@
 
 	.preview-image {
 		max-width: 100%;
-		max-height: 280px;
+		max-height: 200px;
 		object-fit: contain;
+		/* Add subtle shadow to separate from crosshatch background */
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
 	}
 
 	.preview-loading,
@@ -1540,11 +1891,17 @@
 	/* Footer */
 	.export-footer {
 		display: flex;
-		justify-content: flex-end;
+		justify-content: space-between;
+		align-items: center;
 		gap: 10px;
 		padding: 16px 20px;
 		border-top: 1px solid rgba(255, 255, 255, 0.08);
 		background: rgba(255, 255, 255, 0.02);
+	}
+
+	.footer-right {
+		display: flex;
+		gap: 10px;
 	}
 
 	.btn {
@@ -1624,7 +1981,7 @@
 	}
 
 	/* Mobile responsiveness */
-	@media (max-width: 700px) {
+	@media (max-width: 480px) {
 		.export-overlay {
 			padding: 12px;
 		}
@@ -1633,20 +1990,12 @@
 			max-width: 100%;
 		}
 
-		.export-body {
-			flex-direction: column;
-			padding: 16px;
-			overflow-y: auto;
+		.preview-section {
+			padding: 12px 16px;
 		}
 
-		.preview-column {
-			width: 100%;
-			flex: 0 0 auto;
-		}
-
-		.settings-column {
-			overflow-y: visible;
-			padding-right: 0;
+		.settings-scrollable {
+			padding: 12px 16px;
 		}
 
 		.format-buttons {
@@ -1679,6 +2028,53 @@
 	.sub-options.disabled {
 		opacity: 0.4;
 		pointer-events: none;
+	}
+
+	.section-disabled {
+		opacity: 0.5;
+	}
+
+	.section-disabled .toggle-switch {
+		cursor: not-allowed;
+	}
+
+	.stroke-style-wrapper {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+	}
+
+	.stroke-param-input {
+		width: 48px;
+		padding: 4px 6px;
+		border: 1px solid rgba(255, 255, 255, 0.15);
+		border-radius: 4px;
+		background: rgba(0, 0, 0, 0.3);
+		color: white;
+		font-size: 12px;
+		font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', monospace;
+		text-align: center;
+		-moz-appearance: textfield;
+	}
+
+	.stroke-param-input::-webkit-outer-spin-button,
+	.stroke-param-input::-webkit-inner-spin-button {
+		-webkit-appearance: none;
+		margin: 0;
+	}
+
+	.stroke-param-input:hover:not(:disabled) {
+		border-color: rgba(255, 255, 255, 0.25);
+	}
+
+	.stroke-param-input:focus {
+		outline: none;
+		border-color: #3b82f6;
+	}
+
+	.stroke-param-input:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
 	}
 
 	.sub-option-row {
@@ -1724,14 +2120,27 @@
 	}
 
 	.alpha-input {
-		width: 44px;
-		padding: 4px 6px;
-		font-size: 12px;
+		width: 56px;
+		padding: 6px 8px;
+		font-size: 13px;
+		font-family: ui-monospace, 'SF Mono', 'Cascadia Code', 'Segoe UI Mono', monospace;
 		background: rgba(255, 255, 255, 0.06);
-		border: 1px solid rgba(255, 255, 255, 0.15);
-		border-radius: 4px;
-		color: white;
+		border: 1px solid rgba(255, 255, 255, 0.12);
+		border-radius: 6px;
+		color: #fff;
 		text-align: center;
+		outline: none;
+		transition: border-color 0.15s, background-color 0.15s;
+	}
+
+	.alpha-input:hover:not(:disabled) {
+		background: rgba(255, 255, 255, 0.08);
+		border-color: rgba(255, 255, 255, 0.2);
+	}
+
+	.alpha-input:focus {
+		border-color: #3b82f6;
+		background: rgba(59, 130, 246, 0.1);
 	}
 
 	.alpha-input:disabled {
@@ -1739,20 +2148,44 @@
 		cursor: not-allowed;
 	}
 
+	/* Hide spinner arrows for number inputs */
+	.alpha-input::-webkit-outer-spin-button,
+	.alpha-input::-webkit-inner-spin-button {
+		-webkit-appearance: none;
+		margin: 0;
+	}
+
+	.alpha-input[type=number] {
+		-moz-appearance: textfield;
+	}
+
 	.alpha-label {
-		font-size: 11px;
+		font-size: 12px;
 		color: rgba(255, 255, 255, 0.5);
 	}
 
 	.thickness-input {
-		width: 50px;
-		padding: 4px 8px;
-		font-size: 12px;
+		width: 54px;
+		padding: 6px 8px;
+		font-size: 13px;
+		font-family: ui-monospace, 'SF Mono', 'Cascadia Code', 'Segoe UI Mono', monospace;
 		background: rgba(255, 255, 255, 0.06);
-		border: 1px solid rgba(255, 255, 255, 0.15);
-		border-radius: 4px;
-		color: white;
+		border: 1px solid rgba(255, 255, 255, 0.12);
+		border-radius: 6px;
+		color: #fff;
 		text-align: center;
+		outline: none;
+		transition: border-color 0.15s, background-color 0.15s;
+	}
+
+	.thickness-input:hover:not(:disabled) {
+		background: rgba(255, 255, 255, 0.08);
+		border-color: rgba(255, 255, 255, 0.2);
+	}
+
+	.thickness-input:focus {
+		border-color: #3b82f6;
+		background: rgba(59, 130, 246, 0.1);
 	}
 
 	.thickness-input:disabled {
@@ -1760,15 +2193,37 @@
 		cursor: not-allowed;
 	}
 
+	/* Hide spinner arrows for number inputs */
+	.thickness-input::-webkit-outer-spin-button,
+	.thickness-input::-webkit-inner-spin-button {
+		-webkit-appearance: none;
+		margin: 0;
+	}
+
+	.thickness-input[type=number] {
+		-moz-appearance: textfield;
+	}
+
 	.line-style-select {
-		padding: 4px 8px;
-		font-size: 12px;
+		padding: 6px 10px;
+		font-size: 13px;
 		background: rgba(255, 255, 255, 0.06);
-		border: 1px solid rgba(255, 255, 255, 0.15);
-		border-radius: 4px;
-		color: white;
+		border: 1px solid rgba(255, 255, 255, 0.12);
+		border-radius: 6px;
+		color: #fff;
 		cursor: pointer;
-		min-width: 80px;
+		min-width: 90px;
+		outline: none;
+		transition: border-color 0.15s, background-color 0.15s;
+	}
+
+	.line-style-select:hover:not(:disabled) {
+		background: rgba(255, 255, 255, 0.08);
+		border-color: rgba(255, 255, 255, 0.2);
+	}
+
+	.line-style-select:focus {
+		border-color: #3b82f6;
 	}
 
 	.line-style-select:disabled {

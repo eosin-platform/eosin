@@ -14,17 +14,33 @@ export interface RgbaColor {
 }
 
 export type LineStyle = 'solid' | 'dashed' | 'dotted';
+export type LineCap = 'round' | 'square' | 'butt';
 
 export interface RoiOutlineOptions {
   enabled: boolean;
   color: RgbaColor;
   thickness: number;
   lineStyle: LineStyle;
+  lineCap: LineCap;
+  dashLength: number;
+  dashSpacing: number;
+  dotSpacing: number;
 }
 
 export interface RoiOverlayOptions {
   enabled: boolean;
   color: RgbaColor;
+}
+
+export interface MeasurementOptions {
+  color: RgbaColor;
+  thickness: number;
+  lineStyle: LineStyle;
+  lineCap: LineCap;
+  dashLength: number;
+  dashSpacing: number;
+  dotSpacing: number;
+  fontSize: number;
 }
 
 export interface ExportOptions {
@@ -38,6 +54,8 @@ export interface ExportOptions {
   dpi: number;
   /** Show measurement overlay */
   showMeasurement: boolean;
+  /** Measurement style options */
+  measurementOptions: MeasurementOptions;
   /** ROI outline options */
   roiOutline: RoiOutlineOptions;
   /** ROI outside overlay options */
@@ -96,11 +114,26 @@ const defaultRoiOutline: RoiOutlineOptions = {
   color: { r: 251, g: 191, b: 36, a: 1 }, // Yellow (#fbbf24)
   thickness: 2,
   lineStyle: 'dashed',
+  lineCap: 'round',
+  dashLength: 8,
+  dashSpacing: 4,
+  dotSpacing: 4,
 };
 
 const defaultRoiOverlay: RoiOverlayOptions = {
   enabled: false,
   color: { r: 0, g: 0, b: 0, a: 0.4 },
+};
+
+const defaultMeasurementOptions: MeasurementOptions = {
+  color: { r: 59, g: 130, b: 246, a: 1 }, // Blue (#3b82f6)
+  thickness: 2,
+  lineStyle: 'solid',
+  lineCap: 'round',
+  dashLength: 8,
+  dashSpacing: 4,
+  dotSpacing: 4,
+  fontSize: 20,
 };
 
 const defaultOptions: ExportOptions = {
@@ -109,6 +142,7 @@ const defaultOptions: ExportOptions = {
   quality: 0.92,
   dpi: 96,
   showMeasurement: true,
+  measurementOptions: { ...defaultMeasurementOptions },
   roiOutline: { ...defaultRoiOutline },
   roiOverlay: { ...defaultRoiOverlay },
 };
@@ -203,6 +237,14 @@ function createExportStore() {
       roi: RoiExportState
     ) {
       const savedOptions = loadSavedOptions();
+      const hasMeasurement = measurement.active && measurement.startImage !== null && measurement.endImage !== null;
+      const hasRoi = roi.active && roi.startImage !== null && roi.endImage !== null;
+      
+      // Use saved enabled state if feature is available, otherwise disable
+      const savedShowMeasurement = savedOptions.showMeasurement ?? defaultOptions.showMeasurement;
+      const savedRoiOutlineEnabled = savedOptions.roiOutline?.enabled ?? defaultRoiOutline.enabled;
+      const savedRoiOverlayEnabled = savedOptions.roiOverlay?.enabled ?? defaultRoiOverlay.enabled;
+      
       update((state) => ({
         ...state,
         open: true,
@@ -218,17 +260,17 @@ function createExportStore() {
         options: { 
           ...defaultOptions,
           ...savedOptions,
-          // Only enable measurement/ROI options if they are active
-          showMeasurement: measurement.active && measurement.startImage !== null && measurement.endImage !== null,
+          // Use saved enabled state if feature is available, otherwise force disabled
+          showMeasurement: hasMeasurement && savedShowMeasurement,
           roiOutline: {
             ...defaultRoiOutline,
             ...(savedOptions.roiOutline || {}),
-            enabled: roi.active && roi.startImage !== null && roi.endImage !== null,
+            enabled: hasRoi && savedRoiOutlineEnabled,
           },
           roiOverlay: {
             ...defaultRoiOverlay,
             ...(savedOptions.roiOverlay || {}),
-            enabled: false,
+            enabled: hasRoi && savedRoiOverlayEnabled,
           },
         },
       }));
@@ -267,14 +309,14 @@ function createExportStore() {
           ...state,
           options: {
             ...defaultOptions,
-            showMeasurement: hasMeasurement,
+            showMeasurement: hasMeasurement && defaultOptions.showMeasurement,
             roiOutline: {
               ...defaultRoiOutline,
-              enabled: hasRoi,
+              enabled: hasRoi && defaultRoiOutline.enabled,
             },
             roiOverlay: {
               ...defaultRoiOverlay,
-              enabled: false,
+              enabled: hasRoi && defaultRoiOverlay.enabled,
             },
           },
         };
