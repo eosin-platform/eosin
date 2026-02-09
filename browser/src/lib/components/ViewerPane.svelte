@@ -144,6 +144,106 @@
     isDragging: false,
   });
 
+  // LocalStorage keys for persisting measurement and ROI state per slide
+  const MEASUREMENT_STORAGE_KEY = 'eosin-measurement-';
+  const ROI_STORAGE_KEY = 'eosin-roi-';
+
+  // Helper to save measurement state to localStorage
+  function saveMeasurementState(slideId: string, state: MeasurementState) {
+    if (!browser || !slideId) return;
+    try {
+      const data = {
+        startImage: state.startImage,
+        endImage: state.endImage,
+      };
+      localStorage.setItem(MEASUREMENT_STORAGE_KEY + slideId, JSON.stringify(data));
+    } catch (e) {
+      console.warn('Failed to save measurement state:', e);
+    }
+  }
+
+  // Helper to load measurement state from localStorage
+  function loadMeasurementState(slideId: string): { startImage: { x: number; y: number }; endImage: { x: number; y: number } } | null {
+    if (!browser || !slideId) return null;
+    try {
+      const stored = localStorage.getItem(MEASUREMENT_STORAGE_KEY + slideId);
+      if (stored) {
+        const data = JSON.parse(stored);
+        if (data.startImage && data.endImage) {
+          return data;
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to load measurement state:', e);
+    }
+    return null;
+  }
+
+  // Helper to clear measurement state from localStorage
+  function clearMeasurementState(slideId: string) {
+    if (!browser || !slideId) return;
+    try {
+      localStorage.removeItem(MEASUREMENT_STORAGE_KEY + slideId);
+    } catch (e) {
+      // Ignore
+    }
+  }
+
+  // Helper to save ROI state to localStorage
+  function saveRoiState(slideId: string, state: RoiState) {
+    if (!browser || !slideId) return;
+    try {
+      const data = {
+        startImage: state.startImage,
+        endImage: state.endImage,
+      };
+      localStorage.setItem(ROI_STORAGE_KEY + slideId, JSON.stringify(data));
+    } catch (e) {
+      console.warn('Failed to save ROI state:', e);
+    }
+  }
+
+  // Helper to load ROI state from localStorage
+  function loadRoiState(slideId: string): { startImage: { x: number; y: number }; endImage: { x: number; y: number } } | null {
+    if (!browser || !slideId) return null;
+    try {
+      const stored = localStorage.getItem(ROI_STORAGE_KEY + slideId);
+      if (stored) {
+        const data = JSON.parse(stored);
+        if (data.startImage && data.endImage) {
+          return data;
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to load ROI state:', e);
+    }
+    return null;
+  }
+
+  // Helper to clear ROI state from localStorage
+  function clearRoiState(slideId: string) {
+    if (!browser || !slideId) return;
+    try {
+      localStorage.removeItem(ROI_STORAGE_KEY + slideId);
+    } catch (e) {
+      // Ignore
+    }
+  }
+
+  // Auto-save measurement state when confirmed
+  $effect(() => {
+    if (measurement.mode === 'confirmed' && measurement.startImage && measurement.endImage && activeSlideId) {
+      saveMeasurementState(activeSlideId, measurement);
+    }
+  });
+
+  // Auto-save ROI state when confirmed
+  $effect(() => {
+    if (roi.mode === 'confirmed' && roi.startImage && roi.endImage && activeSlideId) {
+      saveRoiState(activeSlideId, roi);
+    }
+  });
+
   // Progress
   let progressSteps = $state(0);
   let progressTotal = $state(0);
@@ -939,6 +1039,36 @@
       viewport = centerViewport(rect.width, rect.height, newImageDesc.width, newImageDesc.height);
     }
 
+    // Restore measurement state from localStorage for this slide
+    const savedMeasurement = loadMeasurementState(tab.slideId);
+    if (savedMeasurement) {
+      measurement = {
+        active: true,
+        mode: 'confirmed',
+        startScreen: null,
+        endScreen: null,
+        startImage: savedMeasurement.startImage,
+        endImage: savedMeasurement.endImage,
+        isDragging: false,
+      };
+    } else {
+      cancelMeasurement();
+    }
+
+    // Restore ROI state from localStorage for this slide
+    const savedRoi = loadRoiState(tab.slideId);
+    if (savedRoi) {
+      roi = {
+        active: true,
+        mode: 'confirmed',
+        startImage: savedRoi.startImage,
+        endImage: savedRoi.endImage,
+        isDragging: false,
+      };
+    } else {
+      cancelRoi();
+    }
+
     // Open the slide on the WebSocket if connected
     openSlide();
   }
@@ -1280,6 +1410,9 @@
 
   // Cancel any active measurement
   function cancelMeasurement() {
+    if (activeSlideId) {
+      clearMeasurementState(activeSlideId);
+    }
     measurement = {
       active: false,
       mode: null,
@@ -1293,6 +1426,9 @@
 
   // Cancel any active ROI
   function cancelRoi() {
+    if (activeSlideId) {
+      clearRoiState(activeSlideId);
+    }
     roi = {
       active: false,
       mode: null,
@@ -3044,8 +3180,10 @@
 <div
   class="viewer-container"
   class:no-slide={!imageDesc}
+  class:panning={isDragging}
   class:measuring={measurement.active}
   class:measuring-toggle={measurement.active && (measurement.mode === 'placing' || measurement.mode === 'toggle' || measurement.mode === 'pending' || measurement.mode === 'confirmed')}
+  class:roi-active={roi.active}
   class:modifying={modifyMode.phase !== 'idle'}
   bind:this={container}
   onmousedown={handleMouseDown}
@@ -3266,6 +3404,17 @@
 
   .viewer-container.modifying:active {
     cursor: crosshair;
+  }
+
+  /* ROI mode cursor */
+  .viewer-container.roi-active {
+    cursor: crosshair;
+  }
+
+  /* Panning state - always show grabbing cursor (right-click pan, etc.)
+     Must come after tool-specific cursors to override them */
+  .viewer-container.panning {
+    cursor: grabbing;
   }
 
   /* Image layer wrapper for applying CSS filters (brightness/contrast/gamma) */
