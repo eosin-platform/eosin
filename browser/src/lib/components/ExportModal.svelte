@@ -707,6 +707,25 @@
 		gap: 20px;
 		padding: 20px;
 		overflow-y: auto;
+		scrollbar-width: thin;
+		scrollbar-color: #333 transparent;
+	}
+
+	.export-body::-webkit-scrollbar {
+		width: 9px;
+	}
+
+	.export-body::-webkit-scrollbar-track {
+		background: transparent;
+	}
+
+	.export-body::-webkit-scrollbar-thumb {
+		background: #333;
+		border-radius: 3px;
+	}
+
+	.export-body::-webkit-scrollbar-thumb:hover {
+		background: #555;
 	}
 
 	.section-label {

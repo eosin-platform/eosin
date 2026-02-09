@@ -26,7 +26,7 @@
   let isScrollable = $state(false);
   
   // Tool state from focused pane
-  let tools = $state<ToolState>({ annotationTool: null, measurementActive: false, measurementMode: null, canUndo: false, canRedo: false });
+  let tools = $state<ToolState>({ annotationTool: null, measurementActive: false, measurementMode: null, roiActive: false, roiMode: null, canUndo: false, canRedo: false });
   const unsubTools = toolState.subscribe(s => tools = s);
   
   // Auth state for annotation permission
@@ -105,6 +105,10 @@
   
   function handleMeasure() {
     dispatchToolCommand({ type: 'measure' });
+  }
+  
+  function handleRoi() {
+    dispatchToolCommand({ type: 'roi' });
   }
   
   function handleAnnotationTool(tool: 'point' | 'ellipse' | 'polygon' | 'lasso' | 'mask') {
@@ -233,6 +237,20 @@
           <path d="m10.5 7.5 2 2"></path>
           <path d="m13.5 4.5 2 2"></path>
           <path d="m4.5 13.5 2 2"></path>
+        </svg>
+      </button>
+      
+      <!-- Region of Interest tool -->
+      <button 
+        class="tool-btn"
+        class:active={tools.roiActive}
+        onclick={handleRoi}
+        title="Region of Interest (R)"
+        aria-label="Region of interest"
+      >
+        <!-- Rectangle icon -->
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
         </svg>
       </button>
       
@@ -456,6 +474,7 @@
           <div class="help-row"><kbd>N</kbd><span>Cycle stain normalization</span></div>
           <div class="help-row"><kbd>E</kbd><span>Cycle stain enhancement</span></div>
           <div class="help-row"><kbd>D</kbd><span>Toggle measurement mode</span></div>
+          <div class="help-row"><kbd>R</kbd><span>Toggle region of interest</span></div>
           <div class="help-row"><kbd>Esc</kbd><span>Close help / Cancel</span></div>
         </div>
 
@@ -464,6 +483,12 @@
           <div class="help-row"><kbd>Middle Drag</kbd><span>Measure while dragging</span></div>
           <div class="help-row"><kbd>D</kbd><span>Toggle measurement mode</span></div>
           <div class="help-row"><span class="help-note">Click or pan to dismiss measurement</span></div>
+        </div>
+
+        <div class="help-card">
+          <h3>Region of Interest</h3>
+          <div class="help-row"><kbd>R</kbd><span>Toggle ROI mode</span></div>
+          <div class="help-row"><span class="help-note">Click two corners or click+drag</span></div>
         </div>
 
         <div class="help-card">

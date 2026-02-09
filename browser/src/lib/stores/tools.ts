@@ -11,6 +11,7 @@ import { writable, derived } from 'svelte/store';
 // Tool types that can be active
 export type AnnotationTool = 'point' | 'ellipse' | 'polygon' | 'lasso' | 'mask' | null;
 export type MeasurementMode = 'drag' | 'pending' | 'placing' | 'toggle' | 'confirmed' | null;
+export type RoiMode = 'pending' | 'placing' | 'toggle' | 'confirmed' | null;
 
 export interface ToolState {
   /** Currently active annotation tool */
@@ -18,6 +19,9 @@ export interface ToolState {
   /** Whether measurement mode is active */
   measurementActive: boolean;
   measurementMode: MeasurementMode;
+  /** Whether ROI (Region of Interest) mode is active */
+  roiActive: boolean;
+  roiMode: RoiMode;
   /** Whether undo is available */
   canUndo: boolean;
   /** Whether redo is available */
@@ -28,6 +32,8 @@ export const defaultToolState: ToolState = {
   annotationTool: null,
   measurementActive: false,
   measurementMode: null,
+  roiActive: false,
+  roiMode: null,
   canUndo: false,
   canRedo: false,
 };
@@ -40,6 +46,7 @@ export type ToolCommand =
   | { type: 'undo' }
   | { type: 'redo' }
   | { type: 'measure' }
+  | { type: 'roi' }
   | { type: 'annotation'; tool: AnnotationTool }
   | null;
 

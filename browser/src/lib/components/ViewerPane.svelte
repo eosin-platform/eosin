@@ -25,6 +25,7 @@
   import ViewerHud from '$lib/components/viewer/ViewerHud.svelte';
   import ScaleBar from '$lib/components/viewer/ScaleBar.svelte';
   import MeasurementOverlay from '$lib/components/viewer/MeasurementOverlay.svelte';
+  import RoiOverlay from '$lib/components/viewer/RoiOverlay.svelte';
   import AnnotationOverlay from '$lib/components/viewer/AnnotationOverlay.svelte';
   import ViewportContextMenu from '$lib/components/ViewportContextMenu.svelte';
   import AnnotationContextMenu from '$lib/components/AnnotationContextMenu.svelte';
@@ -120,6 +121,24 @@
     mode: null,
     startScreen: null,
     endScreen: null,
+    startImage: null,
+    endImage: null,
+    isDragging: false,
+  });
+
+  // Region of Interest tool state
+  interface RoiState {
+    active: boolean;
+    mode: 'pending' | 'placing' | 'toggle' | 'confirmed' | null;
+    startImage: { x: number; y: number } | null;
+    endImage: { x: number; y: number } | null;
+    /** True if dragging during placing mode (click-and-drag usage) */
+    isDragging?: boolean;
+  }
+  
+  let roi = $state<RoiState>({
+    active: false,
+    mode: null,
     startImage: null,
     endImage: null,
     isDragging: false,
@@ -382,6 +401,25 @@
           isDragging: false,
         };
         showHudNotification('Click to start measuring');
+      }
+    }
+    // 'r' key toggles ROI mode
+    if (e.key === 'r' || e.key === 'R') {
+      if (!imageDesc || !container) return;
+      
+      if (roi.active) {
+        // Cancel ROI if active
+        cancelRoi();
+      } else {
+        // Enter pending mode - wait for first click to set start corner
+        roi = {
+          active: true,
+          mode: 'pending',
+          startImage: null,
+          endImage: null,
+          isDragging: false,
+        };
+        showHudNotification('Click to start region of interest');
       }
     }
     // '1' key: hold for multi-point, tap for single point
@@ -647,13 +685,16 @@
         showHudNotification('Already adjusting rotation');
       }
     }
-    // Escape closes help and cancels measurement and modify mode
+    // Escape closes help and cancels measurement, ROI, and modify mode
     if (e.key === 'Escape') {
       if ($helpMenuOpen) {
         helpMenuOpen.set(false);
       }
       if (measurement.active) {
         cancelMeasurement();
+      }
+      if (roi.active) {
+        cancelRoi();
       }
       if (modifyMode.phase !== 'idle') {
         const wasCreating = modifyMode.isCreating;
@@ -975,6 +1016,22 @@
           showHudNotification('Click to start measuring');
         }
         break;
+      case 'roi':
+        // Toggle ROI mode - use "pending" mode when activated from toolbar
+        if (!imageDesc || !container) break;
+        if (roi.active) {
+          cancelRoi();
+        } else {
+          roi = {
+            active: true,
+            mode: 'pending',
+            startImage: null,
+            endImage: null,
+            isDragging: false,
+          };
+          showHudNotification('Click to start region of interest');
+        }
+        break;
       case 'annotation':
         if (cmd.tool === null) {
           // Deactivate current tool
@@ -1013,6 +1070,8 @@
           modifyMode.phase === 'mask-paint' ? 'mask' : null,
         measurementActive: measurement.active,
         measurementMode: measurement.mode,
+        roiActive: roi.active,
+        roiMode: roi.mode,
         canUndo: undoStack.length > 0,
         canRedo: redoStack.length > 0,
       });
@@ -1232,6 +1291,17 @@
     };
   }
 
+  // Cancel any active ROI
+  function cancelRoi() {
+    roi = {
+      active: false,
+      mode: null,
+      startImage: null,
+      endImage: null,
+      isDragging: false,
+    };
+  }
+
   // Mouse event handlers
   function handleMouseDown(e: MouseEvent) {
     // Handle annotation modification mode clicks
@@ -1382,14 +1452,54 @@
         e.preventDefault();
         return;
       }
-      // In confirmed mode, start a new measurement from this click
-      if (measurement.active && measurement.mode === 'confirmed') {
+      // In confirmed mode, start a new measurement from this click (unless context menu is open)
+      if (measurement.active && measurement.mode === 'confirmed' && !contextMenuVisible) {
         const imagePos = screenToImage(e.clientX, e.clientY);
         measurement = {
           active: true,
           mode: 'placing',
           startScreen: { x: e.clientX, y: e.clientY },
           endScreen: { x: e.clientX, y: e.clientY },
+          startImage: imagePos,
+          endImage: imagePos,
+          isDragging: false,
+        };
+        e.preventDefault();
+        return;
+      }
+      // ROI tool: If in 'pending' mode, start ROI from this click
+      if (roi.active && roi.mode === 'pending') {
+        const imagePos = screenToImage(e.clientX, e.clientY);
+        roi = {
+          active: true,
+          mode: 'placing',
+          startImage: imagePos,
+          endImage: imagePos,
+          isDragging: false,
+        };
+        e.preventDefault();
+        return;
+      }
+      // ROI: In placing mode, second mousedown switches to toggle (confirming on mouseup)
+      if (roi.active && roi.mode === 'placing') {
+        roi = {
+          ...roi,
+          mode: 'toggle',
+        };
+        e.preventDefault();
+        return;
+      }
+      // ROI: In toggle mode, prevent panning - confirmation happens on mouseup
+      if (roi.active && roi.mode === 'toggle') {
+        e.preventDefault();
+        return;
+      }
+      // ROI: In confirmed mode, start a new ROI from this click (unless context menu is open)
+      if (roi.active && roi.mode === 'confirmed' && !contextMenuVisible) {
+        const imagePos = screenToImage(e.clientX, e.clientY);
+        roi = {
+          active: true,
+          mode: 'placing',
           startImage: imagePos,
           endImage: imagePos,
           isDragging: false,
@@ -1504,6 +1614,18 @@
       };
     }
 
+    // Handle ROI mode (placing or toggle mode) - don't update if confirmed
+    if (roi.active && roi.startImage && (roi.mode === 'placing' || roi.mode === 'toggle')) {
+      const imagePos = screenToImage(e.clientX, e.clientY);
+      // Check if left button is held during placing - indicates click-and-drag usage
+      const isHoldingButton = (e.buttons & 1) !== 0;
+      roi = {
+        ...roi,
+        endImage: imagePos,
+        isDragging: roi.mode === 'placing' && isHoldingButton ? true : roi.isDragging,
+      };
+    }
+
     // Regular pan handling
     if (!isDragging || !imageDesc) return;
 
@@ -1547,6 +1669,18 @@
         ...measurement,
         mode: 'confirmed',
         endScreen: { x: e.clientX, y: e.clientY },
+        endImage: imagePos,
+        isDragging: false,
+      };
+      return;
+    }
+    
+    // Confirm ROI on mouseup in toggle mode OR placing mode with drag
+    if (e && e.button === 0 && roi.active && (roi.mode === 'toggle' || (roi.mode === 'placing' && roi.isDragging))) {
+      const imagePos = screenToImage(e.clientX, e.clientY);
+      roi = {
+        ...roi,
+        mode: 'confirmed',
         endImage: imagePos,
         isDragging: false,
       };
@@ -2905,6 +3039,9 @@
     
     <!-- Measurement overlay -->
     <MeasurementOverlay {viewport} {measurement} />
+    
+    <!-- ROI overlay -->
+    <RoiOverlay {viewport} {roi} />
     
     <!-- Annotation overlay -->
     <AnnotationOverlay
