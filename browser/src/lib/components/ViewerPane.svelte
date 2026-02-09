@@ -30,6 +30,7 @@
   import AnnotationContextMenu from '$lib/components/AnnotationContextMenu.svelte';
   import { annotationStore, activeAnnotationSet } from '$lib/stores/annotations';
   import { authStore } from '$lib/stores/auth';
+  import { toastStore } from '$lib/stores/toast';
   import { navigationTarget } from '$lib/stores/navigation';
   import type { Annotation, PointGeometry, EllipseGeometry, PolygonGeometry, MaskGeometry } from '$lib/api/annotations';
   import { tabStore, type Tab } from '$lib/stores/tabs';
@@ -386,7 +387,7 @@
       if (e.repeat) return; // Ignore key repeat events
       if (!canCreate) {
         if (!isLoggedIn) {
-          showHudNotification('Log in to create annotations');
+          toastStore.error('Please log in to use annotation tools');
         } else if (!currentActiveSet) {
           showHudNotification('Select an annotation layer first');
         } else if (currentActiveSet.locked) {
@@ -401,7 +402,7 @@
     if (e.key === '2') {
       if (!canCreate) {
         if (!isLoggedIn) {
-          showHudNotification('Log in to create annotations');
+          toastStore.error('Please log in to use annotation tools');
         } else if (!currentActiveSet) {
           showHudNotification('Select an annotation layer first');
         } else if (currentActiveSet.locked) {
@@ -416,7 +417,7 @@
       if (e.repeat) return; // Ignore key repeat events
       if (!canCreate) {
         if (!isLoggedIn) {
-          showHudNotification('Log in to create annotations');
+          toastStore.error('Please log in to use annotation tools');
         } else if (!currentActiveSet) {
           showHudNotification('Select an annotation layer first');
         } else if (currentActiveSet.locked) {
@@ -431,7 +432,7 @@
     if (e.key === '4') {
       if (!canCreate) {
         if (!isLoggedIn) {
-          showHudNotification('Log in to create annotations');
+          toastStore.error('Please log in to use annotation tools');
         } else if (!currentActiveSet) {
           showHudNotification('Select an annotation layer first');
         } else if (currentActiveSet.locked) {

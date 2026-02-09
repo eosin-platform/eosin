@@ -16,6 +16,7 @@
   import { performanceMetrics, type PerformanceMetrics } from '$lib/stores/metrics';
   import { settings, FACTORY_IMAGE_DEFAULTS } from '$lib/stores/settings';
   import { getUrlSyncManager } from '$lib/stores/urlSync';
+  import { toastStore } from '$lib/stores/toast';
   import type { SlideInfo, ParsedSession } from './+page.server';
 
   // Server-provided data
@@ -27,9 +28,19 @@
 
   // Toast notification state
   let toastMessage = $state<string | null>(null);
-  let toastType = $state<'error' | 'success'>('error');
+  let toastType = $state<'error' | 'success' | 'warning' | 'info'>('error');
   let toastTimeout: ReturnType<typeof setTimeout> | null = null;
   let hasBeenConnected = false;
+
+  // Subscribe to global toast store for toasts from other components
+  const unsubToast = toastStore.subscribe((state) => {
+    if (state.current) {
+      toastMessage = state.current.message;
+      toastType = state.current.type;
+    } else {
+      toastMessage = null;
+    }
+  });
 
   // Progress info map for all slides (passed to SplitPaneContainer)
   let progressInfo = $state<Map<string, { steps: number; total: number; trigger: number }>>(new Map());
@@ -67,6 +78,7 @@
 
   function dismissToast() {
     toastMessage = null;
+    toastStore.dismiss();
     if (toastTimeout) {
       clearTimeout(toastTimeout);
       toastTimeout = null;
@@ -259,6 +271,7 @@
   onDestroy(() => {
     urlSyncManager.stop();
     unsubMetrics();
+    unsubToast();
     client?.disconnect();
     if (toastTimeout) {
       clearTimeout(toastTimeout);

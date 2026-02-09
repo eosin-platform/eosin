@@ -5,6 +5,7 @@
   import { authStore, loginModalOpen } from '$lib/stores/auth';
   import { logout } from '$lib/auth/client';
   import { toolState, dispatchToolCommand, type ToolState } from '$lib/stores/tools';
+  import { toastStore } from '$lib/stores/toast';
   import SettingsModal from '$lib/components/settings/SettingsModal.svelte';
   import LoginModal from '$lib/components/LoginModal.svelte';
 
@@ -27,6 +28,12 @@
   // Tool state from focused pane
   let tools = $state<ToolState>({ annotationTool: null, measurementActive: false, measurementMode: null, canUndo: false, canRedo: false });
   const unsubTools = toolState.subscribe(s => tools = s);
+  
+  // Auth state for annotation permission
+  let isLoggedIn = $state(false);
+  const unsubAuth = authStore.subscribe((state) => {
+    isLoggedIn = state.user !== null;
+  });
   
   // Settings state for stain enhancement and annotations
   let stainEnhancement = $state<StainEnhancementMode>($settings.image.stainEnhancement);
@@ -62,6 +69,7 @@
     return () => {
       clearTimeout(timer);
       unsubTools();
+      unsubAuth();
       resizeObserver?.disconnect();
     };
   });
@@ -100,6 +108,12 @@
   }
   
   function handleAnnotationTool(tool: 'point' | 'ellipse' | 'polygon' | 'lasso' | 'mask') {
+    // Check if user is logged in
+    if (!isLoggedIn) {
+      toastStore.error('Please log in to use annotation tools');
+      return;
+    }
+    
     // Toggle off if already active, otherwise activate
     if (tools.annotationTool === tool) {
       dispatchToolCommand({ type: 'annotation', tool: null });
@@ -229,8 +243,9 @@
         <button 
           class="tool-btn"
           class:active={tools.annotationTool === 'point'}
+          class:disabled={!isLoggedIn}
           onclick={() => handleAnnotationTool('point')}
-          title="Point Annotation (1)"
+          title={isLoggedIn ? 'Point Annotation (1)' : 'Log in to use annotation tools'}
           aria-label="Point annotation"
         >
           <!-- Point/dot icon -->
@@ -241,8 +256,9 @@
         <button 
           class="tool-btn"
           class:active={tools.annotationTool === 'ellipse'}
+          class:disabled={!isLoggedIn}
           onclick={() => handleAnnotationTool('ellipse')}
-          title="Ellipse Annotation (2)"
+          title={isLoggedIn ? 'Ellipse Annotation (2)' : 'Log in to use annotation tools'}
           aria-label="Ellipse annotation"
         >
           <!-- Ellipse/oval icon -->
@@ -253,8 +269,9 @@
         <button 
           class="tool-btn"
           class:active={tools.annotationTool === 'lasso'}
+          class:disabled={!isLoggedIn}
           onclick={() => handleAnnotationTool('lasso')}
-          title="Lasso Annotation (hold 3)"
+          title={isLoggedIn ? 'Lasso Annotation (hold 3)' : 'Log in to use annotation tools'}
           aria-label="Lasso annotation"
         >
           <!-- Lasso/blob icon - Photoshop-style freehand selection -->
@@ -267,8 +284,9 @@
         <button 
           class="tool-btn"
           class:active={tools.annotationTool === 'polygon'}
+          class:disabled={!isLoggedIn}
           onclick={() => handleAnnotationTool('polygon')}
-          title="Polygon Annotation (tap 3)"
+          title={isLoggedIn ? 'Polygon Annotation (tap 3)' : 'Log in to use annotation tools'}
           aria-label="Polygon annotation"
         >
           <!-- Pentagon/polygon icon -->
@@ -279,8 +297,9 @@
         <button 
           class="tool-btn"
           class:active={tools.annotationTool === 'mask'}
+          class:disabled={!isLoggedIn}
           onclick={() => handleAnnotationTool('mask')}
-          title="Mask Painting (4)"
+          title={isLoggedIn ? 'Mask Painting (4)' : 'Log in to use annotation tools'}
           aria-label="Mask painting"
         >
           <!-- Paintbrush icon -->
