@@ -185,12 +185,10 @@
     <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
     <div 
       class="context-menu-item submenu-trigger"
-      class:disabled={!canCreate}
       role="menuitem"
       tabindex="0"
       onmouseenter={() => showAnnotationSubmenu = true}
       onmouseleave={() => showAnnotationSubmenu = false}
-      title={!canCreate ? getCreateTooltip() : ''}
     >
       <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5 12 2"></polygon>
@@ -202,34 +200,34 @@
         <polyline points="9 18 15 12 9 6"></polyline>
       </svg>
 
-      {#if showAnnotationSubmenu && canCreate}
+      {#if showAnnotationSubmenu}
         <div class="submenu">
-          <button class="context-menu-item" role="menuitem" onclick={handleCreatePoint}>
+          <button class="context-menu-item" class:disabled={!canCreate} role="menuitem" onclick={handleCreatePoint} title={!canCreate ? getCreateTooltip() : ''}>
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <circle cx="12" cy="12" r="3"></circle>
             </svg>
             Point
           </button>
-          <button class="context-menu-item" role="menuitem" onclick={handleCreateEllipse}>
+          <button class="context-menu-item" class:disabled={!canCreate} role="menuitem" onclick={handleCreateEllipse} title={!canCreate ? getCreateTooltip() : ''}>
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <ellipse cx="12" cy="12" rx="8" ry="5"></ellipse>
             </svg>
             Ellipse
           </button>
-          <button class="context-menu-item" role="menuitem" onclick={handleCreatePolygon}>
+          <button class="context-menu-item" class:disabled={!canCreate} role="menuitem" onclick={handleCreatePolygon} title={!canCreate ? getCreateTooltip() : ''}>
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <polygon points="12 2 22 12 12 22 2 12"></polygon>
             </svg>
             Polygon
           </button>
-          <button class="context-menu-item" role="menuitem" onclick={handleCreateFreehandLasso}>
+          <button class="context-menu-item" class:disabled={!canCreate} role="menuitem" onclick={handleCreateFreehandLasso} title={!canCreate ? getCreateTooltip() : ''}>
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M3 12c0-4.97 4.03-9 9-9s9 4.03 9 9-4.03 9-9 9c-2.12 0-4.07-.74-5.62-1.97"></path>
               <polyline points="3 12 3 6 9 6"></polyline>
             </svg>
             Lasso
           </button>
-          <button class="context-menu-item" role="menuitem" onclick={handleCreateMask}>
+          <button class="context-menu-item" class:disabled={!canCreate} role="menuitem" onclick={handleCreateMask} title={!canCreate ? getCreateTooltip() : ''}>
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <rect x="3" y="3" width="18" height="18" rx="2"></rect>
               <circle cx="12" cy="12" r="4"></circle>

@@ -367,7 +367,15 @@
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div class="export-overlay" onclick={closeModal}>
-		<div class="export-modal" onclick={(e) => e.stopPropagation()}>
+		<div 
+			class="export-modal" 
+			onclick={(e) => e.stopPropagation()}
+			onmousedown={(e) => e.stopPropagation()}
+			onmousemove={(e) => e.stopPropagation()}
+			onwheel={(e) => e.stopPropagation()}
+			ontouchstart={(e) => e.stopPropagation()}
+			ontouchmove={(e) => e.stopPropagation()}
+		>
 			<!-- Header -->
 			<div class="export-header">
 				<h2>Export Image</h2>
@@ -720,8 +728,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		min-height: 200px;
-		max-height: 280px;
+		height: 280px;
 		background: #0d0d0d;
 		border: 1px solid rgba(255, 255, 255, 0.08);
 		border-radius: 8px;
