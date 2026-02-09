@@ -1,7 +1,19 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { browser } from '$app/environment';
-	import { exportStore, type ExportOptions, type ImageFilters, type MeasurementExportState, type RoiExportState, type RgbaColor, type LineStyle, type LineCap, type RoiOutlineOptions, type RoiOverlayOptions, type MeasurementOptions } from '$lib/stores/export';
+	import {
+		exportStore,
+		type ExportOptions,
+		type ImageFilters,
+		type MeasurementExportState,
+		type RoiExportState,
+		type RgbaColor,
+		type LineStyle,
+		type LineCap,
+		type RoiOutlineOptions,
+		type RoiOverlayOptions,
+		type MeasurementOptions
+	} from '$lib/stores/export';
 	import { settings, type MeasurementUnit } from '$lib/stores/settings';
 
 	// Store state
@@ -11,7 +23,7 @@
 	let filters = $state<ImageFilters>({
 		brightness: 0,
 		contrast: 0,
-		gamma: 1,
+		gamma: 1
 	});
 	let viewportWidth = $state(0);
 	let viewportHeight = $state(0);
@@ -20,12 +32,12 @@
 	let measurement = $state<MeasurementExportState>({
 		active: false,
 		startImage: null,
-		endImage: null,
+		endImage: null
 	});
 	let roi = $state<RoiExportState>({
 		active: false,
 		startImage: null,
-		endImage: null,
+		endImage: null
 	});
 	let options = $state<ExportOptions>({
 		includeAnnotations: true,
@@ -41,7 +53,7 @@
 			dashLength: 8,
 			dashSpacing: 4,
 			dotSpacing: 4,
-			fontSize: 20,
+			fontSize: 20
 		},
 		roiOutline: {
 			enabled: true,
@@ -51,12 +63,12 @@
 			lineCap: 'round',
 			dashLength: 8,
 			dashSpacing: 4,
-			dotSpacing: 4,
+			dotSpacing: 4
 		},
 		roiOverlay: {
 			enabled: false,
-			color: { r: 0, g: 0, b: 0, a: 0.4 },
-		},
+			color: { r: 0, g: 0, b: 0, a: 0.4 }
+		}
 	});
 
 	// Preview state
@@ -76,7 +88,9 @@
 	let exportHeight = $derived(Math.round(viewportHeight * (options.dpi / 96)));
 
 	// Check if measurement/ROI are available
-	let hasMeasurement = $derived(measurement.active && measurement.startImage !== null && measurement.endImage !== null);
+	let hasMeasurement = $derived(
+		measurement.active && measurement.startImage !== null && measurement.endImage !== null
+	);
 	let hasRoi = $derived(roi.active && roi.startImage !== null && roi.endImage !== null);
 
 	const unsubExport = exportStore.subscribe((state) => {
@@ -164,8 +178,8 @@
 		const { brightness, contrast, gamma } = filters;
 
 		// Convert settings to multipliers (matching CSS filter behavior)
-		const brightnessMultiplier = 1 + (brightness / 100);
-		const contrastMultiplier = 1 + (contrast / 100);
+		const brightnessMultiplier = 1 + brightness / 100;
+		const contrastMultiplier = 1 + contrast / 100;
 		// Gamma applied as power function to normalized values
 		const gammaExp = gamma !== 1 ? 1 / gamma : 1;
 		// Additional brightness from gamma approximation (matching ViewerPane)
@@ -176,25 +190,25 @@
 		const lut = new Uint8ClampedArray(256);
 		for (let i = 0; i < 256; i++) {
 			let value = i / 255;
-			
+
 			// Apply contrast (centered around 0.5)
 			value = (value - 0.5) * contrastMultiplier + 0.5;
-			
+
 			// Apply gamma correction
 			if (gammaExp !== 1 && value > 0) {
 				value = Math.pow(value, gammaExp);
 			}
-			
+
 			// Apply brightness
 			value = value * totalBrightness;
-			
+
 			// Clamp and convert back to 0-255
 			lut[i] = Math.round(Math.max(0, Math.min(255, value * 255)));
 		}
 
 		// Apply lookup table to all pixels
 		for (let i = 0; i < data.length; i += 4) {
-			data[i] = lut[data[i]];       // R
+			data[i] = lut[data[i]]; // R
 			data[i + 1] = lut[data[i + 1]]; // G
 			data[i + 2] = lut[data[i + 2]]; // B
 			// Alpha channel (i + 3) is not modified
@@ -212,7 +226,7 @@
 		// Calculate source dimensions (the canvas may have different size due to device pixel ratio)
 		const sourceWidth = imageCanvas.width;
 		const sourceHeight = imageCanvas.height;
-		
+
 		// Calculate export dimensions based on viewport size and DPI
 		// Base DPI is 96, so scale factor is dpi / 96
 		const scaleFactor = options.dpi / 96;
@@ -244,20 +258,34 @@
 		if (options.includeAnnotations) {
 			// Find specifically the annotation overlay elements by their known classes
 			// These are positioned to match the viewport, so we need to scale them appropriately
-			
+
 			// Mask canvas has class "mask-canvas"
-			const maskCanvas = viewportContainer.querySelector('canvas.mask-canvas') as HTMLCanvasElement | null;
+			const maskCanvas = viewportContainer.querySelector(
+				'canvas.mask-canvas'
+			) as HTMLCanvasElement | null;
 			if (maskCanvas) {
 				try {
 					// Scale the mask canvas to match output dimensions
-					ctx.drawImage(maskCanvas, 0, 0, maskCanvas.width, maskCanvas.height, 0, 0, outputWidth, outputHeight);
+					ctx.drawImage(
+						maskCanvas,
+						0,
+						0,
+						maskCanvas.width,
+						maskCanvas.height,
+						0,
+						0,
+						outputWidth,
+						outputHeight
+					);
 				} catch (e) {
 					console.warn('Failed to draw mask canvas:', e);
 				}
 			}
-			
+
 			// Annotation SVG overlay has class "annotation-overlay"
-			const annotationSvg = viewportContainer.querySelector('svg.annotation-overlay') as SVGSVGElement | null;
+			const annotationSvg = viewportContainer.querySelector(
+				'svg.annotation-overlay'
+			) as SVGSVGElement | null;
 			if (annotationSvg) {
 				await renderSvgToCanvas(annotationSvg, ctx, outputWidth, outputHeight);
 			}
@@ -268,24 +296,24 @@
 			// Convert image coordinates to output canvas coordinates
 			const scaleX = outputWidth / viewportWidth;
 			const scaleY = outputHeight / viewportHeight;
-			
+
 			// Calculate screen coordinates (same as in RoiOverlay.svelte)
 			const screenStartX = (roi.startImage.x - viewportState.x) * viewportState.zoom;
 			const screenStartY = (roi.startImage.y - viewportState.y) * viewportState.zoom;
 			const screenEndX = (roi.endImage.x - viewportState.x) * viewportState.zoom;
 			const screenEndY = (roi.endImage.y - viewportState.y) * viewportState.zoom;
-			
+
 			// Scale to output dimensions
 			const roiX = Math.min(screenStartX, screenEndX) * scaleX;
 			const roiY = Math.min(screenStartY, screenEndY) * scaleY;
 			const roiWidth = Math.abs(screenEndX - screenStartX) * scaleX;
 			const roiHeight = Math.abs(screenEndY - screenStartY) * scaleY;
-			
+
 			// Draw outside overlay first (so outline goes on top)
 			if (options.roiOverlay.enabled) {
 				const overlayColor = rgbaToCss(options.roiOverlay.color);
 				ctx.fillStyle = overlayColor;
-				
+
 				// Fill everything outside the ROI
 				// Top region
 				ctx.fillRect(0, 0, outputWidth, roiY);
@@ -296,96 +324,120 @@
 				// Right region
 				ctx.fillRect(roiX + roiWidth, roiY, outputWidth - roiX - roiWidth, roiHeight);
 			}
-			
+
 			// Draw ROI outline
 			if (options.roiOutline.enabled) {
 				ctx.strokeStyle = rgbaToCss(options.roiOutline.color);
 				ctx.lineWidth = options.roiOutline.thickness * scaleX; // Scale line thickness
 				ctx.lineCap = options.roiOutline.lineCap;
 				ctx.lineJoin = options.roiOutline.lineCap === 'round' ? 'round' : 'miter';
-				
+
 				// Set line style
 				if (options.roiOutline.lineStyle === 'dashed') {
-					ctx.setLineDash([options.roiOutline.dashLength * scaleX, options.roiOutline.dashSpacing * scaleX]);
+					ctx.setLineDash([
+						options.roiOutline.dashLength * scaleX,
+						options.roiOutline.dashSpacing * scaleX
+					]);
 				} else if (options.roiOutline.lineStyle === 'dotted') {
-					ctx.setLineDash([options.roiOutline.thickness * scaleX, options.roiOutline.dotSpacing * scaleX]);
+					ctx.setLineDash([
+						options.roiOutline.thickness * scaleX,
+						options.roiOutline.dotSpacing * scaleX
+					]);
 				} else {
 					ctx.setLineDash([]);
 				}
-				
+
 				ctx.strokeRect(roiX, roiY, roiWidth, roiHeight);
 				ctx.setLineDash([]); // Reset
 			}
 		}
 
 		// Render measurement overlay if enabled and active
-		if (options.showMeasurement && hasMeasurement && viewportState && measurement.startImage && measurement.endImage) {
+		if (
+			options.showMeasurement &&
+			hasMeasurement &&
+			viewportState &&
+			measurement.startImage &&
+			measurement.endImage
+		) {
 			// Convert image coordinates to output canvas coordinates
 			const scaleX = outputWidth / viewportWidth;
 			const scaleY = outputHeight / viewportHeight;
-			
+
 			// Calculate screen coordinates
 			const startX = (measurement.startImage.x - viewportState.x) * viewportState.zoom * scaleX;
 			const startY = (measurement.startImage.y - viewportState.y) * viewportState.zoom * scaleY;
 			const endX = (measurement.endImage.x - viewportState.x) * viewportState.zoom * scaleX;
 			const endY = (measurement.endImage.y - viewportState.y) * viewportState.zoom * scaleY;
-			
+
 			// Draw measurement line
 			const measureColor = rgbaToCss(options.measurementOptions.color);
 			ctx.strokeStyle = measureColor;
 			ctx.lineWidth = options.measurementOptions.thickness * scaleX;
 			ctx.lineCap = options.measurementOptions.lineCap;
-			
+
 			// Set line style
 			if (options.measurementOptions.lineStyle === 'dashed') {
-				ctx.setLineDash([options.measurementOptions.dashLength * scaleX, options.measurementOptions.dashSpacing * scaleX]);
+				ctx.setLineDash([
+					options.measurementOptions.dashLength * scaleX,
+					options.measurementOptions.dashSpacing * scaleX
+				]);
 			} else if (options.measurementOptions.lineStyle === 'dotted') {
-				ctx.setLineDash([options.measurementOptions.thickness * scaleX, options.measurementOptions.dotSpacing * scaleX]);
+				ctx.setLineDash([
+					options.measurementOptions.thickness * scaleX,
+					options.measurementOptions.dotSpacing * scaleX
+				]);
 			} else {
 				ctx.setLineDash([]);
 			}
-			
+
 			ctx.beginPath();
 			ctx.moveTo(startX, startY);
 			ctx.lineTo(endX, endY);
 			ctx.stroke();
 			ctx.setLineDash([]);
-			
+
 			// Draw end points
 			ctx.fillStyle = measureColor;
 			const pointRadius = 4 * scaleX;
-			
+
 			ctx.beginPath();
 			ctx.arc(startX, startY, pointRadius, 0, Math.PI * 2);
 			ctx.fill();
-			
+
 			ctx.beginPath();
 			ctx.arc(endX, endY, pointRadius, 0, Math.PI * 2);
 			ctx.fill();
-			
+
 			// Calculate distance and draw label
 			const dx = measurement.endImage.x - measurement.startImage.x;
 			const dy = measurement.endImage.y - measurement.startImage.y;
 			const distancePixels = Math.sqrt(dx * dx + dy * dy);
 			const distanceMicrons = distancePixels * micronsPerPixel;
 			const displayText = formatMeasurementDistance(distanceMicrons);
-			
+
 			// Label position (midpoint)
 			const midX = (startX + endX) / 2;
 			const midY = (startY + endY) / 2;
-			
+
 			// Draw label background
 			const fontSize = options.measurementOptions.fontSize * scaleX;
 			ctx.font = `${fontSize}px system-ui, -apple-system, sans-serif`;
 			const textMetrics = ctx.measureText(displayText);
 			const textWidth = textMetrics.width + 12 * scaleX;
-			const textHeight = (fontSize * 1.5) + 4 * scaleX;
-			
+			const textHeight = fontSize * 1.5 + 4 * scaleX;
+
 			ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
 			ctx.beginPath();
-			ctx.roundRect(midX - textWidth / 2, midY - textHeight / 2 - 15 * scaleY, textWidth, textHeight, 4 * scaleX);
+			ctx.roundRect(
+				midX - textWidth / 2,
+				midY - textHeight / 2 - 15 * scaleY,
+				textWidth,
+				textHeight,
+				4 * scaleX
+			);
 			ctx.fill();
-			
+
 			// Draw label text
 			ctx.fillStyle = 'white';
 			ctx.textAlign = 'center';
@@ -430,14 +482,14 @@
 
 		// Clone the SVG to avoid modifying the original
 		const svgClone = svg.cloneNode(true) as SVGSVGElement;
-		
+
 		// Set explicit dimensions matching the canvas
 		svgClone.setAttribute('width', String(width));
 		svgClone.setAttribute('height', String(height));
-		
+
 		// Ensure the viewBox matches the canvas dimensions
 		svgClone.setAttribute('viewBox', `0 0 ${width} ${height}`);
-		
+
 		// Remove any transforms that might be applied at the container level
 		svgClone.style.transform = 'none';
 		svgClone.style.position = 'static';
@@ -445,7 +497,7 @@
 		// Serialize to string
 		const serializer = new XMLSerializer();
 		let svgString = serializer.serializeToString(svgClone);
-		
+
 		// Ensure proper XML namespace
 		if (!svgString.includes('xmlns=')) {
 			svgString = svgString.replace('<svg', '<svg xmlns="http://www.w3.org/2000/svg"');
@@ -548,7 +600,7 @@
 		const target = event.target as HTMLInputElement;
 		const value = target.value.trim();
 		dpiInputValue = value;
-		
+
 		const dpi = parseInt(value, 10);
 		if (!isNaN(dpi) && dpi >= 72 && dpi <= 600) {
 			exportStore.updateOptions({ dpi });
@@ -577,7 +629,10 @@
 		const g = parseInt(hex.slice(3, 5), 16);
 		const b = parseInt(hex.slice(5, 7), 16);
 		exportStore.updateOptions({
-			measurementOptions: { ...options.measurementOptions, color: { ...options.measurementOptions.color, r, g, b } }
+			measurementOptions: {
+				...options.measurementOptions,
+				color: { ...options.measurementOptions.color, r, g, b }
+			}
 		});
 	}
 
@@ -585,7 +640,10 @@
 		const target = event.target as HTMLInputElement;
 		const a = Math.max(0, Math.min(100, parseInt(target.value, 10) || 0)) / 100;
 		exportStore.updateOptions({
-			measurementOptions: { ...options.measurementOptions, color: { ...options.measurementOptions.color, a } }
+			measurementOptions: {
+				...options.measurementOptions,
+				color: { ...options.measurementOptions.color, a }
+			}
 		});
 	}
 
@@ -790,8 +848,8 @@
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div class="export-overlay" onclick={closeModal}>
-		<div 
-			class="export-modal" 
+		<div
+			class="export-modal"
 			onclick={(e) => e.stopPropagation()}
 			onmousedown={(e) => e.stopPropagation()}
 			onmousemove={(e) => e.stopPropagation()}
@@ -824,7 +882,15 @@
 						<img src={previewDataUrl} alt="Export preview" class="preview-image" />
 					{:else}
 						<div class="preview-placeholder">
-							<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+							<svg
+								xmlns="http://www.w3.org/2000/svg"
+								width="48"
+								height="48"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="1.5"
+							>
 								<rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
 								<circle cx="8.5" cy="8.5" r="1.5"></circle>
 								<polyline points="21 15 16 10 5 21"></polyline>
@@ -840,7 +906,15 @@
 				{/if}
 				<div class="dimensions-display">
 					<span class="dimensions-icon">
-						<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<svg
+							xmlns="http://www.w3.org/2000/svg"
+							width="14"
+							height="14"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+						>
 							<rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
 						</svg>
 					</span>
@@ -856,7 +930,15 @@
 					<!-- DPI Control -->
 					<div class="option-group">
 						<div class="option-label-standalone">
-							<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<svg
+								xmlns="http://www.w3.org/2000/svg"
+								width="16"
+								height="16"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+							>
 								<rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect>
 								<line x1="7" y1="2" x2="7" y2="22"></line>
 								<line x1="17" y1="2" x2="17" y2="22"></line>
@@ -897,27 +979,39 @@
 							<button
 								class="preset-btn"
 								class:active={options.dpi === 72}
-								onclick={() => { dpiInputValue = '72'; exportStore.updateOptions({ dpi: 72 }); }}
-								type="button"
-							>72</button>
+								onclick={() => {
+									dpiInputValue = '72';
+									exportStore.updateOptions({ dpi: 72 });
+								}}
+								type="button">72</button
+							>
 							<button
 								class="preset-btn"
 								class:active={options.dpi === 96}
-								onclick={() => { dpiInputValue = '96'; exportStore.updateOptions({ dpi: 96 }); }}
-								type="button"
-							>96</button>
+								onclick={() => {
+									dpiInputValue = '96';
+									exportStore.updateOptions({ dpi: 96 });
+								}}
+								type="button">96</button
+							>
 							<button
 								class="preset-btn"
 								class:active={options.dpi === 150}
-								onclick={() => { dpiInputValue = '150'; exportStore.updateOptions({ dpi: 150 }); }}
-								type="button"
-							>150</button>
+								onclick={() => {
+									dpiInputValue = '150';
+									exportStore.updateOptions({ dpi: 150 });
+								}}
+								type="button">150</button
+							>
 							<button
 								class="preset-btn"
 								class:active={options.dpi === 300}
-								onclick={() => { dpiInputValue = '300'; exportStore.updateOptions({ dpi: 300 }); }}
-								type="button"
-							>300</button>
+								onclick={() => {
+									dpiInputValue = '300';
+									exportStore.updateOptions({ dpi: 300 });
+								}}
+								type="button">300</button
+							>
 						</div>
 					</div>
 
@@ -925,7 +1019,15 @@
 					<div class="option-group">
 						<label class="option-row toggle-option">
 							<div class="option-label">
-								<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<svg
+									xmlns="http://www.w3.org/2000/svg"
+									width="16"
+									height="16"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2"
+								>
 									<polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5 12 2"></polygon>
 									<line x1="12" y1="22" x2="12" y2="15.5"></line>
 									<polyline points="22 8.5 12 15.5 2 8.5"></polyline>
@@ -949,11 +1051,27 @@
 
 					<!-- Measurement Section -->
 					<div class="section-label" style="margin-top: 8px;">Measurement</div>
-					<div class="option-group measurement-section" class:section-disabled={!hasMeasurement} title={!hasMeasurement ? 'No measurement set. Use the measurement tool to add one.' : ''}>
+					<div
+						class="option-group measurement-section"
+						class:section-disabled={!hasMeasurement}
+						title={!hasMeasurement
+							? 'No measurement set. Use the measurement tool to add one.'
+							: ''}
+					>
 						<label class="option-row toggle-option">
 							<div class="option-label">
-								<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-									<path d="M21.3 8.7 8.7 21.3c-1 1-2.5 1-3.4 0l-2.6-2.6c-1-1-1-2.5 0-3.4L15.3 2.7c1-1 2.5-1 3.4 0l2.6 2.6c1 1 1 2.5 0 3.4Z"></path>
+								<svg
+									xmlns="http://www.w3.org/2000/svg"
+									width="16"
+									height="16"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2"
+								>
+									<path
+										d="M21.3 8.7 8.7 21.3c-1 1-2.5 1-3.4 0l-2.6-2.6c-1-1-1-2.5 0-3.4L15.3 2.7c1-1 2.5-1 3.4 0l2.6 2.6c1 1 1 2.5 0 3.4Z"
+									></path>
 									<path d="m7.5 10.5 2 2"></path>
 									<path d="m10.5 7.5 2 2"></path>
 								</svg>
@@ -973,7 +1091,7 @@
 								</span>
 							</button>
 						</label>
-						
+
 						<!-- Measurement sub-options -->
 						<div class="sub-options" class:disabled={!options.showMeasurement || !hasMeasurement}>
 							<!-- Color picker -->
@@ -1001,7 +1119,7 @@
 									<span class="alpha-label">%</span>
 								</div>
 							</div>
-							
+
 							<!-- Thickness -->
 							<div class="sub-option-row">
 								<span class="sub-option-label">Thickness</span>
@@ -1016,7 +1134,7 @@
 									disabled={!options.showMeasurement || !hasMeasurement}
 								/>
 							</div>
-							
+
 							<!-- Stroke style -->
 							<div class="sub-option-row">
 								<span class="sub-option-label">Stroke Style</span>
@@ -1069,7 +1187,7 @@
 									{/if}
 								</div>
 							</div>
-							
+
 							<!-- Cap style -->
 							<div class="sub-option-row">
 								<span class="sub-option-label">Cap Style</span>
@@ -1084,7 +1202,7 @@
 									<option value="butt">Flat</option>
 								</select>
 							</div>
-							
+
 							<!-- Font size -->
 							<div class="sub-option-row">
 								<span class="sub-option-label">Font Size</span>
@@ -1105,13 +1223,34 @@
 
 					<!-- Region of Interest Section -->
 					<div class="section-label" style="margin-top: 8px;">Region of Interest</div>
-					
+
 					<!-- ROI Outline -->
-					<div class="option-group roi-section" class:section-disabled={!hasRoi} title={!hasRoi ? 'No ROI set. Use the ROI tool to define a region.' : ''}>
+					<div
+						class="option-group roi-section"
+						class:section-disabled={!hasRoi}
+						title={!hasRoi ? 'No ROI set. Use the ROI tool to define a region.' : ''}
+					>
 						<label class="option-row toggle-option">
 							<div class="option-label">
-								<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-									<rect x="3" y="3" width="18" height="18" rx="2" ry="2" stroke="yellow" stroke-dasharray="1 4"></rect>
+								<svg
+									xmlns="http://www.w3.org/2000/svg"
+									width="16"
+									height="16"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2"
+								>
+									<rect
+										x="3"
+										y="3"
+										width="18"
+										height="18"
+										rx="2"
+										ry="2"
+										stroke="yellow"
+										stroke-dasharray="1 4"
+									></rect>
 								</svg>
 								<span>Show Outline</span>
 							</div>
@@ -1129,7 +1268,7 @@
 								</span>
 							</button>
 						</label>
-						
+
 						<!-- Outline sub-options -->
 						<div class="sub-options" class:disabled={!options.roiOutline.enabled || !hasRoi}>
 							<!-- Color picker -->
@@ -1157,7 +1296,7 @@
 									<span class="alpha-label">%</span>
 								</div>
 							</div>
-							
+
 							<!-- Thickness -->
 							<div class="sub-option-row">
 								<span class="sub-option-label">Thickness</span>
@@ -1172,7 +1311,7 @@
 									disabled={!options.roiOutline.enabled || !hasRoi}
 								/>
 							</div>
-							
+
 							<!-- Line style -->
 							<div class="sub-option-row">
 								<span class="sub-option-label">Stroke Style</span>
@@ -1225,7 +1364,7 @@
 									{/if}
 								</div>
 							</div>
-							
+
 							<!-- Cap style -->
 							<div class="sub-option-row">
 								<span class="sub-option-label">Cap Style</span>
@@ -1242,12 +1381,24 @@
 							</div>
 						</div>
 					</div>
-					
+
 					<!-- Outside Overlay -->
-					<div class="option-group roi-section" class:section-disabled={!hasRoi} title={!hasRoi ? 'No ROI set. Use the ROI tool to define a region.' : ''}>
+					<div
+						class="option-group roi-section"
+						class:section-disabled={!hasRoi}
+						title={!hasRoi ? 'No ROI set. Use the ROI tool to define a region.' : ''}
+					>
 						<label class="option-row toggle-option">
 							<div class="option-label">
-								<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<svg
+									xmlns="http://www.w3.org/2000/svg"
+									width="16"
+									height="16"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2"
+								>
 									<rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
 									<path d="M3 3l18 18"></path>
 								</svg>
@@ -1267,7 +1418,7 @@
 								</span>
 							</button>
 						</label>
-						
+
 						<!-- Overlay color -->
 						<div class="sub-options" class:disabled={!options.roiOverlay.enabled || !hasRoi}>
 							<div class="sub-option-row">
@@ -1300,22 +1451,21 @@
 					<!-- Format Selection -->
 					<div class="option-group">
 						<div class="option-label-standalone">
-							<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<svg
+								xmlns="http://www.w3.org/2000/svg"
+								width="16"
+								height="16"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+							>
 								<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
 								<polyline points="14 2 14 8 20 8"></polyline>
 							</svg>
 							<span>Format</span>
 						</div>
 						<div class="format-buttons">
-							<button
-								class="format-btn"
-								class:active={options.format === 'png'}
-								onclick={() => handleFormatChange('png')}
-								type="button"
-							>
-								<span class="format-name">PNG</span>
-								<span class="format-desc">Lossless, transparent</span>
-							</button>
 							<button
 								class="format-btn"
 								class:active={options.format === 'jpeg'}
@@ -1325,6 +1475,15 @@
 								<span class="format-name">JPEG</span>
 								<span class="format-desc">Smaller file size</span>
 							</button>
+							<button
+								class="format-btn"
+								class:active={options.format === 'png'}
+								onclick={() => handleFormatChange('png')}
+								type="button"
+							>
+								<span class="format-name">PNG</span>
+								<span class="format-desc">Lossless, transparent</span>
+							</button>
 						</div>
 					</div>
 
@@ -1332,9 +1491,19 @@
 					{#if options.format === 'jpeg'}
 						<div class="option-group quality-group">
 							<label class="option-label-standalone" for="quality-slider">
-								<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<svg
+									xmlns="http://www.w3.org/2000/svg"
+									width="16"
+									height="16"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2"
+								>
 									<circle cx="12" cy="12" r="3"></circle>
-									<path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+									<path
+										d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"
+									></path>
 								</svg>
 								<span>Quality: {Math.round(options.quality * 100)}%</span>
 							</label>
@@ -1359,13 +1528,9 @@
 
 			<!-- Footer -->
 			<div class="export-footer">
-				<button class="btn btn-tertiary" onclick={handleReset} type="button">
-					Reset
-				</button>
+				<button class="btn btn-tertiary" onclick={handleReset} type="button"> Reset </button>
 				<div class="footer-right">
-					<button class="btn btn-secondary" onclick={closeModal} type="button">
-						Cancel
-					</button>
+					<button class="btn btn-secondary" onclick={closeModal} type="button"> Cancel </button>
 					<button
 						class="btn btn-primary"
 						onclick={handleExport}
@@ -1376,7 +1541,15 @@
 							<span class="spinner small"></span>
 							Exporting...
 						{:else}
-							<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<svg
+								xmlns="http://www.w3.org/2000/svg"
+								width="16"
+								height="16"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+							>
 								<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
 								<polyline points="7 10 12 15 17 10"></polyline>
 								<line x1="12" y1="15" x2="12" y2="3"></line>
@@ -1539,7 +1712,7 @@
 		height: 200px;
 		/* Crosshatch pattern to indicate non-export area */
 		background-color: #1a1a1a;
-		background-image: 
+		background-image:
 			repeating-linear-gradient(
 				45deg,
 				transparent,
@@ -2130,7 +2303,9 @@
 		color: #fff;
 		text-align: center;
 		outline: none;
-		transition: border-color 0.15s, background-color 0.15s;
+		transition:
+			border-color 0.15s,
+			background-color 0.15s;
 	}
 
 	.alpha-input:hover:not(:disabled) {
@@ -2155,7 +2330,7 @@
 		margin: 0;
 	}
 
-	.alpha-input[type=number] {
+	.alpha-input[type='number'] {
 		-moz-appearance: textfield;
 	}
 
@@ -2175,7 +2350,9 @@
 		color: #fff;
 		text-align: center;
 		outline: none;
-		transition: border-color 0.15s, background-color 0.15s;
+		transition:
+			border-color 0.15s,
+			background-color 0.15s;
 	}
 
 	.thickness-input:hover:not(:disabled) {
@@ -2200,7 +2377,7 @@
 		margin: 0;
 	}
 
-	.thickness-input[type=number] {
+	.thickness-input[type='number'] {
 		-moz-appearance: textfield;
 	}
 
@@ -2214,7 +2391,9 @@
 		cursor: pointer;
 		min-width: 90px;
 		outline: none;
-		transition: border-color 0.15s, background-color 0.15s;
+		transition:
+			border-color 0.15s,
+			background-color 0.15s;
 	}
 
 	.line-style-select:hover:not(:disabled) {
