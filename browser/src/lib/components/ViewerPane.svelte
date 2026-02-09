@@ -3272,9 +3272,9 @@
         ctx.fillText(displayText, midX, midY - 15);
       }
 
-      // Convert to JPEG and copy to clipboard
+      // Convert to PNG and copy to clipboard (Chrome only supports PNG)
       const blob = await new Promise<Blob | null>((resolve) => {
-        compositeCanvas.toBlob(resolve, 'image/jpeg', 0.92);
+        compositeCanvas.toBlob(resolve, 'image/png');
       });
       if (!blob) {
         showHudNotification('Failed to copy image');
@@ -3282,7 +3282,7 @@
       }
 
       await navigator.clipboard.write([
-        new ClipboardItem({ 'image/jpeg': blob })
+        new ClipboardItem({ 'image/png': blob })
       ]);
       
       showHudNotification('Image copied to clipboard');
