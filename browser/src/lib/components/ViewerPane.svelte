@@ -3090,23 +3090,249 @@
   }
 
   async function handleCopyImage() {
-    const canvas = container?.querySelector('canvas') as HTMLCanvasElement | null;
-    if (!canvas) return;
+    if (!container) return;
 
     try {
+      // Find the image layer canvas
+      const imageLayer = container.querySelector('.image-layer');
+      const imageCanvas = imageLayer?.querySelector('canvas') as HTMLCanvasElement | null;
+      if (!imageCanvas) {
+        showHudNotification('Failed to copy image');
+        return;
+      }
+
+      const sourceWidth = imageCanvas.width;
+      const sourceHeight = imageCanvas.height;
+      const outputWidth = Math.round(viewport.width);
+      const outputHeight = Math.round(viewport.height);
+
+      // Create composite canvas
+      const compositeCanvas = document.createElement('canvas');
+      compositeCanvas.width = outputWidth;
+      compositeCanvas.height = outputHeight;
+      const ctx = compositeCanvas.getContext('2d');
+      if (!ctx) {
+        showHudNotification('Failed to copy image');
+        return;
+      }
+
+      // Enable high-quality scaling
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+
+      // Draw the main image canvas
+      ctx.drawImage(imageCanvas, 0, 0, sourceWidth, sourceHeight, 0, 0, outputWidth, outputHeight);
+
+      // Apply brightness/contrast/gamma filters
+      const brightness = $imageSettings.brightness;
+      const contrast = $imageSettings.contrast;
+      const gamma = $imageSettings.gamma;
+      const hasFilters = brightness !== 0 || contrast !== 0 || gamma !== 1;
+      
+      if (hasFilters) {
+        const imageData = ctx.getImageData(0, 0, outputWidth, outputHeight);
+        const data = imageData.data;
+        
+        // Build LUT for brightness/contrast/gamma
+        const lut = new Uint8ClampedArray(256);
+        const contrastFactor = (100 + contrast) / 100;
+        const gammaPower = gamma !== 0 ? 1 / gamma : 1;
+        
+        for (let i = 0; i < 256; i++) {
+          let v = i;
+          // Brightness
+          v = v + brightness * 2.55;
+          // Contrast
+          v = (v - 128) * contrastFactor + 128;
+          // Gamma
+          v = 255 * Math.pow(Math.max(0, v / 255), gammaPower);
+          lut[i] = Math.max(0, Math.min(255, Math.round(v)));
+        }
+        
+        for (let i = 0; i < data.length; i += 4) {
+          data[i] = lut[data[i]];
+          data[i + 1] = lut[data[i + 1]];
+          data[i + 2] = lut[data[i + 2]];
+        }
+        ctx.putImageData(imageData, 0, 0);
+      }
+
+      // Draw mask canvas overlay if present
+      const maskCanvas = container.querySelector('canvas.mask-canvas') as HTMLCanvasElement | null;
+      if (maskCanvas) {
+        try {
+          ctx.drawImage(maskCanvas, 0, 0, maskCanvas.width, maskCanvas.height, 0, 0, outputWidth, outputHeight);
+        } catch (e) {
+          console.warn('Failed to draw mask canvas:', e);
+        }
+      }
+
+      // Draw annotation SVG overlay if present
+      const annotationSvg = container.querySelector('svg.annotation-overlay') as SVGSVGElement | null;
+      if (annotationSvg) {
+        await renderSvgToCanvas(annotationSvg, ctx, outputWidth, outputHeight);
+      }
+
+      // Draw ROI overlay if active
+      const hasRoi = roi.active && roi.startImage !== null && roi.endImage !== null;
+      if (hasRoi && roi.startImage && roi.endImage) {
+        const screenStartX = (roi.startImage.x - viewport.x) * viewport.zoom;
+        const screenStartY = (roi.startImage.y - viewport.y) * viewport.zoom;
+        const screenEndX = (roi.endImage.x - viewport.x) * viewport.zoom;
+        const screenEndY = (roi.endImage.y - viewport.y) * viewport.zoom;
+
+        const roiX = Math.min(screenStartX, screenEndX);
+        const roiY = Math.min(screenStartY, screenEndY);
+        const roiWidth = Math.abs(screenEndX - screenStartX);
+        const roiHeight = Math.abs(screenEndY - screenStartY);
+
+        // Draw dashed ROI outline (matching RoiOverlay.svelte style)
+        ctx.strokeStyle = '#fbbf24';
+        ctx.lineWidth = 2;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.setLineDash([8, 4]);
+        ctx.strokeRect(roiX, roiY, roiWidth, roiHeight);
+        ctx.setLineDash([]);
+      }
+
+      // Draw measurement overlay if active
+      const hasMeasurement = measurement.active && measurement.startImage !== null && measurement.endImage !== null;
+      if (hasMeasurement && measurement.startImage && measurement.endImage) {
+        const startX = (measurement.startImage.x - viewport.x) * viewport.zoom;
+        const startY = (measurement.startImage.y - viewport.y) * viewport.zoom;
+        const endX = (measurement.endImage.x - viewport.x) * viewport.zoom;
+        const endY = (measurement.endImage.y - viewport.y) * viewport.zoom;
+
+        // Draw measurement line (matching MeasurementOverlay.svelte style)
+        ctx.strokeStyle = '#3b82f6';
+        ctx.lineWidth = 2;
+        ctx.lineCap = 'round';
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.moveTo(startX, startY);
+        ctx.lineTo(endX, endY);
+        ctx.stroke();
+
+        // Draw end points
+        ctx.fillStyle = '#3b82f6';
+        ctx.beginPath();
+        ctx.arc(startX, startY, 4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(endX, endY, 4, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Calculate and draw measurement label
+        const micronsPerPixel = 0.25;
+        const dx = measurement.endImage.x - measurement.startImage.x;
+        const dy = measurement.endImage.y - measurement.startImage.y;
+        const distancePixels = Math.sqrt(dx * dx + dy * dy);
+        const distanceMicrons = distancePixels * micronsPerPixel;
+        
+        // Format distance based on settings
+        const units = $settings.measurements?.units ?? 'um';
+        let displayText: string;
+        switch (units) {
+          case 'um':
+            displayText = distanceMicrons >= 1000 
+              ? `${(distanceMicrons / 1000).toFixed(distanceMicrons >= 10000 ? 0 : 1)} mm`
+              : `${distanceMicrons.toFixed(1)} µm`;
+            break;
+          case 'mm':
+            displayText = `${(distanceMicrons / 1000).toFixed(distanceMicrons >= 1000 ? 1 : 3)} mm`;
+            break;
+          case 'in':
+            const inches = distanceMicrons / 25400;
+            displayText = inches >= 0.1 ? `${inches.toFixed(2)} in` : `${(inches * 1000).toFixed(1)} mil`;
+            break;
+          default:
+            displayText = `${distanceMicrons.toFixed(1)} µm`;
+        }
+
+        // Label at midpoint
+        const midX = (startX + endX) / 2;
+        const midY = (startY + endY) / 2;
+        const fontSize = 14;
+        ctx.font = `${fontSize}px system-ui, -apple-system, sans-serif`;
+        const textMetrics = ctx.measureText(displayText);
+        const textWidth = textMetrics.width + 12;
+        const textHeight = fontSize * 1.5 + 4;
+
+        // Draw label background
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+        ctx.beginPath();
+        ctx.roundRect(midX - textWidth / 2, midY - textHeight / 2 - 15, textWidth, textHeight, 4);
+        ctx.fill();
+
+        // Draw label text
+        ctx.fillStyle = 'white';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(displayText, midX, midY - 15);
+      }
+
+      // Convert to JPEG and copy to clipboard
       const blob = await new Promise<Blob | null>((resolve) => {
-        canvas.toBlob(resolve, 'image/png');
+        compositeCanvas.toBlob(resolve, 'image/jpeg', 0.92);
       });
-      if (!blob) return;
+      if (!blob) {
+        showHudNotification('Failed to copy image');
+        return;
+      }
 
       await navigator.clipboard.write([
-        new ClipboardItem({ 'image/png': blob })
+        new ClipboardItem({ 'image/jpeg': blob })
       ]);
       
       showHudNotification('Image copied to clipboard');
     } catch (err) {
       console.error('Failed to copy image:', err);
       showHudNotification('Failed to copy image');
+    }
+  }
+
+  // Helper function to render an SVG to canvas
+  async function renderSvgToCanvas(
+    svg: SVGSVGElement,
+    ctx: CanvasRenderingContext2D,
+    width: number,
+    height: number
+  ) {
+    const rect = svg.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return;
+
+    // Clone the SVG
+    const svgClone = svg.cloneNode(true) as SVGSVGElement;
+    svgClone.setAttribute('width', String(width));
+    svgClone.setAttribute('height', String(height));
+    svgClone.setAttribute('viewBox', `0 0 ${width} ${height}`);
+    svgClone.style.transform = 'none';
+    svgClone.style.position = 'static';
+
+    // Serialize to string
+    const serializer = new XMLSerializer();
+    let svgString = serializer.serializeToString(svgClone);
+    if (!svgString.includes('xmlns=')) {
+      svgString = svgString.replace('<svg', '<svg xmlns="http://www.w3.org/2000/svg"');
+    }
+
+    // Load as image
+    const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(svgBlob);
+
+    try {
+      const img = new Image();
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = reject;
+        img.src = url;
+      });
+      ctx.drawImage(img, 0, 0);
+    } catch (e) {
+      console.warn('Failed to render SVG to canvas:', e);
+    } finally {
+      URL.revokeObjectURL(url);
     }
   }
 
