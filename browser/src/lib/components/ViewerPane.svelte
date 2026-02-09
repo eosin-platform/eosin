@@ -103,7 +103,7 @@
   // Measurement tool state
   interface MeasurementState {
     active: boolean;
-    mode: 'drag' | 'toggle' | 'pending' | null;
+    mode: 'drag' | 'pending' | 'placing' | 'toggle' | 'confirmed' | null;
     startScreen: { x: number; y: number } | null;
     endScreen: { x: number; y: number } | null;
     startImage: { x: number; y: number } | null;
@@ -361,27 +361,20 @@
     if (e.key === 'd' || e.key === 'D') {
       if (!imageDesc || !container) return;
       
-      if (measurement.active && measurement.mode === 'toggle') {
-        // Cancel measurement if already in toggle mode
+      if (measurement.active) {
+        // Cancel measurement if active in any mode
         cancelMeasurement();
       } else {
-        // Start toggle measurement at current mouse position
-        // We'll use the center of the container as default if no mouse position available
-        const rect = container.getBoundingClientRect();
-        
-        // Get current mouse position from last known position or use center
-        const screenX = lastMouseX || (rect.left + rect.width / 2);
-        const screenY = lastMouseY || (rect.top + rect.height / 2);
-        const imagePos = screenToImage(screenX, screenY);
-        
+        // Enter pending mode - wait for first click to set start point
         measurement = {
           active: true,
-          mode: 'toggle',
-          startScreen: { x: screenX, y: screenY },
-          endScreen: { x: screenX, y: screenY },
-          startImage: imagePos,
-          endImage: imagePos,
+          mode: 'pending',
+          startScreen: null,
+          endScreen: null,
+          startImage: null,
+          endImage: null,
         };
+        showHudNotification('Click to start measuring');
       }
     }
     // '1' key: hold for multi-point, tap for single point
@@ -1348,14 +1341,14 @@
       return;
     }
 
-    // Left mouse button - regular pan, but also cancel toggle measurement
+    // Left mouse button - regular pan, but not when measurement mode is active
     if (e.button === 0) {
-      // If measurement is in 'pending' mode (from toolbar), start measuring from this click
+      // If measurement is in 'pending' mode, start measuring from this click
       if (measurement.active && measurement.mode === 'pending') {
         const imagePos = screenToImage(e.clientX, e.clientY);
         measurement = {
           active: true,
-          mode: 'toggle',
+          mode: 'placing',
           startScreen: { x: e.clientX, y: e.clientY },
           endScreen: { x: e.clientX, y: e.clientY },
           startImage: imagePos,
@@ -1364,9 +1357,24 @@
         e.preventDefault();
         return;
       }
-      // Cancel toggle measurement mode on click
+      // In placing mode, second mousedown switches to toggle (confirming on mouseup)
+      if (measurement.active && measurement.mode === 'placing') {
+        measurement = {
+          ...measurement,
+          mode: 'toggle',
+        };
+        e.preventDefault();
+        return;
+      }
+      // In toggle mode, prevent panning - confirmation happens on mouseup
       if (measurement.active && measurement.mode === 'toggle') {
-        cancelMeasurement();
+        e.preventDefault();
+        return;
+      }
+      // Block left-click panning when measurement is confirmed (use right-click to pan)
+      if (measurement.active && measurement.mode === 'confirmed') {
+        e.preventDefault();
+        return;
       }
       isDragging = true;
       lastMouseX = e.clientX;
@@ -1462,8 +1470,8 @@
       }
     }
 
-    // Handle measurement mode (toggle or drag mode)
-    if (measurement.active && measurement.startImage) {
+    // Handle measurement mode (placing or toggle mode) - don't update if confirmed
+    if (measurement.active && measurement.startImage && (measurement.mode === 'placing' || measurement.mode === 'toggle')) {
       const imagePos = screenToImage(e.clientX, e.clientY);
       measurement = {
         ...measurement,
@@ -1483,11 +1491,6 @@
     // Close context menu when panning starts
     if (contextMenuVisible) {
       contextMenuVisible = false;
-    }
-
-    // If panning during toggle measurement, cancel the measurement
-    if (measurement.active && measurement.mode === 'toggle') {
-      cancelMeasurement();
     }
 
     // Apply pan sensitivity from settings
@@ -1510,6 +1513,18 @@
       commitUndoStep();
       // Sync to backend after stroke completes
       scheduleMaskSync();
+      return;
+    }
+    
+    // Confirm measurement on second click mouseup
+    if (e && e.button === 0 && measurement.active && measurement.mode === 'toggle') {
+      const imagePos = screenToImage(e.clientX, e.clientY);
+      measurement = {
+        ...measurement,
+        mode: 'confirmed',
+        endScreen: { x: e.clientX, y: e.clientY },
+        endImage: imagePos,
+      };
       return;
     }
     
@@ -2826,7 +2841,7 @@
   class="viewer-container"
   class:no-slide={!imageDesc}
   class:measuring={measurement.active}
-  class:measuring-toggle={measurement.active && (measurement.mode === 'toggle' || measurement.mode === 'pending')}
+  class:measuring-toggle={measurement.active && (measurement.mode === 'placing' || measurement.mode === 'toggle' || measurement.mode === 'pending' || measurement.mode === 'confirmed')}
   class:modifying={modifyMode.phase !== 'idle'}
   bind:this={container}
   onmousedown={handleMouseDown}
