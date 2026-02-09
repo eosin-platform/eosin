@@ -110,7 +110,7 @@ export interface ExportModalState {
 }
 
 const defaultRoiOutline: RoiOutlineOptions = {
-  enabled: true,
+  enabled: false,
   color: { r: 251, g: 191, b: 36, a: 1 }, // Yellow (#fbbf24)
   thickness: 2,
   lineStyle: 'dashed',
@@ -121,7 +121,7 @@ const defaultRoiOutline: RoiOutlineOptions = {
 };
 
 const defaultRoiOverlay: RoiOverlayOptions = {
-  enabled: false,
+  enabled: true,
   color: { r: 0, g: 0, b: 0, a: 0.4 },
 };
 
