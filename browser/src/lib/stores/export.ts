@@ -140,7 +140,7 @@ const defaultOptions: ExportOptions = {
   includeAnnotations: true,
   format: 'jpeg',
   quality: 0.92,
-  dpi: 96,
+  dpi: 150,
   showMeasurement: true,
   measurementOptions: { ...defaultMeasurementOptions },
   roiOutline: { ...defaultRoiOutline },
