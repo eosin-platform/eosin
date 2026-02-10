@@ -7,3 +7,4 @@ __pycache__/
 output
 .buildx-cache
 notes.txt
+node_modules
