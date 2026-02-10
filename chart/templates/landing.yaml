@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-landing
+spec:
+  replicas: {{ .Values.landing.replicas}}
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-landing
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}-landing
+    spec:
+      restartPolicy: Always
+      containers:
+      - name: landing
+        imagePullPolicy: {{ .Values.landing.imagePullPolicy }}
+        image: {{ .Values.landing.image }}
+    {{- if .Values.landing.resources }}
+        resources:
+{{ toYaml .Values.landing.resources | indent 10 }}
+    {{- end }}
+        ports:
+        - containerPort: 3000
+          name: http
+{{- if .Values.prometheus.enabled }}
+        - containerPort: 2112
+          name: metrics
+{{- end }}
+        env:
+{{ include "eosin.metrics-env" . | indent 8 }}
+        # Trust X-Forwarded headers from the ingress controller
+        - name: PROTOCOL_HEADER
+          value: x-forwarded-proto
+        - name: HOST_HEADER
+          value: x-forwarded-host
+        {{- if .Values.landing.origin }}
+        - name: ORIGIN
+          value: {{ .Values.landing.origin | quote }}
+        {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-landing
+spec:
+  selector:
+    app: {{ .Release.Name }}-landing
+  ports:
+    - port: 80
+      targetPort: 3000
+---
+{{- if .Values.prometheus.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ .Release.Name }}-landing
+  labels:
+    chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
+spec:
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-landing
+  podMetricsEndpoints:
+  - port: metrics
+{{- end }}

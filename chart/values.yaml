@@ -46,7 +46,7 @@ s3:
   accessKeyId: {}
   secretAccessKey: {}
 
-registry: "" # empty string is the same as "docker.io/"
+registry: "" # empty string is the same as ""
 
 redis:
   username:
@@ -91,7 +91,7 @@ iam:
       memory: "64Mi"
 
 storage:
-  image: docker.io/thavlik/eosin-storage:latest
+  image: thavlik/eosin-storage:latest
   imagePullPolicy: Always
   replicas: 1
   logLevel: debug
@@ -108,7 +108,7 @@ storage:
     enabled: false
 
 frusta:
-  image: docker.io/thavlik/eosin-frusta:latest
+  image: thavlik/eosin-frusta:latest
   imagePullPolicy: Always
   replicas: 1
   logLevel: debug
@@ -117,13 +117,13 @@ frusta:
       cpu: "100m"
 
 meta:
-  image: docker.io/thavlik/eosin-meta:latest
+  image: thavlik/eosin-meta:latest
   imagePullPolicy: Always
   replicas: 1
   logLevel: debug
 
 browser:
-  image: docker.io/thavlik/eosin-browser:latest
+  image: thavlik/eosin-browser:latest
   imagePullPolicy: Always
   replicas: 1
   logLevel: warning
@@ -134,9 +134,18 @@ browser:
     limits:
       memory: "256Mi"
 
+landing:
+  image: thavlik/eosin-landing:latest
+  imagePullPolicy: Always
+  replicas: 1
+  logLevel: warning
+  resources:
+    limits:
+      memory: "256Mi"
+
 compiler:
   enabled: true
-  image: docker.io/thavlik/eosin-compiler:latest
+  image: thavlik/eosin-compiler:latest
   imagePullPolicy: Always
   replicas: 2
   logLevel: debug

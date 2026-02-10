@@ -7,6 +7,7 @@ group "default" {
     "storage",
     "frusta",
     "meta",
+    "landing",
     "browser",
     "compiler",
     "iam"
@@ -24,6 +25,13 @@ target "browser" {
   context    = "./"
   dockerfile = "browser/Dockerfile"
   tags       = ["${REGISTRY}thavlik/eosin-browser:latest"]
+  push       = true
+}
+
+target "landing" {
+  context    = "./"
+  dockerfile = "landing/Dockerfile"
+  tags       = ["${REGISTRY}thavlik/eosin-landing:latest"]
   push       = true
 }
 
