@@ -50,7 +50,7 @@
 				For Students
 			</button>
 			<a
-				href="https://eosin.ai/app/"
+				href="https://app.eosin.ai"
 				target="_blank"
 				rel="noopener noreferrer"
 				class="rounded-md bg-[#5E4AEF] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#4e3cd0]"
@@ -110,7 +110,7 @@
 					For Students
 				</button>
 				<a
-					href="https://eosin.ai/app/"
+					href="https://app.eosin.ai"
 					target="_blank"
 					rel="noopener noreferrer"
 					class="rounded-md bg-[#5E4AEF] px-3 py-2 text-center font-medium text-white transition-colors hover:bg-[#4e3cd0]"
@@ -139,7 +139,7 @@
 
 					<div class="flex flex-col gap-3 sm:flex-row">
 						<a
-							href="https://eosin.ai/app/"
+							href="https://app.eosin.ai"
 							target="_blank"
 							rel="noopener noreferrer"
 							class="inline-flex items-center justify-center gap-2 rounded-md bg-[#5E4AEF] px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#4e3cd0]"
@@ -437,7 +437,7 @@
 				Open the viewer and start exploring whole-slide images in your browser.
 			</p>
 			<a
-				href="https://eosin.ai/app/"
+				href="https://app.eosin.ai"
 				target="_blank"
 				rel="noopener noreferrer"
 				class="inline-flex items-center justify-center gap-2 rounded-md bg-[#5E4AEF] px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-[#4e3cd0]"
@@ -465,7 +465,7 @@
 			</div>
 			<div class="flex items-center gap-6 text-sm text-gray-500">
 				<a
-					href="https://eosin.ai/app/"
+					href="https://app.eosin.ai"
 					target="_blank"
 					rel="noopener noreferrer"
 					class="transition-colors hover:text-gray-900"
