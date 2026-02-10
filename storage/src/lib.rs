@@ -3,6 +3,7 @@ pub mod args;
 pub mod client;
 pub mod cluster;
 pub mod health;
+pub mod metrics;
 pub mod server;
 pub mod shard;
 

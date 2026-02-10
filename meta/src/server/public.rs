@@ -29,6 +29,7 @@ use crate::{
     annotation_models::{AnnotationKind, ListAnnotationsQuery, PolygonPath},
     bitmask::Bitmask,
     db,
+    metrics,
     models::{
         CreateSlideRequest, ListSlidesRequest, UpdateSlideProgressRequest, UpdateSlideRequest,
     },
@@ -186,9 +187,10 @@ pub async fn health() -> impl IntoResponse {
 /// Create a new slide
 pub async fn create_slide(
     State(state): State<AppState>,
-    UserId(_user_id): UserId,
+    UserId(user_id): UserId,
     Json(req): Json<CreateSlideRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
+    metrics::authenticated_request(&user_id.to_string());
     let slide = db::insert_slide(
         &state.pool,
         req.id,
@@ -200,6 +202,7 @@ pub async fn create_slide(
     )
     .await
     .map_err(|e| {
+        metrics::db_error("insert_slide");
         tracing::error!("failed to create slide: {:?}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -207,6 +210,7 @@ pub async fn create_slide(
         )
     })?;
 
+    metrics::slide_created();
     Ok((StatusCode::CREATED, Json(slide)))
 }
 
@@ -216,6 +220,7 @@ pub async fn get_slide(
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     let slide = db::get_slide(&state.pool, id).await.map_err(|e| {
+        metrics::db_error("get_slide");
         tracing::error!("failed to get slide: {:?}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -224,7 +229,10 @@ pub async fn get_slide(
     })?;
 
     match slide {
-        Some(s) => Ok(Json(s)),
+        Some(s) => {
+            metrics::slide_retrieved();
+            Ok(Json(s))
+        }
         None => Err((StatusCode::NOT_FOUND, format!("slide {} not found", id))),
     }
 }
@@ -232,10 +240,11 @@ pub async fn get_slide(
 /// Update a slide by ID
 pub async fn update_slide(
     State(state): State<AppState>,
-    UserId(_user_id): UserId,
+    UserId(user_id): UserId,
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateSlideRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
+    metrics::authenticated_request(&user_id.to_string());
     let slide = db::update_slide(
         &state.pool,
         id,
@@ -247,6 +256,7 @@ pub async fn update_slide(
     )
     .await
     .map_err(|e| {
+        metrics::db_error("update_slide");
         tracing::error!("failed to update slide: {:?}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -255,7 +265,10 @@ pub async fn update_slide(
     })?;
 
     match slide {
-        Some(s) => Ok(Json(s)),
+        Some(s) => {
+            metrics::slide_updated();
+            Ok(Json(s))
+        }
         None => Err((StatusCode::NOT_FOUND, format!("slide {} not found", id))),
     }
 }
@@ -263,10 +276,12 @@ pub async fn update_slide(
 /// Delete a slide by ID
 pub async fn delete_slide(
     State(state): State<AppState>,
-    UserId(_user_id): UserId,
+    UserId(user_id): UserId,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
+    metrics::authenticated_request(&user_id.to_string());
     let deleted = db::delete_slide(&state.pool, id).await.map_err(|e| {
+        metrics::db_error("delete_slide");
         tracing::error!("failed to delete slide: {:?}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -275,6 +290,7 @@ pub async fn delete_slide(
     })?;
 
     if deleted {
+        metrics::slide_deleted();
         Ok(StatusCode::NO_CONTENT)
     } else {
         Err((StatusCode::NOT_FOUND, format!("slide {} not found", id)))

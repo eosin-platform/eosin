@@ -2,6 +2,7 @@ use anyhow::Result;
 use clap::Parser;
 
 mod args;
+pub mod metrics;
 mod priority_queue;
 mod protocol;
 mod server;
@@ -20,6 +21,9 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Server(args) => run_server(args).await,
+        Commands::Server(args) => {
+            eosin_common::metrics::maybe_spawn_metrics_server();
+            run_server(args).await
+        }
     }
 }

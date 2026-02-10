@@ -5,6 +5,7 @@ mod api;
 mod args;
 mod cluster;
 mod health;
+pub mod metrics;
 mod server;
 
 pub mod proto {
@@ -29,7 +30,10 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Server(args) => run_server(args).await,
+        Commands::Server(args) => {
+            eosin_common::metrics::maybe_spawn_metrics_server();
+            run_server(args).await
+        }
         Commands::Health(args) => run_health(args).await,
     }
 }

@@ -10,6 +10,7 @@ mod bitmask;
 mod cli;
 mod client;
 mod db;
+pub mod metrics;
 mod models;
 mod server;
 
@@ -35,6 +36,8 @@ async fn main() -> Result<()> {
 }
 
 async fn run_servers(args: args::ServerArgs) -> Result<()> {
+    eosin_common::metrics::maybe_spawn_metrics_server();
+
     // Initialize database
     let pool = eosin_common::postgres::create_pool(args.postgres).await;
     db::init_schema(&pool)

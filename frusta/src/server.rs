@@ -28,6 +28,7 @@ use uuid::Uuid;
 
 use crate::{
     args::ServerArgs,
+    metrics,
     priority_queue::PriorityWorkQueue,
     protocol::{
         MessageBuilder, MessageType, DPI_SIZE, IMAGE_DESC_SIZE, TILE_REQUEST_SIZE, VIEWPORT_SIZE,
@@ -74,7 +75,9 @@ pub async fn run_server(args: ServerArgs) -> Result<()> {
 
     let cancel = CancellationToken::new();
     let work_queue = PriorityWorkQueue::new();
-    let workers = (0..args.worker_count)
+    let worker_count = args.worker_count;
+    metrics::active_workers(worker_count);
+    let workers = (0..worker_count)
         .map(|_| {
             tokio::spawn({
                 let cancel = cancel.clone();
@@ -150,6 +153,7 @@ async fn ws_handler(
     let client_ip = extract_client_ip(&headers);
     ws.on_upgrade(async move |socket| {
         if let Err(e) = handle_socket(socket, state, client_ip).await {
+            metrics::websocket_connections_dec();
             tracing::error!("WebSocket connection error: {}", e);
         }
     })
@@ -210,6 +214,7 @@ async fn handle_socket(
     state: AppState,
     client_ip: Option<String>,
 ) -> Result<()> {
+    metrics::websocket_connections_inc();
     let (sender, mut receiver) = socket.split();
     let cancel = CancellationToken::new();
     let (image_tx, image_rx) = async_channel::bounded::<Bytes>(100);
@@ -290,6 +295,7 @@ async fn handle_socket(
             Err(e) => bail!("websocket error: {}", e),
         }
     }
+    metrics::websocket_connections_dec();
     tracing::info!("WebSocket connection closed gracefully");
     Ok(())
 }
@@ -302,6 +308,7 @@ async fn handle_message(
 ) -> Result<()> {
     match ty {
         MessageType::Update => {
+            metrics::message_received("update");
             ensure!(data.len() >= 1 + VIEWPORT_SIZE, "Update message too short");
             let slot = data[0];
             let viewport = Viewport::from_slice(&data[1..1 + VIEWPORT_SIZE])?;
@@ -312,10 +319,12 @@ async fn handle_message(
                 .await
                 .context("failed to update viewport")?;
             let elapsed = Instant::now() - start;
+            metrics::viewport_updated(slot);
             tracing::info!(slot, elapsed_ms = %elapsed.as_millis(), "viewport updated");
             Ok(())
         }
         MessageType::Open => {
+            metrics::message_received("open");
             tracing::debug!("handling Open message");
             ensure!(
                 data.len() >= 1 + DPI_SIZE + IMAGE_DESC_SIZE,
@@ -324,16 +333,22 @@ async fn handle_message(
             let slot = data[0];
             let dpi = f32::from_le_bytes(data[1..1 + DPI_SIZE].try_into().unwrap());
             let image = ImageDesc::from_slice(&data[1 + DPI_SIZE..1 + DPI_SIZE + IMAGE_DESC_SIZE])?;
+            metrics::slide_opened(&image.id.to_string(), slot);
             session.open_slide(slot, dpi, image)?;
             Ok(())
         }
         MessageType::Close => {
+            metrics::message_received("close");
             tracing::debug!("handling Close message");
             ensure!(data.len() >= 1, "Close message too short");
             let slot = data[0];
+            if let Some(slide_id) = session.slides[slot as usize] {
+                metrics::slide_closed(&slide_id.to_string(), slot);
+            }
             session.close_slide(slot).context("failed to close slide")
         }
         MessageType::ClearCache => {
+            metrics::message_received("clear_cache");
             tracing::debug!("handling ClearCache message");
             ensure!(data.len() >= 1, "ClearCache message too short");
             let slot = data[0];
@@ -346,6 +361,7 @@ async fn handle_message(
             Ok(())
         }
         MessageType::RequestTile => {
+            metrics::message_received("request_tile");
             tracing::debug!("handling RequestTile message");
             // Fast path: if we're in a cooldown period, silently drop without hitting Redis
             if let Some(until) = session.rate_limit_until {
@@ -359,6 +375,7 @@ async fn handle_message(
             if let Some(ref ip) = session.client_ip {
                 let key = format!("ip:{}", ip);
                 if !session.rate_limiter.check(&key).await {
+                    metrics::rate_limited(ip);
                     tracing::warn!(ip = %ip, "rate limited tile request");
                     // Enter 5-second cooldown: silently drop all tile requests
                     session.rate_limit_until = Some(Instant::now() + Duration::from_secs(5));
@@ -384,6 +401,9 @@ async fn handle_message(
             let y = u32::from_le_bytes(data[5..9].try_into().unwrap());
             let level = u32::from_le_bytes(data[9..13].try_into().unwrap());
             let meta = TileMeta { x, y, level };
+            if let Some(slide_id) = session.slides[slot as usize] {
+                metrics::tile_requested(&slide_id.to_string(), level);
+            }
             session
                 .get_viewport_mut(slot)?
                 .request_tile(meta)

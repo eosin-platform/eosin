@@ -25,6 +25,7 @@ use crate::{
     },
     bitmask::Bitmask,
     db,
+    metrics,
     models::{
         CreateSlideRequest, ListSlidesRequest, UpdateSlideProgressRequest, UpdateSlideRequest,
     },
@@ -170,6 +171,7 @@ pub async fn create_slide(
     )
     .await
     .map_err(|e| {
+        metrics::db_error("insert_slide");
         tracing::error!("failed to create slide: {:?}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -177,6 +179,7 @@ pub async fn create_slide(
         )
     })?;
 
+    metrics::slide_created();
     Ok((StatusCode::CREATED, Json(slide)))
 }
 
@@ -186,6 +189,7 @@ pub async fn get_slide(
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     let slide = db::get_slide(&state.pool, id).await.map_err(|e| {
+        metrics::db_error("get_slide");
         tracing::error!("failed to get slide: {:?}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -194,7 +198,10 @@ pub async fn get_slide(
     })?;
 
     match slide {
-        Some(s) => Ok(Json(s)),
+        Some(s) => {
+            metrics::slide_retrieved();
+            Ok(Json(s))
+        }
         None => Err((StatusCode::NOT_FOUND, format!("slide {} not found", id))),
     }
 }
@@ -216,6 +223,7 @@ pub async fn update_slide(
     )
     .await
     .map_err(|e| {
+        metrics::db_error("update_slide");
         tracing::error!("failed to update slide: {:?}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -224,7 +232,10 @@ pub async fn update_slide(
     })?;
 
     match slide {
-        Some(s) => Ok(Json(s)),
+        Some(s) => {
+            metrics::slide_updated();
+            Ok(Json(s))
+        }
         None => Err((StatusCode::NOT_FOUND, format!("slide {} not found", id))),
     }
 }
@@ -235,6 +246,7 @@ pub async fn delete_slide(
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     let deleted = db::delete_slide(&state.pool, id).await.map_err(|e| {
+        metrics::db_error("delete_slide");
         tracing::error!("failed to delete slide: {:?}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -243,6 +255,7 @@ pub async fn delete_slide(
     })?;
 
     if deleted {
+        metrics::slide_deleted();
         Ok(StatusCode::NO_CONTENT)
     } else {
         Err((StatusCode::NOT_FOUND, format!("slide {} not found", id)))
@@ -272,6 +285,7 @@ pub async fn list_slides(
     let response = db::list_slides(&state.pool, req.offset, limit)
         .await
         .map_err(|e| {
+            metrics::db_error("list_slides");
             tracing::error!("failed to list slides: {:?}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -279,6 +293,7 @@ pub async fn list_slides(
             )
         })?;
 
+    metrics::slides_listed(response.items.len());
     Ok(Json(response))
 }
 
@@ -292,6 +307,7 @@ pub async fn update_slide_progress(
         db::update_slide_progress(&state.pool, id, req.progress_steps, req.progress_total)
             .await
             .map_err(|e| {
+                metrics::db_error("update_slide_progress");
                 tracing::error!("failed to update slide progress: {:?}", e);
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
@@ -300,6 +316,7 @@ pub async fn update_slide_progress(
             })?;
 
     if updated {
+        metrics::slide_progress_updated();
         Ok(StatusCode::NO_CONTENT)
     } else {
         Err((StatusCode::NOT_FOUND, format!("slide {} not found", id)))
@@ -318,6 +335,7 @@ pub async fn list_annotation_sets(
     let response = annotation_db::list_annotation_sets(&state.pool, slide_id)
         .await
         .map_err(|e| {
+            metrics::db_error("list_annotation_sets");
             tracing::error!("failed to list annotation sets: {:?}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -325,6 +343,7 @@ pub async fn list_annotation_sets(
             )
         })?;
 
+    metrics::annotation_sets_listed(response.items.len());
     Ok(Json(response))
 }
 
@@ -348,6 +367,7 @@ pub async fn create_annotation_set(
     )
     .await
     .map_err(|e| {
+        metrics::db_error("create_annotation_set");
         tracing::error!("failed to create annotation set: {:?}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -355,6 +375,7 @@ pub async fn create_annotation_set(
         )
     })?;
 
+    metrics::annotation_set_created();
     Ok((StatusCode::CREATED, Json(annotation_set)))
 }
 
@@ -366,6 +387,7 @@ pub async fn get_annotation_set(
     let annotation_set = annotation_db::get_annotation_set(&state.pool, id)
         .await
         .map_err(|e| {
+            metrics::db_error("get_annotation_set");
             tracing::error!("failed to get annotation set: {:?}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -374,7 +396,10 @@ pub async fn get_annotation_set(
         })?;
 
     match annotation_set {
-        Some(s) => Ok(Json(s)),
+        Some(s) => {
+            metrics::annotation_set_retrieved();
+            Ok(Json(s))
+        }
         None => Err((
             StatusCode::NOT_FOUND,
             format!("annotation set {} not found", id),
@@ -398,6 +423,7 @@ pub async fn update_annotation_set(
     )
     .await
     .map_err(|e| {
+        metrics::db_error("update_annotation_set");
         tracing::error!("failed to update annotation set: {:?}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -406,7 +432,10 @@ pub async fn update_annotation_set(
     })?;
 
     match annotation_set {
-        Some(s) => Ok(Json(s)),
+        Some(s) => {
+            metrics::annotation_set_updated();
+            Ok(Json(s))
+        }
         None => Err((
             StatusCode::NOT_FOUND,
             format!("annotation set {} not found", id),
@@ -422,6 +451,7 @@ pub async fn delete_annotation_set(
     let deleted = annotation_db::delete_annotation_set(&state.pool, id)
         .await
         .map_err(|e| {
+            metrics::db_error("delete_annotation_set");
             tracing::error!("failed to delete annotation set: {:?}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -430,6 +460,7 @@ pub async fn delete_annotation_set(
         })?;
 
     if deleted {
+        metrics::annotation_set_deleted();
         Ok(StatusCode::NO_CONTENT)
     } else {
         Err((
@@ -452,6 +483,7 @@ pub async fn list_annotations(
     let response = annotation_db::list_annotations(&state.pool, annotation_set_id, &query)
         .await
         .map_err(|e| {
+            metrics::db_error("list_annotations");
             tracing::error!("failed to list annotations: {:?}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -459,6 +491,7 @@ pub async fn list_annotations(
             )
         })?;
 
+    metrics::annotations_listed(response.items.len());
     Ok(Json(response))
 }
 
@@ -470,6 +503,7 @@ pub async fn create_annotation(
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     let metadata = req.metadata.unwrap_or(serde_json::json!({}));
     let source = req.source.as_deref();
+    let kind_str = req.kind.as_str();
 
     let result = match req.kind {
         AnnotationKind::Point => {
@@ -535,6 +569,7 @@ pub async fn create_annotation(
     };
 
     let annotation = result.map_err(|e| {
+        metrics::db_error("create_annotation");
         tracing::error!("failed to create annotation: {:?}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -542,6 +577,7 @@ pub async fn create_annotation(
         )
     })?;
 
+    metrics::annotation_created(kind_str);
     Ok((StatusCode::CREATED, Json(annotation)))
 }
 
@@ -553,6 +589,7 @@ pub async fn get_annotation(
     let annotation = annotation_db::get_annotation(&state.pool, id)
         .await
         .map_err(|e| {
+            metrics::db_error("get_annotation");
             tracing::error!("failed to get annotation: {:?}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -561,7 +598,10 @@ pub async fn get_annotation(
         })?;
 
     match annotation {
-        Some(a) => Ok(Json(a)),
+        Some(a) => {
+            metrics::annotation_retrieved(a.kind.as_str());
+            Ok(Json(a))
+        }
         None => Err((
             StatusCode::NOT_FOUND,
             format!("annotation {} not found", id),
@@ -584,6 +624,7 @@ pub async fn update_annotation(
     )
     .await
     .map_err(|e| {
+        metrics::db_error("update_annotation");
         tracing::error!("failed to update annotation: {:?}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -592,7 +633,10 @@ pub async fn update_annotation(
     })?;
 
     match annotation {
-        Some(a) => Ok(Json(a)),
+        Some(a) => {
+            metrics::annotation_updated(a.kind.as_str());
+            Ok(Json(a))
+        }
         None => Err((
             StatusCode::NOT_FOUND,
             format!("annotation {} not found", id),
@@ -608,6 +652,7 @@ pub async fn delete_annotation(
     let deleted = annotation_db::delete_annotation(&state.pool, id)
         .await
         .map_err(|e| {
+            metrics::db_error("delete_annotation");
             tracing::error!("failed to delete annotation: {:?}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -616,6 +661,7 @@ pub async fn delete_annotation(
         })?;
 
     if deleted {
+        metrics::annotation_deleted();
         Ok(StatusCode::NO_CONTENT)
     } else {
         Err((

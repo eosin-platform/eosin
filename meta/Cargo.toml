@@ -34,3 +34,4 @@ chrono = { version = "0.4", features = ["serde"] }
 base64 = "0.22"
 keycloak = { workspace = true }
 axum-keycloak-auth = { workspace = true }
+metrics = { workspace = true }
