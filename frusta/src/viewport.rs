@@ -24,8 +24,6 @@ const MAX_TILES_PER_UPDATE: usize = 64; // tune this
 const SOFT_MAX_CACHE_SIZE: usize = 5_00; // tune this
 const HARD_MAX_CACHE_SIZE: usize = 1_000; // tune this
 const PRUNE_BATCH_SIZE: usize = 256; // max removals per update
-/// Maximum tiles per dimension for minimap preload (e.g., 8x8 = 64 tiles max)
-const MINIMAP_MAX_TILES_PER_DIM: u32 = 8;
 
 /// Shared state for tracking which tiles have been sent to the client.
 /// This is shared between the main update loop and the NATS subscription task
@@ -191,7 +189,7 @@ impl ViewManager {
             }
         });
 
-        let mut manager = Self {
+        Self {
             slot,
             dpi,
             sent,
@@ -204,84 +202,6 @@ impl ViewManager {
             nats_cancel,
             client_ip,
             last_dispatched_keys: Vec::new(),
-        };
-
-        // Pre-dispatch coarse tiles for the minimap.
-        // These are tiles at the coarsest mip levels where the total tile count
-        // is small enough to send all at once (typically top 2-4 levels).
-        manager.dispatch_minimap_tiles();
-
-        manager
-    }
-
-    /// Dispatch tiles at coarse mip levels for the minimap.
-    /// This ensures the client has complete coverage for the minimap thumbnail
-    /// immediately upon opening a slide, without waiting for viewport updates.
-    fn dispatch_minimap_tiles(&mut self) {
-        let now = chrono::Utc::now().timestamp_millis();
-        let cancel = CancellationToken::new();
-
-        // Find the minimum level where total tiles <= MINIMAP_MAX_TILES_PER_DIM^2
-        let mut tiles_to_dispatch: Vec<TileMeta> = Vec::new();
-
-        // Start from coarsest level and work toward finer levels
-        for level in (0..self.image.levels).rev() {
-            let downsample = 2f32.powi(level as i32);
-            let px_per_tile = downsample * TILE_SIZE;
-            let tiles_x = (self.image.width as f32 / px_per_tile).ceil() as u32;
-            let tiles_y = (self.image.height as f32 / px_per_tile).ceil() as u32;
-
-            // Only include levels where tile count per dimension is small
-            if tiles_x <= MINIMAP_MAX_TILES_PER_DIM && tiles_y <= MINIMAP_MAX_TILES_PER_DIM {
-                let level_tiles = all_tiles_for_level(&self.image, level);
-                tiles_to_dispatch.extend(level_tiles);
-            } else {
-                // Stop once we hit a level that's too fine-grained
-                break;
-            }
-        }
-
-        if tiles_to_dispatch.is_empty() {
-            return;
-        }
-
-        tracing::info!(
-            slot = self.slot,
-            tile_count = tiles_to_dispatch.len(),
-            "dispatching minimap tiles on slide open"
-        );
-
-        // Mark tiles as sent
-        {
-            let mut sent = self.sent.write();
-            for meta in tiles_to_dispatch.iter() {
-                let key = meta.index_unchecked();
-                sent.entry(key).or_insert_with(|| RequestedTile {
-                    count: 1,
-                    last_requested_at: now,
-                    delivered: false,
-                });
-            }
-        }
-
-        // Dispatch work items (coarsest first - already in that order)
-        for meta in tiles_to_dispatch {
-            let work = RetrieveTileWork {
-                slot: self.slot,
-                slide_id: self.image.id,
-                cancel: cancel.clone(),
-                tx: self.send_tx.clone(),
-                meta,
-                client_ip: self.client_ip.clone(),
-                viewport: self.last_viewport.clone(),
-                image: self.image,
-                dpi: self.dpi,
-                sent: self.sent.clone(),
-            };
-            if self.work_queue.push(work).is_err() {
-                tracing::warn!("work queue closed, stopping minimap tile dispatch");
-                break;
-            }
         }
     }
 
@@ -662,28 +582,6 @@ fn visible_tiles_for_level(viewport: &Viewport, image: &ImageDesc, level: u32) -
     let mut tiles = Vec::with_capacity((tile_range_x * tile_range_y) as usize);
     for ty in min_ty..max_ty {
         for tx in min_tx..max_tx {
-            tiles.push(TileMeta {
-                x: tx,
-                y: ty,
-                level,
-            });
-        }
-    }
-
-    tiles
-}
-
-/// Compute ALL tiles at a given mip level (for the entire image, not just viewport).
-fn all_tiles_for_level(image: &ImageDesc, level: u32) -> Vec<TileMeta> {
-    let downsample = 2f32.powi(level as i32);
-    let px_per_tile = downsample * TILE_SIZE;
-
-    let tiles_x = (image.width as f32 / px_per_tile).ceil().max(0.0) as u32;
-    let tiles_y = (image.height as f32 / px_per_tile).ceil().max(0.0) as u32;
-
-    let mut tiles = Vec::with_capacity((tiles_x * tiles_y) as usize);
-    for ty in 0..tiles_y {
-        for tx in 0..tiles_x {
             tiles.push(TileMeta {
                 x: tx,
                 y: ty,
