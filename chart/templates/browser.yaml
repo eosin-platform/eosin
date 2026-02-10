@@ -24,7 +24,12 @@ spec:
         ports:
         - containerPort: 3000
           name: http
+{{- if .Values.prometheus.enabled }}
+        - containerPort: 2112
+          name: metrics
+{{- end }}
         env:
+{{ include "eosin.metrics-env" . | indent 8 }}
         - name: FRUSTA_ENDPOINT
           value: http://{{ .Release.Name }}-frusta
         - name: PUBLIC_FRUSTA_ENDPOINT
@@ -57,3 +62,18 @@ spec:
   ports:
     - port: 80
       targetPort: 3000
+---
+{{- if .Values.prometheus.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ .Release.Name }}-browser
+  labels:
+    chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
+spec:
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-browser
+  podMetricsEndpoints:
+  - port: metrics
+{{- end }}

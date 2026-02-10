@@ -146,8 +146,8 @@ compiler:
   storageSize: 12Gi
   resources:
     limits:
-      memory: "12Gi"
+      memory: "3Gi"
     requests:
-      memory: "12Gi"
+      memory: "3Gi"
   # storageClassName: ""
   s3: {}  # Falls back to global s3 settings

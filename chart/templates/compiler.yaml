@@ -28,8 +28,8 @@ spec:
           operator: Equal
           value: "true"
           effect: NoSchedule
-      nodeSelector:
-        eosin: "true"
+      #nodeSelector:
+      #  eosin: "true"
       containers:
       - name: compiler
         imagePullPolicy: {{ .Values.compiler.imagePullPolicy }}

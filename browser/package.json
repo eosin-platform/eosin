@@ -3,6 +3,9 @@
 	"private": true,
 	"version": "0.0.1",
 	"type": "module",
+	"dependencies": {
+		"prom-client": "^15.1.0"
+	},
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
