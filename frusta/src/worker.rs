@@ -72,13 +72,13 @@ pub async fn worker_main(
                 // drains quickly after a viewport change, making room for
                 // fresh coarse tiles that enable progressive loading.
                 if work.cancel.is_cancelled() {
-                    metrics::tile_skipped_cancelled(&slide_id_str, level);
+                    //metrics::tile_skipped_cancelled(&slide_id_str, level);
                     continue;
                 }
                 // Check against the *latest* viewport before starting the
                 // (potentially expensive) storage fetch.
                 if !is_tile_still_visible(&work).await {
-                    metrics::tile_skipped_not_visible(&slide_id_str, level);
+                    //metrics::tile_skipped_not_visible(&slide_id_str, level);
                     tracing::debug!(
                         slide_id = %work.slide_id,
                         x = work.meta.x,
@@ -92,7 +92,7 @@ pub async fn worker_main(
                 tokio::select! {
                     _ = cancel.cancelled() => bail!("Context cancelled"),
                     _ = work.cancel.cancelled() => {
-                        metrics::tile_skipped_cancelled(&slide_id_str, level);
+                        //metrics::tile_skipped_cancelled(&slide_id_str, level);
                         continue;
                     }
                     data = storage.get_tile(
@@ -102,14 +102,14 @@ pub async fn worker_main(
                         work.meta.level,
                     ) => {
                         let fetch_duration = fetch_start.elapsed().as_secs_f64();
-                        metrics::tile_fetch_latency(&slide_id_str, level, fetch_duration);
+                        //metrics::tile_fetch_latency(&slide_id_str, level, fetch_duration);
 
                         // Handle missing tiles gracefully - they may not be processed yet
                         // The client can request again later when the tile becomes available
                         let data = match data {
                             Ok(data) => data,
                             Err(e) => {
-                                metrics::tile_fetch_failed(&slide_id_str, level);
+                                //metrics::tile_fetch_failed(&slide_id_str, level);
                                 tracing::debug!(
                                     slide_id = %work.slide_id,
                                     x = work.meta.x,
@@ -125,7 +125,7 @@ pub async fn worker_main(
                         // after the fetch completes – the user may have panned
                         // or zoomed while we were waiting on storage.
                         if !is_tile_still_visible(&work).await {
-                            metrics::tile_skipped_not_visible(&slide_id_str, level);
+                            //metrics::tile_skipped_not_visible(&slide_id_str, level);
                             tracing::debug!(
                                 slide_id = %work.slide_id,
                                 x = work.meta.x,
@@ -139,7 +139,7 @@ pub async fn worker_main(
                         // This prevents duplicate sends when multiple workers race to
                         // deliver the same tile.
                         if is_tile_already_delivered(&work) {
-                            metrics::tile_skipped_already_delivered(&slide_id_str, level);
+                            //metrics::tile_skipped_already_delivered(&slide_id_str, level);
                             tracing::debug!(
                                 slide_id = %work.slide_id,
                                 x = work.meta.x,
@@ -154,13 +154,13 @@ pub async fn worker_main(
                         tokio::select! {
                             _ = cancel.cancelled() => return Ok(()),
                             _ = work.cancel.cancelled() => {
-                                metrics::tile_skipped_cancelled(&slide_id_str, level);
+                                //metrics::tile_skipped_cancelled(&slide_id_str, level);
                             }
                             _ = work.tx.send(payload) => {
                                 // Mark the tile as delivered so other workers don't
                                 // send duplicates
                                 mark_tile_delivered(&work);
-                                metrics::tile_sent(&slide_id_str, level, tile_size);
+                                //metrics::tile_sent(&slide_id_str, level, tile_size);
                                 tracing::info!(
                                     slide_id = %work.slide_id,
                                     x = work.meta.x,

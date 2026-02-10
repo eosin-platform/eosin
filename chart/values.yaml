@@ -144,7 +144,7 @@ landing:
       memory: "256Mi"
 
 compiler:
-  enabled: true
+  enabled: false
   image: thavlik/eosin-compiler:latest
   imagePullPolicy: Always
   replicas: 2

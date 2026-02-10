@@ -35,8 +35,8 @@ do_restart() {
     done
     # restart the compiler if no specific service is mentioned
     if [ ${#restart_args[@]} -eq 0 ]; then
-        kubectl rollout restart statefulset --context $KUBECONTEXT -n eosin "eosin-compiler"
-        kubectl rollout restart statefulset --context $KUBECONTEXT -n eosin "eosin-storage"
+        kubectl rollout restart statefulset --context $KUBECONTEXT -n eosin "eosin-compiler" || true
+        kubectl rollout restart statefulset --context $KUBECONTEXT -n eosin "eosin-storage" || true
     fi
     kubectl rollout restart deployment --context $KUBECONTEXT -n eosin "${restart_args[@]/#/eosin-}"
 }
