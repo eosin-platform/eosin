@@ -18,7 +18,14 @@
 	import { authStore } from '$lib/stores/auth';
 	import { logout } from '$lib/auth/client';
 
-	type TabId = 'image' | 'performance' | 'annotations' | 'privacy' | 'defaults' | 'account' | 'about';
+	type TabId =
+		| 'image'
+		| 'performance'
+		| 'annotations'
+		| 'privacy'
+		| 'defaults'
+		| 'account'
+		| 'about';
 	type ResettableTabId = Exclude<TabId, 'about' | 'account'>;
 
 	let activeTab = $state<TabId>('image');
@@ -786,7 +793,9 @@
 								</div>
 								<div class="info-row">
 									<span class="info-label">Name</span>
-									<span class="info-value">{$authStore.user.first_name} {$authStore.user.last_name}</span>
+									<span class="info-value"
+										>{$authStore.user.first_name} {$authStore.user.last_name}</span
+									>
 								</div>
 								<div class="info-row">
 									<span class="info-label">Email</span>
@@ -801,9 +810,7 @@
 
 						<div class="setting-group">
 							<h3>Session</h3>
-							<button class="logout-btn" onclick={handleLogout}>
-								Log Out
-							</button>
+							<button class="logout-btn" onclick={handleLogout}> Log Out </button>
 						</div>
 					</div>
 				{/if}
@@ -814,18 +821,25 @@
 						<div class="setting-group">
 							<h3>About Eosin</h3>
 							<p class="setting-hint">
-								Eosin is a Whole-Slide Imaging (WSI) and analysis platform built for computational pathology and microbiology. Gigapixel slide images become viewable within seconds of upload as an event-driven compiler processes them into read-optimized multiscale pyramids. A viewport-based tile service streams only the tiles relevant to the user over WebSocket, providing a fluid, microscope-like experience even on commodity hardware. Sharded NVMe-backed storage with read-only replicas maximizes throughput and availability, while horizontally scaling services orchestrate ingestion, tiling, caching, and delivery. Eosin is engineered for future expansion into machine vision, search, and large-scale analysis across the visual manifold of histopathology.
+								Eosin is a Whole-Slide Imaging (WSI) and analysis platform built for computational
+								pathology and microbiology. Gigapixel slide images become viewable within seconds of
+								upload as an event-driven compiler processes them into read-optimized multiscale
+								pyramids. A viewport-based tile service streams only the tiles relevant to the user
+								over WebSocket, providing a fluid, microscope-like experience even on commodity
+								hardware. Sharded NVMe-backed storage with read-only replicas maximizes throughput
+								and availability, while horizontally scaling services orchestrate ingestion, tiling,
+								caching, and delivery. Eosin is engineered for future expansion into machine vision,
+								search, and large-scale analysis across the visual manifold of histopathology.
 							</p>
 							<p class="setting-hint">
-								Created by Thomas Havlik in 2026. 
-								<a
-									href="https://thavlik.dev"
+								© <a
+									href="https://sablecrestlabs.com"
 									target="_blank"
 									rel="noopener noreferrer"
 									class="about-link"
 								>
-									https://thavlik.dev
-								</a>.
+									Sable Crest Labs
+								</a> 2026.
 							</p>
 						</div>
 					</div>
