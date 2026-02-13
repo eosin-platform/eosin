@@ -15,7 +15,11 @@
 	<link rel="icon" href="/favicon.png" />
 	<meta
 		name="description"
-		content="Eosin is a browser-based platform for viewing, annotating, and teaching from pathology slides. Fast whole-slide navigation with collaborative annotation tools."
+		content="Eosin is a collaborative platform for viewing, annotating, and teaching from pathology slides. Fast whole-slide navigation with collaborative annotation tools."
+	/>
+	<link
+		rel="stylesheet"
+		href="https://fonts.googleapis.com/css2?family=Inter:wght@500&display=swap"
 	/>
 </svelte:head>
 
@@ -25,8 +29,12 @@
 >
 	<nav class="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 sm:px-6 lg:px-8">
 		<a href="/" class="flex items-center gap-2">
-			<img src="/logo_half.png" alt="Eosin" class="h-7 w-auto sm:hidden" />
-			<img src="/logo_full.png" alt="Eosin" class="hidden h-7 w-auto sm:block" />
+			<img src="/logo_half.png" alt="EOSIN" class="h-7 w-auto sm:hidden" />
+			<img src="/logo_full.png" alt="EOSIN" class="hidden h-7 w-auto sm:block" />
+			<span
+				class="text-base text-gray-900"
+				style="font-family: 'Inter', sans-serif; font-weight: 500;">EOSIN</span
+			>
 		</a>
 
 		<!-- Desktop Navigation -->
@@ -55,7 +63,7 @@
 				rel="noopener noreferrer"
 				class="rounded-md bg-[#5E4AEF] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#4e3cd0]"
 			>
-				Open Viewer
+				Open Demo
 			</a>
 		</div>
 
@@ -115,7 +123,7 @@
 					rel="noopener noreferrer"
 					class="rounded-md bg-[#5E4AEF] px-3 py-2 text-center font-medium text-white transition-colors hover:bg-[#4e3cd0]"
 				>
-					Open Viewer
+					Open Demo
 				</a>
 			</div>
 		</div>
@@ -130,11 +138,11 @@
 				<!-- Text Content -->
 				<div class="order-2 lg:order-1">
 					<h1 class="mb-4 text-3xl font-semibold tracking-tight text-gray-900 sm:text-4xl">
-						Whole-slide imaging, simplified.
+						Whole-slide imaging. Without the friction.
 					</h1>
 					<p class="mb-8 max-w-lg text-base leading-relaxed text-gray-600">
-						Eosin is a browser-based platform for viewing, annotating, and teaching from pathology
-						slides. Fast whole-slide navigation with collaborative annotation tools.
+						Fast navigation. Structured annotation. Collaborative review. Eosin runs wherever you
+						work — desktop or mobile.
 					</p>
 
 					<div class="flex flex-col gap-3 sm:flex-row">
@@ -144,7 +152,7 @@
 							rel="noopener noreferrer"
 							class="inline-flex items-center justify-center gap-2 rounded-md bg-[#5E4AEF] px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#4e3cd0]"
 						>
-							Open Viewer
+							Open Demo
 							<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 								<path
 									stroke-linecap="round"
@@ -196,9 +204,6 @@
 		<div class="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
 			<div class="mb-10 text-center">
 				<h2 class="mb-3 text-2xl font-semibold text-gray-900">Features</h2>
-				<p class="mx-auto max-w-xl text-gray-600">
-					Purpose-built tools for digital pathology workflows.
-				</p>
 			</div>
 
 			<div class="grid gap-6 md:grid-cols-3">
@@ -221,8 +226,8 @@
 					</div>
 					<h3 class="mb-2 text-base font-medium text-gray-900">Fast whole-slide navigation</h3>
 					<p class="text-sm leading-relaxed text-gray-600">
-						Zoom from 1x to 40x with smooth, responsive controls. Pan across large slides without
-						lag.
+						Move from overview to 40× magnification instantly. Smooth zooming and panning across
+						gigapixel slides, without stalls or redraw lag.
 					</p>
 				</div>
 
@@ -243,10 +248,12 @@
 							/>
 						</svg>
 					</div>
-					<h3 class="mb-2 text-base font-medium text-gray-900">Collaborative annotation tools</h3>
+					<h3 class="mb-2 text-base font-medium text-gray-900">
+						Structured, collaborative annotation
+					</h3>
 					<p class="text-sm leading-relaxed text-gray-600">
-						Mark regions of interest, add notes, and share annotated views with colleagues or
-						students.
+						Define regions of interest, attach notes, and share precise slide views with colleagues
+						or trainees.
 					</p>
 				</div>
 
@@ -267,10 +274,10 @@
 							/>
 						</svg>
 					</div>
-					<h3 class="mb-2 text-base font-medium text-gray-900">AI-assisted workflows</h3>
+					<h3 class="mb-2 text-base font-medium text-gray-900">Intelligent tooling</h3>
 					<p class="text-sm leading-relaxed text-gray-600">
-						Coming soon: nuclei detection overlays, prototype embeddings, and intelligent analysis
-						tools.
+						Find morphologically similar regions throughout and across slides, reducing search
+						fatigue.
 					</p>
 				</div>
 			</div>
@@ -296,7 +303,7 @@
 						For Educators
 					</div>
 					<h2 class="mb-4 text-2xl font-semibold text-gray-900">
-						Teaching tools for pathology courses
+						Teaching tools for pathology curriculum
 					</h2>
 					<p class="mb-6 text-gray-600">
 						Share curated slide collections with your students. Create permalinks to specific
@@ -421,7 +428,7 @@
 									d="M5 13l4 4L19 7"
 								/>
 							</svg>
-							<span class="text-sm">AI-assisted feature identification (coming soon)</span>
+							<span class="text-sm">AI-assisted visual explanations (coming soon)</span>
 						</li>
 					</ul>
 				</div>
@@ -433,8 +440,8 @@
 	<section class="bg-gray-50 py-16 sm:py-20">
 		<div class="mx-auto max-w-3xl px-4 text-center sm:px-6 lg:px-8">
 			<h2 class="mb-4 text-2xl font-semibold text-gray-900">Ready to get started?</h2>
-			<p class="mx-auto mb-6 max-w-xl text-gray-600">
-				Open the viewer and start exploring whole-slide images in your browser.
+			<p class="mx-auto mb-6 max-w-2xl text-gray-600">
+				Viewer access is unrestricted. Registration required for annotation and analysis tools.
 			</p>
 			<a
 				href="https://app.eosin.ai"
@@ -442,7 +449,7 @@
 				rel="noopener noreferrer"
 				class="inline-flex items-center justify-center gap-2 rounded-md bg-[#5E4AEF] px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-[#4e3cd0]"
 			>
-				Open Viewer
+				Open Demo
 				<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 					<path
 						stroke-linecap="round"
@@ -472,11 +479,19 @@
 				>
 					Viewer
 				</a>
-				<a href="mailto:contact@eosin.ai" class="transition-colors hover:text-gray-900">Contact</a>
+				<a href="mailto:sablecrestlabs@protonmail.com" class="transition-colors hover:text-gray-900"
+					>Contact</a
+				>
 			</div>
 		</div>
 		<div class="mt-6 border-t border-gray-100 pt-6 text-center text-sm text-gray-400">
-			© {new Date().getFullYear()} Eosin
+			© {new Date().getFullYear()}
+			<a
+				class="font-medium text-gray-500 transition-colors hover:text-gray-900"
+				href="https://sablecrestlabs.com"
+				target="_blank"
+				rel="noopener noreferrer">Sable Crest Labs</a
+			>. All rights reserved.
 		</div>
 	</div>
 </footer>
