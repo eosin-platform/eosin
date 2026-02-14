@@ -39,7 +39,7 @@
   import { tabStore, type Tab } from '$lib/stores/tabs';
   import { acquireCache, releaseCache } from '$lib/stores/slideCache';
   import { updatePerformanceMetrics } from '$lib/stores/metrics';
-  import { settings, navigationSettings, imageSettings, performanceSettings, helpMenuOpen, type StainNormalization, type StainEnhancementMode } from '$lib/stores/settings';
+  import { settings, navigationSettings, imageSettings, performanceSettings, behaviorSettings, helpMenuOpen, type StainNormalization, type StainEnhancementMode } from '$lib/stores/settings';
   import { toolState, toolCommand, clearToolCommand, updateToolState, resetToolState, type ToolCommand } from '$lib/stores/tools';
 
   interface Props {
@@ -986,19 +986,67 @@
 
   /**
    * Center the viewport on a specific point in image coordinates.
+   * When smooth navigation is enabled, animates with ease-out deceleration.
    */
   function centerOnPoint(imageX: number, imageY: number) {
     if (!container) return;
     const rect = container.getBoundingClientRect();
     const visibleWidth = rect.width / viewport.zoom;
     const visibleHeight = rect.height / viewport.zoom;
-    viewport = {
-      ...viewport,
-      x: imageX - visibleWidth / 2,
-      y: imageY - visibleHeight / 2,
-      width: rect.width,
-      height: rect.height,
-    };
+    
+    const targetX = imageX - visibleWidth / 2;
+    const targetY = imageY - visibleHeight / 2;
+
+    // Cancel any existing animation
+    if (navigationAnimationFrame !== null) {
+      cancelAnimationFrame(navigationAnimationFrame);
+      navigationAnimationFrame = null;
+    }
+
+    if (!smoothNavigation) {
+      // Instant navigation
+      viewport = {
+        ...viewport,
+        x: targetX,
+        y: targetY,
+        width: rect.width,
+        height: rect.height,
+      };
+      return;
+    }
+
+    // Smooth navigation with ease-out animation
+    const startX = viewport.x;
+    const startY = viewport.y;
+    const duration = 500; // ms - long enough to be clearly visible
+    const startTime = performance.now();
+
+    function animate(currentTime: number) {
+      const elapsed = currentTime - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      
+      // Ease-out quint: dramatic deceleration that's very visible
+      const eased = 1 - Math.pow(1 - progress, 5);
+      
+      const currentX = startX + (targetX - startX) * eased;
+      const currentY = startY + (targetY - startY) * eased;
+      
+      viewport = {
+        ...viewport,
+        x: currentX,
+        y: currentY,
+        width: rect.width,
+        height: rect.height,
+      };
+
+      if (progress < 1) {
+        navigationAnimationFrame = requestAnimationFrame(animate);
+      } else {
+        navigationAnimationFrame = null;
+      }
+    }
+
+    navigationAnimationFrame = requestAnimationFrame(animate);
   }
 
   /**
@@ -1140,6 +1188,27 @@
   const unsubAuth = authStore.subscribe((state) => {
     isLoggedIn = state.user !== null;
   });
+
+  // Subscribe to behavior settings for smooth navigation
+  let smoothNavigation = $state(true);
+  const unsubBehavior = behaviorSettings.subscribe((b) => {
+    smoothNavigation = b.smoothNavigation;
+  });
+
+  // Animation state for smooth navigation
+  let navigationAnimationFrame: number | null = null;
+
+  // Animation state for smooth zoom
+  let zoomAnimationFrame: number | null = null;
+  let zoomTargetLevel: number | null = null;
+  let zoomPivotX: number | null = null;
+  let zoomPivotY: number | null = null;
+
+  // Velocity tracking for pan inertia (throw effect)
+  let panVelocityX = 0;
+  let panVelocityY = 0;
+  let lastPanTime = 0;
+  let inertiaAnimationFrame: number | null = null;
 
   // Subscribe to active annotation set for creation permission
   let currentActiveSet = $state<typeof $activeAnnotationSet>(null);
@@ -1606,6 +1675,15 @@
     // Right mouse button (button 2) - pan viewport, show context menu on release if no drag
     if (e.button === 2) {
       e.preventDefault();
+      // Cancel any ongoing inertia animation
+      if (inertiaAnimationFrame !== null) {
+        cancelAnimationFrame(inertiaAnimationFrame);
+        inertiaAnimationFrame = null;
+      }
+      // Reset velocity tracking
+      panVelocityX = 0;
+      panVelocityY = 0;
+      lastPanTime = performance.now();
       isDragging = true;
       lastMouseX = e.clientX;
       lastMouseY = e.clientY;
@@ -1824,8 +1902,22 @@
 
     const deltaX = e.clientX - lastMouseX;
     const deltaY = e.clientY - lastMouseY;
+    const now = performance.now();
+    const dt = now - lastPanTime;
+    
+    // Track velocity for inertia (smoothed)
+    if (dt > 0 && smoothNavigation) {
+      const instantVelocityX = deltaX / dt * 1000; // pixels per second
+      const instantVelocityY = deltaY / dt * 1000;
+      // Exponential smoothing for velocity
+      const smoothing = 0.3;
+      panVelocityX = panVelocityX * (1 - smoothing) + instantVelocityX * smoothing;
+      panVelocityY = panVelocityY * (1 - smoothing) + instantVelocityY * smoothing;
+    }
+    
     lastMouseX = e.clientX;
     lastMouseY = e.clientY;
+    lastPanTime = now;
 
     // Close context menu when panning starts
     if (contextMenuVisible) {
@@ -1893,6 +1985,7 @@
     
     // Right mouse button released - stop panning, show context menu if no drag
     if (e && e.button === 2) {
+      const wasDragging = isDragging;
       isDragging = false;
       
       // First check if we started a right-click on an annotation
@@ -1905,6 +1998,8 @@
           showAnnotationMenu(annotationRightClickStart.annotation, e.clientX, e.clientY);
         }
         annotationRightClickStart = null;
+        panVelocityX = 0;
+        panVelocityY = 0;
         return;
       }
       
@@ -1916,6 +2011,17 @@
         if (dist < RIGHT_CLICK_THRESHOLD) {
           // Didn't move much, show context menu
           showContextMenu(e.clientX, e.clientY);
+          panVelocityX = 0;
+          panVelocityY = 0;
+        } else if (wasDragging && smoothNavigation && imageDesc) {
+          // Was dragging and moved - apply inertia (throw effect)
+          const speed = Math.sqrt(panVelocityX * panVelocityX + panVelocityY * panVelocityY);
+          if (speed > 50) { // Only apply inertia if moving fast enough
+            startInertiaAnimation();
+          } else {
+            panVelocityX = 0;
+            panVelocityY = 0;
+          }
         }
         rightClickStart = null;
       }
@@ -1994,8 +2100,107 @@
     const baseZoom = 1.15;
     const sensitiveZoom = 1 + (baseZoom - 1) * zoomSensitivityFactor;
     const zoomFactor = e.deltaY < 0 ? sensitiveZoom : 1 / sensitiveZoom;
-    viewport = zoomAround(viewport, mouseX, mouseY, zoomFactor, imageDesc.width, imageDesc.height);
-    scheduleViewportUpdate();
+    
+    if (!smoothNavigation) {
+      // Instant zoom
+      viewport = zoomAround(viewport, mouseX, mouseY, zoomFactor, imageDesc.width, imageDesc.height);
+      scheduleViewportUpdate();
+      return;
+    }
+
+    // Animated zoom with ease in/out
+    const currentTarget = zoomTargetLevel ?? viewport.zoom;
+    const newTarget = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, currentTarget * zoomFactor));
+    
+    zoomTargetLevel = newTarget;
+    zoomPivotX = mouseX;
+    zoomPivotY = mouseY;
+    
+    // Start animation if not already running
+    if (zoomAnimationFrame === null) {
+      startZoomAnimation();
+    }
+  }
+
+  function startZoomAnimation() {
+    if (!imageDesc || zoomTargetLevel === null || zoomPivotX === null || zoomPivotY === null) {
+      return;
+    }
+    
+    function animateZoom() {
+      if (!imageDesc || zoomTargetLevel === null || zoomPivotX === null || zoomPivotY === null) {
+        zoomAnimationFrame = null;
+        return;
+      }
+      
+      const current = viewport.zoom;
+      const target = zoomTargetLevel;
+      const diff = target - current;
+      
+      // Ease in/out: interpolate 20% of remaining distance per frame
+      // This creates smooth acceleration and deceleration
+      const step = diff * 0.2;
+      
+      if (Math.abs(diff) < 0.0001) {
+        // Close enough, snap to target
+        const finalDelta = target / current;
+        viewport = zoomAround(viewport, zoomPivotX, zoomPivotY, finalDelta, imageDesc.width, imageDesc.height);
+        zoomAnimationFrame = null;
+        zoomTargetLevel = null;
+        zoomPivotX = null;
+        zoomPivotY = null;
+        scheduleViewportUpdate();
+        return;
+      }
+      
+      const newZoom = current + step;
+      const zoomDelta = newZoom / current;
+      viewport = zoomAround(viewport, zoomPivotX, zoomPivotY, zoomDelta, imageDesc.width, imageDesc.height);
+      
+      zoomAnimationFrame = requestAnimationFrame(animateZoom);
+    }
+    
+    zoomAnimationFrame = requestAnimationFrame(animateZoom);
+  }
+
+  function startInertiaAnimation() {
+    if (!imageDesc || inertiaAnimationFrame !== null) return;
+    
+    const friction = 0.95; // Deceleration factor per frame
+    const minSpeed = 10; // Stop when below this speed (pixels/second)
+    
+    function animateInertia() {
+      if (!imageDesc) {
+        inertiaAnimationFrame = null;
+        return;
+      }
+      
+      const speed = Math.sqrt(panVelocityX * panVelocityX + panVelocityY * panVelocityY);
+      
+      if (speed < minSpeed) {
+        // Stop animation
+        panVelocityX = 0;
+        panVelocityY = 0;
+        inertiaAnimationFrame = null;
+        scheduleViewportUpdate();
+        return;
+      }
+      
+      // Apply velocity (convert from pixels/second to pixels/frame at ~60fps)
+      const dt = 1 / 60;
+      const dx = panVelocityX * dt * panSensitivityFactor;
+      const dy = panVelocityY * dt * panSensitivityFactor;
+      
+      viewport = pan(viewport, dx, dy, imageDesc.width, imageDesc.height);
+      
+      // Apply friction
+      panVelocityX *= friction;
+      panVelocityY *= friction;
+      
+      inertiaAnimationFrame = requestAnimationFrame(animateInertia);
+    }
+    
+    inertiaAnimationFrame = requestAnimationFrame(animateInertia);
   }
 
   // HUD zoom change - set zoom to specific level centered on viewport
@@ -3432,6 +3637,7 @@
     unsubSplit();
     unsubNavigation();
     unsubAuth();
+    unsubBehavior();
     unsubActiveSet();
     unsubAnnotationsStore();
     unsubToolCommand();
@@ -3446,6 +3652,15 @@
     }
     if (hudNotificationTimeout) {
       clearTimeout(hudNotificationTimeout);
+    }
+    if (navigationAnimationFrame !== null) {
+      cancelAnimationFrame(navigationAnimationFrame);
+    }
+    if (zoomAnimationFrame !== null) {
+      cancelAnimationFrame(zoomAnimationFrame);
+    }
+    if (inertiaAnimationFrame !== null) {
+      cancelAnimationFrame(inertiaAnimationFrame);
     }
     cancelLongPress();
     if (browser) {

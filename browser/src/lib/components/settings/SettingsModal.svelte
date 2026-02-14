@@ -23,6 +23,7 @@
 		| 'performance'
 		| 'annotations'
 		| 'privacy'
+		| 'behavior'
 		| 'defaults'
 		| 'account'
 		| 'about';
@@ -54,6 +55,9 @@
 	let screenshotsDisabled = $state($settings.privacy.screenshotsDisabled);
 	let autoLogoutMinutes = $state($settings.privacy.autoLogoutMinutes);
 
+	// Behavior settings
+	let smoothNavigation = $state($settings.behavior.smoothNavigation);
+
 	// Defaults settings (configurable image defaults)
 	let defaultBrightness = $state($settings.defaults.brightness);
 	let defaultContrast = $state($settings.defaults.contrast);
@@ -79,6 +83,7 @@
 		phiMaskingEnabled = $settings.privacy.phiMaskingEnabled;
 		screenshotsDisabled = $settings.privacy.screenshotsDisabled;
 		autoLogoutMinutes = $settings.privacy.autoLogoutMinutes;
+		smoothNavigation = $settings.behavior.smoothNavigation;
 		defaultBrightness = $settings.defaults.brightness;
 		defaultContrast = $settings.defaults.contrast;
 		defaultGamma = $settings.defaults.gamma;
@@ -115,6 +120,7 @@
 			performance: 'performance',
 			annotations: 'annotations',
 			privacy: 'privacy',
+			behavior: 'behavior',
 			defaults: 'defaults'
 		};
 		settings.resetSection(sectionMap[section]);
@@ -268,6 +274,7 @@
 		{ id: 'performance', label: 'Performance', icon: '⚡' },
 		{ id: 'annotations', label: 'Annotations', icon: '✏️' },
 		{ id: 'privacy', label: 'Privacy', icon: '🔒' },
+		{ id: 'behavior', label: 'Behavior', icon: '🎯' },
 		{ id: 'defaults', label: 'Defaults', icon: '↺' },
 		{ id: 'about', label: 'About', icon: 'ℹ️' }
 	];
@@ -670,6 +677,39 @@
 
 						<button class="reset-btn" onclick={() => resetSection('privacy')}>
 							Reset Privacy Settings
+						</button>
+					</div>
+				{/if}
+
+				<!-- Behavior -->
+				{#if activeTab === 'behavior'}
+					<div class="panel" id="panel-behavior" role="tabpanel">
+						<div class="setting-group">
+							<div class="toggle-row">
+								<span id="smooth-nav-label">Smooth Navigation</span>
+								<button
+									class="toggle-btn"
+									class:active={smoothNavigation}
+									onclick={() => {
+										smoothNavigation = !smoothNavigation;
+										settings.setSetting('behavior', 'smoothNavigation', smoothNavigation);
+									}}
+									role="switch"
+									aria-checked={smoothNavigation}
+									aria-labelledby="smooth-nav-label"
+								>
+									<span class="toggle-track">
+										<span class="toggle-thumb"></span>
+									</span>
+								</button>
+							</div>
+							<p class="setting-hint">
+								Animate viewport transitions when clicking on annotations with gradual deceleration.
+							</p>
+						</div>
+
+						<button class="reset-btn" onclick={() => resetSection('behavior')}>
+							Reset Behavior Settings
 						</button>
 					</div>
 				{/if}

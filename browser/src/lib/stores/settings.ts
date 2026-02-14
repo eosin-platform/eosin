@@ -90,6 +90,10 @@ export interface PrivacySettings {
   autoLogoutMinutes: number;
 }
 
+export interface BehaviorSettings {
+  smoothNavigation: boolean;
+}
+
 export interface UISettings {
   theme: ThemeMode;
   language: string;
@@ -102,6 +106,7 @@ export interface Settings {
   measurements: MeasurementSettings;
   performance: PerformanceSettings;
   privacy: PrivacySettings;
+  behavior: BehaviorSettings;
   ui: UISettings;
   defaults: ImageDefaults;  // Configurable defaults for Reset to Defaults
 }
@@ -169,6 +174,9 @@ export const DEFAULT_SETTINGS: Settings = {
     phiMaskingEnabled: false,
     screenshotsDisabled: false,
     autoLogoutMinutes: 30,
+  },
+  behavior: {
+    smoothNavigation: true,
   },
   ui: {
     theme: 'dark',
@@ -238,6 +246,7 @@ function loadSettings(): Settings {
       measurements: { ...DEFAULT_SETTINGS.measurements, ...parsed.measurements },
       performance: { ...DEFAULT_SETTINGS.performance, ...parsed.performance },
       privacy: { ...DEFAULT_SETTINGS.privacy, ...parsed.privacy },
+      behavior: { ...DEFAULT_SETTINGS.behavior, ...parsed.behavior },
       ui: { ...DEFAULT_SETTINGS.ui, ...parsed.ui },
       defaults: { ...DEFAULT_SETTINGS.defaults, ...parsed.defaults },
     };
@@ -383,6 +392,7 @@ export const annotationSettings = derived(settings, ($s) => $s.annotations);
 export const measurementSettings = derived(settings, ($s) => $s.measurements);
 export const performanceSettings = derived(settings, ($s) => $s.performance);
 export const privacySettings = derived(settings, ($s) => $s.privacy);
+export const behaviorSettings = derived(settings, ($s) => $s.behavior);
 export const uiSettings = derived(settings, ($s) => $s.ui);
 export const imageDefaults = derived(settings, ($s) => $s.defaults);
 
