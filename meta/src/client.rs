@@ -43,20 +43,24 @@ impl MetaClient {
     pub async fn create_slide(
         &self,
         id: Uuid,
+        dataset: Uuid,
         width: i32,
         height: i32,
         url: &str,
         filename: &str,
         full_size: i64,
+        metadata: Option<serde_json::Value>,
     ) -> Result<Slide> {
         let api_url = format!("{}/slides", self.base_url);
         let req = CreateSlideRequest {
             id,
+            dataset,
             width,
             height,
             url: url.to_string(),
             filename: filename.to_string(),
             full_size,
+            metadata,
         };
 
         let resp = self
@@ -111,6 +115,7 @@ impl MetaClient {
     pub async fn update_slide(
         &self,
         id: Uuid,
+        dataset: Option<Uuid>,
         width: Option<i32>,
         height: Option<i32>,
         url: Option<String>,
@@ -119,11 +124,13 @@ impl MetaClient {
     ) -> Result<Option<Slide>> {
         let api_url = format!("{}/slides/{}", self.base_url, id);
         let req = UpdateSlideRequest {
+            dataset,
             width,
             height,
             url,
             filename,
             full_size,
+            metadata: None,
         };
 
         let resp = self

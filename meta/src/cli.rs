@@ -16,14 +16,17 @@ pub async fn run_create_slide(args: CreateSlideArgs) -> Result<()> {
     let client = MetaClient::new(&endpoint);
 
     let id: Uuid = args.id.parse()?;
+    let dataset: Uuid = args.dataset.parse()?;
     let slide = client
         .create_slide(
             id,
+            dataset,
             args.width,
             args.height,
             &args.url,
             &args.filename,
             args.full_size.unwrap_or(0),
+            args.metadata,
         )
         .await?;
 
@@ -32,7 +35,10 @@ pub async fn run_create_slide(args: CreateSlideArgs) -> Result<()> {
     println!("  Width:  {}", slide.width);
     println!("  Height: {}", slide.height);
     println!("  URL:    {}", slide.url);
-
+    println!(
+        "  Metadata: {}",
+        serde_json::to_string(&slide.metadata).unwrap_or_default()
+    );
     Ok(())
 }
 
@@ -64,9 +70,11 @@ pub async fn run_update_slide(args: UpdateSlideArgs) -> Result<()> {
     let client = MetaClient::new(&endpoint);
 
     let id: Uuid = args.id.parse()?;
+    let dataset = args.dataset.as_deref().map(str::parse).transpose()?;
     match client
         .update_slide(
             id,
+            dataset,
             args.width,
             args.height,
             args.url,

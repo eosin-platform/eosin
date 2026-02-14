@@ -60,6 +60,10 @@ pub struct CreateSlideArgs {
     #[arg(long)]
     pub id: String,
 
+    /// Dataset UUID grouping this slide
+    #[arg(long)]
+    pub dataset: String,
+
     /// Slide width in pixels
     #[arg(long)]
     pub width: i32,
@@ -79,6 +83,10 @@ pub struct CreateSlideArgs {
     /// Full size of the slide file in bytes
     #[arg(long)]
     pub full_size: Option<i64>,
+
+    /// Arbitrary slide metadata as JSON string
+    #[arg(long)]
+    pub metadata: Option<serde_json::Value>,
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -101,6 +109,10 @@ pub struct UpdateSlideArgs {
     /// Slide UUID
     #[arg(long)]
     pub id: String,
+
+    /// Dataset UUID grouping this slide
+    #[arg(long)]
+    pub dataset: Option<String>,
 
     /// New slide width in pixels
     #[arg(long)]

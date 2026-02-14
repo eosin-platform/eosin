@@ -31,7 +31,8 @@ use crate::{
     db,
     metrics,
     models::{
-        CreateSlideRequest, ListSlidesRequest, UpdateSlideProgressRequest, UpdateSlideRequest,
+        CreateSlideRequest, ListDatasetsRequest, ListSlidesRequest, UpdateDatasetRequest,
+        UpdateSlideProgressRequest, UpdateSlideRequest,
     },
 };
 
@@ -114,6 +115,9 @@ pub async fn run_server(
         // Read-only slide routes
         .route("/slides", get(list_slides))
         .route("/slides/{id}", get(get_slide))
+        // Read-only dataset routes
+        .route("/dataset", get(list_datasets))
+        .route("/dataset/{dataset_id}", get(get_dataset))
         // Read-only annotation routes
         .route(
             "/slides/{slide_id}/annotation-sets",
@@ -134,6 +138,10 @@ pub async fn run_server(
         .route("/slides", post(create_slide))
         .route("/slides/{id}", patch(update_slide).delete(delete_slide))
         .route("/slides/{id}/progress", put(update_slide_progress))
+        .route(
+            "/dataset/{dataset_id}",
+            patch(update_dataset).delete(delete_dataset),
+        )
         // Write annotation set routes
         .route(
             "/slides/{slide_id}/annotation-sets",
@@ -194,11 +202,13 @@ pub async fn create_slide(
     let slide = db::insert_slide(
         &state.pool,
         req.id,
+        req.dataset,
         req.width,
         req.height,
         &req.url,
         &req.filename,
         req.full_size,
+        req.metadata.as_ref(),
     )
     .await
     .map_err(|e| {
@@ -248,11 +258,13 @@ pub async fn update_slide(
     let slide = db::update_slide(
         &state.pool,
         id,
+        req.dataset,
         req.width,
         req.height,
         req.url.as_deref(),
         req.filename.as_deref(),
         req.full_size,
+        req.metadata.as_ref(),
     )
     .await
     .map_err(|e| {
@@ -352,6 +364,129 @@ pub async fn update_slide_progress(
         Ok(StatusCode::NO_CONTENT)
     } else {
         Err((StatusCode::NOT_FOUND, format!("slide {} not found", id)))
+    }
+}
+
+/// List datasets with pagination.
+pub async fn list_datasets(
+    State(state): State<AppState>,
+    Query(req): Query<ListDatasetsRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    if req.limit <= 0 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "limit must be positive".to_string(),
+        ));
+    }
+    if req.offset < 0 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "offset must be non-negative".to_string(),
+        ));
+    }
+
+    let limit = req.limit.min(1000);
+    let response = db::list_datasets(&state.pool, req.offset, limit)
+        .await
+        .map_err(|e| {
+            tracing::error!("failed to list datasets: {:?}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("failed to list datasets: {}", e),
+            )
+        })?;
+
+    Ok(Json(response))
+}
+
+/// Get a dataset by ID.
+/// Returns NOT_FOUND when dataset is soft-deleted.
+pub async fn get_dataset(
+    State(state): State<AppState>,
+    Path(dataset_id): Path<Uuid>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let dataset = db::get_dataset(&state.pool, dataset_id).await.map_err(|e| {
+        metrics::db_error("get_dataset");
+        tracing::error!("failed to get dataset: {:?}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("failed to get dataset: {}", e),
+        )
+    })?;
+
+    match dataset {
+        Some(d) => Ok(Json(d)),
+        None => Err((
+            StatusCode::NOT_FOUND,
+            format!("dataset {} not found", dataset_id),
+        )),
+    }
+}
+
+/// Update a dataset by ID.
+/// Rejects updates when dataset is soft-deleted.
+pub async fn update_dataset(
+    State(state): State<AppState>,
+    UserId(user_id): UserId,
+    Path(dataset_id): Path<Uuid>,
+    Json(req): Json<UpdateDatasetRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    metrics::authenticated_request(&user_id.to_string());
+    let updated = db::update_dataset(
+        &state.pool,
+        dataset_id,
+        req.name.as_deref(),
+        req.description.as_deref(),
+        req.metadata.as_ref(),
+    )
+    .await
+    .map_err(|e| {
+        metrics::db_error("update_dataset");
+        tracing::error!("failed to update dataset: {:?}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("failed to update dataset: {}", e),
+        )
+    })?;
+
+    match updated {
+        db::UpdateDatasetResult::Updated(d) => Ok(Json(d)),
+        db::UpdateDatasetResult::NotFound => Err((
+            StatusCode::NOT_FOUND,
+            format!("dataset {} not found", dataset_id),
+        )),
+        db::UpdateDatasetResult::Deleted => Err((
+            StatusCode::CONFLICT,
+            format!("dataset {} is deleted", dataset_id),
+        )),
+    }
+}
+
+/// Soft-delete a dataset by ID.
+pub async fn delete_dataset(
+    State(state): State<AppState>,
+    UserId(user_id): UserId,
+    Path(dataset_id): Path<Uuid>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    metrics::authenticated_request(&user_id.to_string());
+    let deleted = db::delete_dataset(&state.pool, dataset_id)
+        .await
+        .map_err(|e| {
+            metrics::db_error("delete_dataset");
+            tracing::error!("failed to delete dataset: {:?}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("failed to delete dataset: {}", e),
+            )
+        })?;
+
+    if deleted {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err((
+            StatusCode::NOT_FOUND,
+            format!("dataset {} not found", dataset_id),
+        ))
     }
 }
 
