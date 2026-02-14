@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use async_nats::jetstream::{self, AckKind, consumer::PullConsumer, message::Message};
+use aws_sdk_s3::error::ProvideErrorMetadata;
 use deadpool_postgres::Pool;
 use eosin_common::postgres::create_pool;
 use eosin_common::shutdown::shutdown_signal;
@@ -264,7 +265,10 @@ async fn handle_process_slide(
 
     // Process the slide, ensuring cleanup happens regardless of success/failure
     let result = process_downloaded_slide(
+        s3_client,
+        bucket,
         &local_path,
+        event.dataset_id,
         &event.key,
         meta_client,
         storage_client,
@@ -290,7 +294,10 @@ async fn handle_process_slide(
 /// from highest mip level (lowest resolution) to level 0 (full resolution).
 /// This allows the slide to be viewable at low resolution while still processing.
 async fn process_downloaded_slide(
+    s3_client: &aws_sdk_s3::Client,
+    bucket: &str,
     local_path: &str,
+    dataset_id: Uuid,
     key: &str,
     meta_client: &MetaClient,
     storage_client: &mut StorageClient,
@@ -330,16 +337,20 @@ async fn process_downloaded_slide(
         "extracted slide metadata"
     );
 
+    let slide_metadata = load_slide_sidecar_metadata(s3_client, bucket, key).await;
+
     // Insert metadata into meta service FIRST
     // This allows the slide to be visible immediately (at low resolution)
     let slide = meta_client
         .create_slide(
             slide_id,
+            dataset_id,
             metadata.width,
             metadata.height,
             key,
             &filename,
             full_size,
+            slide_metadata.clone(),
         )
         .await
         .context("failed to create slide in meta service")?;
@@ -354,11 +365,13 @@ async fn process_downloaded_slide(
     // immediately, without needing to reload.
     let created_event = eosin_common::streams::SlideEvent::Created(SlideCreatedEvent {
         id: slide_id,
+        dataset_id,
         width: metadata.width as i32,
         height: metadata.height as i32,
         filename: filename.clone(),
         full_size,
         url: key.to_string(),
+        metadata: slide_metadata,
     });
     let topic = topics::slide_progress(slide_id);
     if let Err(e) = nats_client
@@ -393,4 +406,56 @@ async fn process_downloaded_slide(
     );
 
     Ok(())
+}
+
+/// Try to load a sidecar metadata JSON object from S3 at `<slide_key>.json`.
+///
+/// Returns `Some(value)` only when the object exists and parses as JSON.
+/// Missing object, download errors, or parse errors are logged and treated as `None`.
+async fn load_slide_sidecar_metadata(
+    s3_client: &aws_sdk_s3::Client,
+    bucket: &str,
+    key: &str,
+) -> Option<serde_json::Value> {
+    let metadata_key = format!("{key}.json");
+
+    let response = match s3_client
+        .get_object()
+        .bucket(bucket)
+        .key(&metadata_key)
+        .send()
+        .await
+    {
+        Ok(response) => response,
+        Err(err) => {
+            let code = err
+                .as_service_error()
+                .and_then(|service_error| service_error.code());
+            if matches!(code, Some("NoSuchKey") | Some("NotFound")) {
+                tracing::debug!(key = %metadata_key, "no sidecar metadata found");
+            } else {
+                tracing::warn!(key = %metadata_key, error = ?err, "failed to fetch sidecar metadata");
+            }
+            return None;
+        }
+    };
+
+    let body = match response.body.collect().await {
+        Ok(body) => body,
+        Err(err) => {
+            tracing::warn!(key = %metadata_key, error = ?err, "failed to read sidecar metadata body");
+            return None;
+        }
+    };
+
+    match serde_json::from_slice::<serde_json::Value>(&body.into_bytes()) {
+        Ok(metadata) => {
+            tracing::info!(key = %metadata_key, "loaded sidecar metadata");
+            Some(metadata)
+        }
+        Err(err) => {
+            tracing::warn!(key = %metadata_key, error = ?err, "sidecar metadata is not valid JSON");
+            None
+        }
+    }
 }

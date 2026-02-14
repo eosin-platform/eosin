@@ -18,7 +18,9 @@ spec:
     - name: RUST_LOG
       value: info
     - name: S3_BUCKET
-      value: camelyon17
+      value: tcga-brca
+    - name: DATASET_ID
+      value: 219aced0-c30e-4e7f-9d8d-23e377a49ec0
     - name: S3_PATH_PREFIX
       value: "images/"
     - name: S3_ENDPOINT

@@ -17,11 +17,11 @@ pub async fn run_create_slide(args: CreateSlideArgs) -> Result<()> {
     let client = MetaClient::new(&endpoint);
 
     let id: Uuid = args.id.parse()?;
-    let dataset: Uuid = args.dataset.parse()?;
+    let dataset_id: Uuid = args.dataset_id.parse()?;
     let slide = client
         .create_slide(
             id,
-            dataset,
+            dataset_id,
             args.width,
             args.height,
             &args.url,

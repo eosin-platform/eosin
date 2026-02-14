@@ -93,7 +93,7 @@ pub struct CreateSlideArgs {
 
     /// Dataset UUID grouping this slide
     #[arg(long)]
-    pub dataset: String,
+    pub dataset_id: String,
 
     /// Slide width in pixels
     #[arg(long)]

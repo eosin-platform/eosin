@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand};
 use eosin_common::args::{NatsArgs, PostgresArgs, RedisArgs};
+use uuid::Uuid;
 
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about, long_about = None)]
@@ -46,6 +47,10 @@ pub struct DispatchArgs {
 
     #[command(flatten)]
     pub postgres: PostgresArgs,
+
+    /// Dataset UUID that this S3 bucket/prefix belongs to
+    #[arg(long, env = "DATASET_ID", required = true)]
+    pub dataset_id: Uuid,
 
     /// Name of the `JetStream` stream to publish to
     #[arg(long, env = "STREAM_NAME", default_value = "eosin")]

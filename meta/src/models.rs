@@ -82,7 +82,8 @@ pub struct Slide {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateSlideRequest {
     pub id: Uuid,
-    pub dataset: Uuid,
+    #[serde(alias = "dataset")]
+    pub dataset_id: Uuid,
     pub width: i32,
     pub height: i32,
     pub url: String,

@@ -10,6 +10,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/sccache \
     --mount=type=cache,target=/app/target \
+    export SCCACHE_SERVER_UDS="/tmp/sccache-${HOSTNAME}-$$.sock" && \
     sccache --start-server && \
     cargo build --release --bin eosin-compiler && \
     cp /app/target/release/eosin-compiler /app/eosin-compiler && \

@@ -199,7 +199,7 @@ pub async fn create_slide(
     let slide = db::insert_slide(
         &state.pool,
         req.id,
-        req.dataset,
+        req.dataset_id,
         req.width,
         req.height,
         &req.url,

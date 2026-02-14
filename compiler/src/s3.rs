@@ -41,8 +41,8 @@ pub async fn list_tif_files(client: &S3Client, bucket: &str, prefix: &str) -> Re
         if let Some(contents) = response.contents {
             for object in contents {
                 if let Some(key) = object.key {
-                    // Check if it's a .tif file (case-insensitive)
-                    if key.to_lowercase().ends_with(".tif") || key.to_lowercase().ends_with(".tiff")
+                    // Check if it's a .tif or .svs file (case-insensitive)
+                    if [".tif", ".tiff", ".svs"].contains(&key.to_lowercase().as_str())
                     {
                         keys.push(key);
                     }

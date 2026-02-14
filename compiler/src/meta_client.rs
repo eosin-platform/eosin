@@ -17,12 +17,15 @@ pub struct Slide {
     pub progress_steps: i32,
     /// Total tiles to process
     pub progress_total: i32,
+    /// Arbitrary slide metadata
+    pub metadata: Option<serde_json::Value>,
 }
 
 /// Request to create a new slide
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateSlideRequest {
     pub id: Uuid,
+    pub dataset_id: Uuid,
     pub width: i32,
     pub height: i32,
     pub url: String,
@@ -30,6 +33,8 @@ pub struct CreateSlideRequest {
     pub filename: String,
     /// Full size of the original slide file in bytes
     pub full_size: i64,
+    /// Arbitrary slide metadata
+    pub metadata: Option<serde_json::Value>,
 }
 
 /// Request to update slide progress
@@ -59,19 +64,23 @@ impl MetaClient {
     pub async fn create_slide(
         &self,
         id: Uuid,
+        dataset_id: Uuid,
         width: u32,
         height: u32,
         url: &str,
         filename: &str,
         full_size: i64,
+        metadata: Option<serde_json::Value>,
     ) -> Result<Slide> {
         let request = CreateSlideRequest {
             id,
+            dataset_id,
             width: width as i32,
             height: height as i32,
             url: url.to_string(),
             filename: filename.to_string(),
             full_size,
+            metadata,
         };
 
         let response = self

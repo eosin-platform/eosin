@@ -45,7 +45,7 @@ impl MetaClient {
     pub async fn create_slide(
         &self,
         id: Uuid,
-        dataset: Uuid,
+        dataset_id: Uuid,
         width: i32,
         height: i32,
         url: &str,
@@ -56,7 +56,7 @@ impl MetaClient {
         let api_url = format!("{}/slides", self.base_url);
         let req = CreateSlideRequest {
             id,
-            dataset,
+            dataset_id,
             width,
             height,
             url: url.to_string(),

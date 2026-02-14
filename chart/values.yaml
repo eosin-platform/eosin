@@ -144,10 +144,10 @@ landing:
       memory: "256Mi"
 
 compiler:
-  enabled: false
+  enabled: true
   image: thavlik/eosin-compiler:latest
   imagePullPolicy: Always
-  replicas: 2
+  replicas: 1
   logLevel: debug
   streamName: eosin
   consumerName: compiler

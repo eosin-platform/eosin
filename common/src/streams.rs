@@ -21,6 +21,7 @@ pub mod topics {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProcessSlideEvent {
+    pub dataset_id: Uuid,
     pub key: String,
 }
 
@@ -60,11 +61,14 @@ pub struct SlideProgressEvent {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SlideCreatedEvent {
     pub id: Uuid,
+    pub dataset_id: Uuid,
     pub width: i32,
     pub height: i32,
     pub filename: String,
     pub full_size: i64,
     pub url: String,
+    #[serde(default)]
+    pub metadata: Option<serde_json::Value>,
 }
 
 // -- wire helpers --

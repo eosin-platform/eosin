@@ -16,6 +16,7 @@ Features:
 
 ```bash
 eosin-compiler dispatch \
+  --dataset-id 00000000-0000-0000-0000-000000000001 \
   --bucket camelyon17 \
   --path-prefix slides/ \
   --nats-url nats://localhost:4222 \
@@ -61,6 +62,7 @@ eosin-compiler process \
 - `CONSUMER_NAME` - Consumer name for process worker (default: compiler)
 
 ### PostgreSQL Configuration (dispatch only)
+- `DATASET_ID` - Dataset UUID that the S3 bucket/prefix belongs to
 - `POSTGRES_HOST` - PostgreSQL host
 - `POSTGRES_PORT` - PostgreSQL port (default: 5432)
 - `POSTGRES_DATABASE` - Database name
