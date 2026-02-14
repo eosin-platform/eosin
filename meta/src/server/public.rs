@@ -189,11 +189,6 @@ pub async fn run_server(
 // Slide Handlers (delegate to internal logic)
 // =============================================================================
 
-/// Health check endpoint
-pub async fn health() -> impl IntoResponse {
-    "OK"
-}
-
 /// Create a new slide
 pub async fn create_slide(
     State(state): State<AppState>,
