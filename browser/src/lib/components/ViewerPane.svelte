@@ -2272,6 +2272,7 @@
   let lastTouchDistance = 0;
   let lastTouchCenter = { x: 0, y: 0 };
   let touchStartedOnAnnotation = false;
+  let touchHadMomentum = false; // Was there momentum when touch started?
 
   // Check if an element is an annotation target
   function isAnnotationElement(el: EventTarget | null): boolean {
@@ -2283,6 +2284,16 @@
     cancelLongPress();
     
     if (e.touches.length === 1) {
+      // Track if there was momentum at touch start - don't show context menu if so
+      touchHadMomentum = inertiaAnimationFrame !== null;
+      
+      // Cancel any ongoing inertia animation
+      if (inertiaAnimationFrame !== null) {
+        cancelAnimationFrame(inertiaAnimationFrame);
+        inertiaAnimationFrame = null;
+      }
+      panVelocityHistory = [];
+      
       lastMouseX = e.touches[0].clientX;
       lastMouseY = e.touches[0].clientY;
       
@@ -2295,7 +2306,7 @@
       longPressStartY = e.touches[0].clientY;
       isDragging = false;
       
-      if (imageDesc && !touchStartedOnAnnotation) {
+      if (imageDesc && !touchStartedOnAnnotation && !touchHadMomentum) {
         const touch = e.touches[0];
         longPressTimer = setTimeout(() => {
           longPressTimer = null;
@@ -2304,6 +2315,12 @@
       }
     } else if (e.touches.length === 2) {
       isDragging = false;
+      // Cancel inertia when starting pinch
+      if (inertiaAnimationFrame !== null) {
+        cancelAnimationFrame(inertiaAnimationFrame);
+        inertiaAnimationFrame = null;
+      }
+      panVelocityHistory = [];
       lastTouchDistance = getTouchDistance(e.touches);
       lastTouchCenter = getTouchCenter(e.touches);
       // Only preventDefault for pinch-zoom to prevent page zoom
@@ -2321,6 +2338,17 @@
       if (dx > LONG_PRESS_MOVE_THRESHOLD || dy > LONG_PRESS_MOVE_THRESHOLD) {
         cancelLongPress();
         // Now start panning
+        isDragging = true;
+        lastMouseX = e.touches[0].clientX;
+        lastMouseY = e.touches[0].clientY;
+      }
+    }
+    
+    // If touch interrupted momentum and user moves, start panning immediately
+    if (touchHadMomentum && e.touches.length === 1 && !isDragging) {
+      const dx = Math.abs(e.touches[0].clientX - longPressStartX);
+      const dy = Math.abs(e.touches[0].clientY - longPressStartY);
+      if (dx > LONG_PRESS_MOVE_THRESHOLD || dy > LONG_PRESS_MOVE_THRESHOLD) {
         isDragging = true;
         lastMouseX = e.touches[0].clientX;
         lastMouseY = e.touches[0].clientY;
@@ -2357,6 +2385,15 @@
     if (e.touches.length === 1 && isDragging) {
       const deltaX = e.touches[0].clientX - lastMouseX;
       const deltaY = e.touches[0].clientY - lastMouseY;
+      
+      // Track velocity for inertia
+      if (smoothNavigation) {
+        panVelocityHistory.push({ dx: deltaX, dy: deltaY, dt: 16 });
+        if (panVelocityHistory.length > VELOCITY_HISTORY_SIZE) {
+          panVelocityHistory.shift();
+        }
+      }
+      
       lastMouseX = e.touches[0].clientX;
       lastMouseY = e.touches[0].clientY;
 
@@ -2397,6 +2434,26 @@
       isDragging = false;
       lastTouchDistance = 0;
       touchStartedOnAnnotation = false;
+      
+      // Apply inertia if was panning with momentum
+      if (wasDragging && smoothNavigation && imageDesc && panVelocityHistory.length > 0) {
+        let totalDx = 0, totalDy = 0;
+        for (const v of panVelocityHistory) {
+          totalDx += v.dx;
+          totalDy += v.dy;
+        }
+        const avgDx = totalDx / panVelocityHistory.length;
+        const avgDy = totalDy / panVelocityHistory.length;
+        inertiaVelocityX = avgDx * 60;
+        inertiaVelocityY = avgDy * 60;
+        
+        const speed = Math.sqrt(inertiaVelocityX * inertiaVelocityX + inertiaVelocityY * inertiaVelocityY);
+        if (speed > 100) {
+          startInertiaAnimation();
+        }
+        panVelocityHistory = [];
+      }
+      touchHadMomentum = false;
     } else if (e.touches.length === 1) {
       isDragging = true;
       lastMouseX = e.touches[0].clientX;
