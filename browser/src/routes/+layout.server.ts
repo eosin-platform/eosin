@@ -160,7 +160,13 @@ export const load = async ({ cookies, request, url }) => {
     console.error('Failed to fetch datasets from meta server:', err);
   }
 
-  const selectedDatasetId = datasets.length > 0 ? datasets[0].id : null;
+  const requestedDatasetId = url.searchParams.get('dataset_id');
+  const selectedDatasetId =
+    requestedDatasetId && datasets.some((dataset) => dataset.id === requestedDatasetId)
+      ? requestedDatasetId
+      : datasets.length > 0
+        ? datasets[0].id
+        : null;
 
   if (!selectedDatasetId) {
     return {

@@ -11,6 +11,8 @@
   import ContextMenu from './ContextMenu.svelte';
   import AnnotationsPanel from './AnnotationsPanel.svelte';
 
+  const DATASET_STORAGE_KEY = 'eosin.sidebar.dataset_id';
+
   interface SlideListItem {
     id: string;
     dataset: string;
@@ -53,12 +55,13 @@
     onToggle,
   }: Props = $props();
 
-  let slides = $state<SlideListItem[]>([]);
-  let datasets = $state<DatasetListItem[]>([]);
-  let selectedDatasetId = $state<string>('');
+  let slides = $state<SlideListItem[]>(initialSlides);
+  let datasets = $state<DatasetListItem[]>(initialDatasets);
+  let selectedDatasetId = $state<string>(initialSelectedDatasetId ?? '');
+  let loadedDatasetId = $state<string>(initialSelectedDatasetId ?? '');
   let loading = $state(false);
-  let canLoadMore = $state(false);
-  let currentOffset = $state(0);
+  let canLoadMore = $state(hasMore);
+  let currentOffset = $state(initialSlides.length);
   let error = $state<string | null>(null);
 
   let scrollContainer: HTMLElement;
@@ -75,6 +78,61 @@
     });
 
     return `/api/slides?${params.toString()}`;
+  }
+
+  function isKnownDataset(datasetId: string, availableDatasets: DatasetListItem[]): boolean {
+    return availableDatasets.some((dataset) => dataset.id === datasetId);
+  }
+
+  function getUrlDatasetId(): string | null {
+    if (!browser) return null;
+    const value = new URLSearchParams(window.location.search).get('dataset_id');
+    return value && value.length > 0 ? value : null;
+  }
+
+  function getStoredDatasetId(): string | null {
+    if (!browser) return null;
+    const value = window.localStorage.getItem(DATASET_STORAGE_KEY);
+    return value && value.length > 0 ? value : null;
+  }
+
+  function persistDatasetSelection(datasetId: string) {
+    if (!browser || !datasetId) return;
+
+    const currentStored = window.localStorage.getItem(DATASET_STORAGE_KEY);
+    if (currentStored !== datasetId) {
+      window.localStorage.setItem(DATASET_STORAGE_KEY, datasetId);
+    }
+
+    const currentUrl = new URL(window.location.href);
+    const currentDatasetParam = currentUrl.searchParams.get('dataset_id');
+    if (currentDatasetParam !== datasetId) {
+      currentUrl.searchParams.set('dataset_id', datasetId);
+      const nextUrl = `${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`;
+      window.history.replaceState(window.history.state, '', nextUrl);
+    }
+  }
+
+  function computePreferredDatasetId(availableDatasets: DatasetListItem[]): string {
+    if (availableDatasets.length === 0) {
+      return '';
+    }
+
+    const urlDatasetId = getUrlDatasetId();
+    if (urlDatasetId && isKnownDataset(urlDatasetId, availableDatasets)) {
+      return urlDatasetId;
+    }
+
+    const storedDatasetId = getStoredDatasetId();
+    if (storedDatasetId && isKnownDataset(storedDatasetId, availableDatasets)) {
+      return storedDatasetId;
+    }
+
+    if (initialSelectedDatasetId && isKnownDataset(initialSelectedDatasetId, availableDatasets)) {
+      return initialSelectedDatasetId;
+    }
+
+    return availableDatasets[0].id;
   }
 
   // Live progress from WebSocket (shared store)
@@ -140,19 +198,19 @@
     }
   });
 
-  // Initialize and reset state when initialSlides changes
-  $effect(() => {
-    slides = [...initialSlides];
-    currentOffset = initialSlides.length;
-    canLoadMore = hasMore;
-  });
+  // On client mount, check URL/localStorage for preferred dataset and reload if needed
+  onMount(() => {
+    // Compute preferred dataset: URL > localStorage > SSR > first
+    const preferredDatasetId = computePreferredDatasetId(datasets);
 
-  $effect(() => {
-    datasets = [...initialDatasets];
-
-    const hasSelected = datasets.some((d) => d.id === selectedDatasetId);
-    if (!hasSelected) {
-      selectedDatasetId = initialSelectedDatasetId ?? datasets[0]?.id ?? '';
+    // If preferred differs from SSR-loaded, update and reload
+    if (preferredDatasetId && preferredDatasetId !== selectedDatasetId) {
+      selectedDatasetId = preferredDatasetId;
+      persistDatasetSelection(preferredDatasetId);
+      void reloadSlidesForSelectedDataset();
+    } else if (preferredDatasetId) {
+      // Just persist the current selection to URL/localStorage
+      persistDatasetSelection(preferredDatasetId);
     }
   });
 
@@ -179,6 +237,7 @@
       currentOffset = data.items.length;
       canLoadMore = currentOffset < data.full_count;
       totalCount = data.full_count;
+      loadedDatasetId = selectedDatasetId;
     } catch (err) {
       error = err instanceof Error ? err.message : 'Failed to load slides';
       console.error('Error loading slides:', err);
@@ -195,7 +254,8 @@
     }
 
     selectedDatasetId = target.value;
-    reloadSlidesForSelectedDataset();
+    persistDatasetSelection(selectedDatasetId);
+    void reloadSlidesForSelectedDataset();
   }
 
   async function loadMore() {
