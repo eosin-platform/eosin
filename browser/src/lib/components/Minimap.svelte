@@ -192,7 +192,12 @@
   onDestroy(() => {
     // Clean up our dedicated tile store
     clearMinimapStore();
+    if (_minimapSyncRaf !== null) cancelAnimationFrame(_minimapSyncRaf);
   });
+
+  // Debounce minimap sync to avoid running expensive cache iteration
+  // on every renderTrigger change (2x per tile received).
+  let _minimapSyncRaf: number | null = null;
 
   // Re-render when cache updates or image changes
   $effect(() => {
@@ -207,10 +212,13 @@
       currentImageId = newImageId;
     }
     
-    // Sync tiles from main cache to our dedicated store
-    syncTilesFromCache();
-    
-    renderThumbnail();
+    // Debounce sync + render: coalesce multiple renderTrigger bumps into one
+    if (_minimapSyncRaf !== null) cancelAnimationFrame(_minimapSyncRaf);
+    _minimapSyncRaf = requestAnimationFrame(() => {
+      _minimapSyncRaf = null;
+      syncTilesFromCache();
+      renderThumbnail();
+    });
   });
 
   function renderThumbnail() {

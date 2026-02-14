@@ -38,7 +38,7 @@
   import type { Annotation, PointGeometry, EllipseGeometry, PolygonGeometry, MaskGeometry } from '$lib/api/annotations';
   import { tabStore, type Tab } from '$lib/stores/tabs';
   import { acquireCache, releaseCache } from '$lib/stores/slideCache';
-  import { updatePerformanceMetrics } from '$lib/stores/metrics';
+  import { updatePerformanceMetrics, type PerformanceMetrics } from '$lib/stores/metrics';
   import { settings, navigationSettings, imageSettings, performanceSettings, behaviorSettings, helpMenuOpen, type StainNormalization, type StainEnhancementMode } from '$lib/stores/settings';
   import { toolState, toolCommand, clearToolCommand, updateToolState, resetToolState, type ToolCommand } from '$lib/stores/tools';
 
@@ -89,6 +89,38 @@
   let cacheMemoryBytes = $state(0);
   let pendingDecodes = $state(0);
 
+  // --- Batched render trigger ---
+  // Coalesces multiple renderTrigger++ calls into a single increment per microtask.
+  // During tile bursts, many tiles arrive in the same event loop tick; without batching,
+  // each renderTrigger++ fires a separate Svelte $effect → scheduleRender chain (+Minimap sync).
+  let _renderTriggerPending = false;
+  function scheduleRenderTrigger() {
+    if (_renderTriggerPending) return;
+    _renderTriggerPending = true;
+    queueMicrotask(() => {
+      _renderTriggerPending = false;
+      renderTrigger++;
+    });
+  }
+
+  // --- Batched performance-metrics flush ---
+  // Merges partial metric updates and flushes to the Svelte store at most once per rAF,
+  // preventing 2-3+ store.update() calls per tile (each of which triggers a +page.svelte
+  // DOM diff of the status bar).
+  let _pendingMetrics: Partial<PerformanceMetrics> | null = null;
+  let _metricsFlushRaf: number | null = null;
+  function scheduleMetricsFlush(partial: Partial<PerformanceMetrics>) {
+    _pendingMetrics = _pendingMetrics ? { ..._pendingMetrics, ...partial } : partial;
+    if (_metricsFlushRaf !== null) return;
+    _metricsFlushRaf = requestAnimationFrame(() => {
+      _metricsFlushRaf = null;
+      if (_pendingMetrics) {
+        updatePerformanceMetrics(_pendingMetrics);
+        _pendingMetrics = null;
+      }
+    });
+  }
+
   // Container ref for sizing
   let container: HTMLDivElement;
 
@@ -100,6 +132,25 @@
   let isDragging = $state(false);
   let lastMouseX = 0;
   let lastMouseY = 0;
+  // Tracks whether the viewer is actively panning/zooming (momentum, drag, zoom animation).
+  // Used to skip expensive downstream rendering (annotation masks, minimap) during interaction.
+  let isViewerInteracting = $state(false);
+  let _interactionEndTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Call when any interaction begins (pan, zoom, inertia). */
+  function markInteractionStart() {
+    if (_interactionEndTimer !== null) { clearTimeout(_interactionEndTimer); _interactionEndTimer = null; }
+    isViewerInteracting = true;
+  }
+  /** Call when the interaction ends. Adds a short grace period to coalesce fast stop/start. */
+  function markInteractionEnd() {
+    if (_interactionEndTimer !== null) clearTimeout(_interactionEndTimer);
+    _interactionEndTimer = setTimeout(() => { _interactionEndTimer = null; isViewerInteracting = false; }, 80);
+  }
+
+  // Automatically track drag state as interaction
+  $effect(() => {
+    if (isDragging) { markInteractionStart(); } else { markInteractionEnd(); }
+  });
   // Track right-click start position for context menu threshold
   let rightClickStart = $state<{ x: number; y: number } | null>(null);
   let rightClickHadMomentum = false; // Was there momentum when RMB was pressed?
@@ -1414,24 +1465,24 @@
     // Update memory metrics
     cacheMemoryBytes = cache.getMemoryUsage();
     pendingDecodes = cache.getPendingDecodeCount();
-    // Update global store
-    updatePerformanceMetrics({
+    // Update global store (batched via rAF)
+    scheduleMetricsFlush({
       cacheMemoryBytes,
       pendingDecodes,
       tilesReceived,
       cacheSize,
     });
-    // Trigger an immediate render so coarse fallbacks are displayed.
-    renderTrigger++;
+    // Schedule a coalesced render trigger (batches multiple tiles per microtask)
+    scheduleRenderTrigger();
     // When the bitmap finishes decoding, trigger another render so the
     // crisp version replaces the blurry fallback (progressive loading).
     bitmapReady.then(() => {
-      renderTrigger++;
+      scheduleRenderTrigger();
       // Update pending decodes after decode completes
       if (cache) {
         pendingDecodes = cache.getPendingDecodeCount();
         cacheMemoryBytes = cache.getMemoryUsage();
-        updatePerformanceMetrics({
+        scheduleMetricsFlush({
           pendingDecodes,
           cacheMemoryBytes,
         });
@@ -1441,8 +1492,8 @@
 
   function handleRenderMetrics(metrics: RenderMetrics) {
     renderMetrics = metrics;
-    // Update global store with render metrics
-    updatePerformanceMetrics({
+    // Update global store with render metrics (batched via rAF)
+    scheduleMetricsFlush({
       renderTimeMs: metrics.renderTimeMs,
       fps: metrics.fps,
       visibleTiles: metrics.visibleTiles,
@@ -1492,14 +1543,22 @@
     cache.cancelDecodesNotIn(allVisibleTiles);
   }
 
+  // Throttle cancelNonVisibleDecodes to avoid computing visible tiles at
+  // 3+ mip levels on every momentum frame (~60/s). Once per 100ms is sufficient.
+  let _lastCancelNonVisibleTime = 0;
+  const CANCEL_NONVISIBLE_THROTTLE_MS = 100;
+
   function scheduleViewportUpdate() {
     if (viewportUpdateTimeout) {
       clearTimeout(viewportUpdateTimeout);
     }
     
-    // Cancel decodes for tiles that are no longer visible IMMEDIATELY
-    // (don't wait for the debounce) to free up decode capacity ASAP
-    cancelNonVisibleDecodes();
+    // Cancel decodes for tiles that are no longer visible (throttled)
+    const now = performance.now();
+    if (now - _lastCancelNonVisibleTime > CANCEL_NONVISIBLE_THROTTLE_MS) {
+      _lastCancelNonVisibleTime = now;
+      cancelNonVisibleDecodes();
+    }
     
     viewportUpdateTimeout = setTimeout(() => {
       sendViewportUpdate();
@@ -2202,10 +2261,12 @@
     if (!imageDesc || zoomTargetLevel === null || zoomPivotX === null || zoomPivotY === null) {
       return;
     }
+    markInteractionStart();
     
     function animateZoom() {
       if (!imageDesc || zoomTargetLevel === null || zoomPivotX === null || zoomPivotY === null) {
         zoomAnimationFrame = null;
+        markInteractionEnd();
         return;
       }
       
@@ -2225,6 +2286,7 @@
         zoomTargetLevel = null;
         zoomPivotX = null;
         zoomPivotY = null;
+        markInteractionEnd();
         scheduleViewportUpdate();
         return;
       }
@@ -2241,6 +2303,7 @@
 
   function startInertiaAnimation() {
     if (!imageDesc || inertiaAnimationFrame !== null) return;
+    markInteractionStart();
     
     const friction = 0.92; // Deceleration factor per frame (lower = more friction)
     const minSpeed = 20; // Stop when below this speed (pixels/second)
@@ -2248,6 +2311,7 @@
     function animateInertia() {
       if (!imageDesc) {
         inertiaAnimationFrame = null;
+        markInteractionEnd();
         return;
       }
       
@@ -2258,6 +2322,7 @@
         inertiaVelocityX = 0;
         inertiaVelocityY = 0;
         inertiaAnimationFrame = null;
+        markInteractionEnd();
         scheduleViewportUpdate();
         return;
       }
@@ -3810,6 +3875,14 @@
       cancelAnimationFrame(inertiaAnimationFrame);
     }
     cancelLongPress();
+    if (_metricsFlushRaf !== null) {
+      cancelAnimationFrame(_metricsFlushRaf);
+      _metricsFlushRaf = null;
+    }
+    if (_interactionEndTimer !== null) {
+      clearTimeout(_interactionEndTimer);
+      _interactionEndTimer = null;
+    }
     if (browser) {
       window.removeEventListener('mouseup', handleWindowMouseUp);
       window.removeEventListener('keydown', handleKeyDown, true);
@@ -3885,6 +3958,7 @@
       maskAllTiles={maskAllTiles}
       maskBrushSize={maskBrushSize}
       maskEditingAnnotationIds={maskEditingAnnotationIds}
+      isInteracting={isViewerInteracting}
     />
     
     <!-- Viewer HUD overlay (top-left) -->

@@ -54,6 +54,8 @@
     maskBrushSize?: number;
     /** Annotation IDs being edited in mask-paint mode (to hide from normal rendering) */
     maskEditingAnnotationIds?: Set<string>;
+    /** Whether the viewer is actively panning/zooming (skip expensive mask re-renders) */
+    isInteracting?: boolean;
   }
 
   let { 
@@ -63,7 +65,8 @@
     modifyPhase = 'idle', modifyAnnotationId = null, modifyCenter = null, modifyRadii = null, modifyMousePos = null, modifyAngleOffset = 0, modifyRotation = 0, modifyCenterOffset = null, modifyIsCreating = true, modifyOriginalRadii = null, modifyDragStartPos = null,
     modifyPolygonVertices = null, modifyFreehandPath = null, modifyEditingVertexIndex = null,
     maskPaintData = null, maskTileOrigin = null, maskAllTiles = [], maskBrushSize = 20,
-    maskEditingAnnotationIds = new Set()
+    maskEditingAnnotationIds = new Set(),
+    isInteracting = false
   }: Props = $props();
 
   // Settings: global annotation visibility
@@ -108,6 +111,7 @@
     // Clear preview canvas references
     previewCanvas = null;
     previewImageData = null;
+    if (_maskRenderRaf !== null) cancelAnimationFrame(_maskRenderRaf);
   });
 
   // Canvas for mask rendering (much faster than SVG for pixel-based graphics)
@@ -273,11 +277,8 @@
     return decoded;
   }
 
-  // Render all masks to canvas - uses pre-rendered ImageBitmaps for speed
-  $effect(() => {
-    // Touch bitmapReadyTrigger to re-run when bitmaps are ready
-    void bitmapReadyTrigger;
-    
+  // Extract mask-canvas rendering into a callable function
+  function renderMaskCanvas() {
     if (!maskCanvas || !globalVisible) return;
     
     const ctx = maskCanvas.getContext('2d', { alpha: true });
@@ -330,6 +331,47 @@
         if (!tile || !tile.origin || !tile.data) continue;
         renderMaskToCanvasDirect(ctx, tile.data, tile.origin.x, tile.origin.y, 512, 512, previewColor, 0.5);
       }
+    }
+  }
+
+  // Render all masks to canvas - uses pre-rendered ImageBitmaps for speed
+  // During interaction (panning/zooming), defer mask re-renders to avoid
+  // blocking the main thread every frame.  Tile rendering (TileRenderer)
+  // already handles viewport paint; masks just need to catch up once the
+  // user stops moving.
+  let _maskRenderRaf: number | null = null;
+  let _maskDirtyDuringInteraction = false;
+
+  $effect(() => {
+    // Touch reactive deps so Svelte tracks them
+    void bitmapReadyTrigger;
+    void viewportX; void viewportY; void viewportZoom;
+    void containerWidth; void containerHeight;
+    void visibleAnnotations; void maskEditingAnnotationIds;
+    void modifyPhase; void maskAllTiles; void hoveredMaskId; void highlightedId;
+
+    if (!maskCanvas || !globalVisible) return;
+
+    // Fast path: while actively panning/zooming, just mark dirty
+    if (isInteracting) {
+      _maskDirtyDuringInteraction = true;
+      return;
+    }
+
+    // Not interacting — render immediately (catches catch-up after interaction)
+    renderMaskCanvas();
+    _maskDirtyDuringInteraction = false;
+  });
+
+  // When interaction ends, catch up with a single deferred render
+  $effect(() => {
+    if (!isInteracting && _maskDirtyDuringInteraction) {
+      if (_maskRenderRaf !== null) cancelAnimationFrame(_maskRenderRaf);
+      _maskRenderRaf = requestAnimationFrame(() => {
+        _maskRenderRaf = null;
+        _maskDirtyDuringInteraction = false;
+        renderMaskCanvas();
+      });
     }
   });
   
