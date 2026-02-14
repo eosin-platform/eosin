@@ -608,6 +608,101 @@
     return value as Record<string, unknown>;
   }
 
+  type CreditPart = {
+    key: string;
+    type: 'text' | 'doi' | 'url';
+    value: string;
+    href?: string;
+  };
+
+  const DOI_OR_URL_PATTERN = /(doi:\s*10\.\d{4,9}\/[\S]+|https?:\/\/\S+)/gi;
+
+  function normalizeDoi(raw: string): string {
+    return raw.replace(/[\].,;:!?)+]+$/g, '');
+  }
+
+  function normalizeUrl(raw: string): string {
+    return raw.replace(/[\].,;:!?)+]+$/g, '');
+  }
+
+  function parseCreditParts(credit: string | null | undefined): CreditPart[] {
+    if (!credit || credit.trim().length === 0) {
+      return [{ key: 'empty', type: 'text', value: '—' }];
+    }
+
+    const parts: CreditPart[] = [];
+    let lastIndex = 0;
+    let partIndex = 0;
+
+    for (const match of credit.matchAll(DOI_OR_URL_PATTERN)) {
+      const matchIndex = match.index ?? 0;
+      const fullMatch = match[0] ?? '';
+      const token = match[1] ?? '';
+
+      if (matchIndex > lastIndex) {
+        parts.push({
+          key: `text-${partIndex++}`,
+          type: 'text',
+          value: credit.slice(lastIndex, matchIndex),
+        });
+      }
+
+      if (token.toLowerCase().startsWith('doi:')) {
+        const rawDoi = token.replace(/^doi:\s*/i, '');
+        const normalizedDoi = normalizeDoi(rawDoi);
+
+        parts.push({
+          key: `doi-${partIndex++}`,
+          type: 'doi',
+          value: `doi:${normalizedDoi}`,
+          href: `https://doi.org/${normalizedDoi}`,
+        });
+
+        const trailing = rawDoi.slice(normalizedDoi.length);
+        if (trailing.length > 0) {
+          parts.push({
+            key: `trail-${partIndex++}`,
+            type: 'text',
+            value: trailing,
+          });
+        }
+      } else {
+        const normalizedUrl = normalizeUrl(token);
+        parts.push({
+          key: `url-${partIndex++}`,
+          type: 'url',
+          value: normalizedUrl,
+          href: normalizedUrl,
+        });
+
+        const trailing = token.slice(normalizedUrl.length);
+        if (trailing.length > 0) {
+          parts.push({
+            key: `trail-${partIndex++}`,
+            type: 'text',
+            value: trailing,
+          });
+        }
+      }
+
+      lastIndex = matchIndex + fullMatch.length;
+    }
+
+    if (lastIndex < credit.length) {
+      parts.push({
+        key: `text-${partIndex++}`,
+        type: 'text',
+        value: credit.slice(lastIndex),
+      });
+    }
+
+    if (parts.length === 0) {
+      parts.push({ key: 'text-0', type: 'text', value: credit });
+    }
+
+    return parts;
+  }
+
   const propertiesRows = $derived.by(() => {
     if (!propertiesSlide) {
       return [] as { key: string; label: string; value: string }[];
@@ -648,7 +743,7 @@
     }
 
     const entries = Object.entries(asRecord(datasetPropertiesDataset)).filter(
-      ([key]) => key !== 'metadata'
+      ([key]) => key !== 'metadata' && key !== 'credit'
     );
 
     return entries.map(([key, value]) => ({
@@ -1186,7 +1281,21 @@
                   <p class="dataset-item-description">{dataset.description}</p>
                 {/if}
                 {#if dataset.credit}
-                  <p class="dataset-item-credit" title={dataset.credit}>{dataset.credit}</p>
+                  <p class="dataset-item-credit" title={dataset.credit}>
+                    {#each parseCreditParts(dataset.credit) as part (part.key)}
+                      {#if part.type === 'doi' || part.type === 'url'}
+                        <a
+                          class="credit-link"
+                          href={part.href}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onclick={(e) => e.stopPropagation()}
+                        >{part.value}</a>
+                      {:else}
+                        {part.value}
+                      {/if}
+                    {/each}
+                  </p>
                 {/if}
                 <div class="dataset-item-meta">
                   <span>Updated {formatTimestamp(dataset.updated_at)}</span>
@@ -1247,7 +1356,15 @@
           </div>
           <div class="properties-dataset-body">
             <div class="properties-dataset-name">{propertiesDataset?.name ?? '—'}</div>
-            <div class="properties-dataset-credit" title={propertiesDataset?.credit ?? '—'}>{propertiesDataset?.credit ?? '—'}</div>
+            <div class="properties-dataset-credit" title={propertiesDataset?.credit ?? '—'}>
+              {#each parseCreditParts(propertiesDataset?.credit) as part (part.key)}
+                {#if part.type === 'doi' || part.type === 'url'}
+                  <a class="credit-link" href={part.href} target="_blank" rel="noopener noreferrer">{part.value}</a>
+                {:else}
+                  {part.value}
+                {/if}
+              {/each}
+            </div>
           </div>
         </div>
       </div>
@@ -1283,6 +1400,23 @@
               <span class="properties-value" title={row.value}>{row.value}</span>
             </div>
           {/each}
+        </div>
+
+        <div class="properties-dataset-card">
+          <div class="properties-metadata-header">
+            <span>Credit</span>
+          </div>
+          <div class="properties-dataset-body">
+            <div class="properties-dataset-credit" title={datasetPropertiesDataset.credit ?? '—'}>
+              {#each parseCreditParts(datasetPropertiesDataset.credit) as part (part.key)}
+                {#if part.type === 'doi' || part.type === 'url'}
+                  <a class="credit-link" href={part.href} target="_blank" rel="noopener noreferrer">{part.value}</a>
+                {:else}
+                  {part.value}
+                {/if}
+              {/each}
+            </div>
+          </div>
         </div>
 
         <div class="properties-metadata">
@@ -2031,6 +2165,14 @@
     color: rgb(var(--primary-foreground));
   }
 
+  .dataset-item.selected .dataset-item-credit {
+    color: rgba(var(--primary-foreground), 0.88);
+  }
+
+  .dataset-item.selected .dataset-item-credit .credit-link {
+    color: var(--secondary-hex);
+  }
+
   .dataset-item-top {
     display: flex;
     align-items: center;
@@ -2062,12 +2204,22 @@
 
   .dataset-item-credit {
     margin: 0;
-    font-size: 0.69rem;
-    color: #7f7f7f;
+    font-size: 0.7rem;
+    color: #b3b3b3;
     line-height: 1.3;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .dataset-item-credit .credit-link {
+    color: var(--secondary-hex);
+    text-decoration: none;
+    text-underline-offset: 2px;
+  }
+
+  .dataset-item-credit .credit-link:hover {
+    color: var(--secondary-hex);
+    text-decoration: underline;
   }
 
   .dataset-item-meta {
@@ -2372,6 +2524,19 @@
 
   .properties-dataset-credit::-webkit-scrollbar-thumb:hover {
     background: #555;
+  }
+
+  .properties-dataset-credit .credit-link,
+  .properties-value .credit-link {
+    color: var(--secondary-hex);
+    text-decoration: none;
+    text-underline-offset: 2px;
+  }
+
+  .properties-dataset-credit .credit-link:hover,
+  .properties-value .credit-link:hover {
+    color: var(--secondary-hex);
+    text-decoration: underline;
   }
 
   .properties-metadata-header {
