@@ -27,8 +27,8 @@ use crate::{
     db,
     metrics,
     models::{
-        CreateDatasetRequest, CreateSlideRequest, ListDatasetsRequest, ListSlidesRequest,
-        UpdateDatasetRequest,
+        CreateDatasetRequest, CreateDatasetSourceRequest, CreateSlideRequest, ListDatasetsRequest,
+        ListSlidesRequest, UpdateDatasetRequest,
         UpdateSlideProgressRequest, UpdateSlideRequest,
     },
 };
@@ -111,6 +111,14 @@ pub async fn run_server(cancel: CancellationToken, port: u16, state: AppState) -
         .route(
             "/dataset/{dataset_id}",
             get(get_dataset).patch(update_dataset).delete(delete_dataset),
+        )
+        .route(
+            "/dataset/{dataset_id}/sources",
+            get(list_dataset_sources).post(create_dataset_source),
+        )
+        .route(
+            "/dataset/{dataset_id}/sources/{source_id}",
+            axum::routing::delete(delete_dataset_source),
         )
         // Annotation set routes
         .route(
@@ -476,6 +484,81 @@ pub async fn delete_dataset(
         Err((
             StatusCode::NOT_FOUND,
             format!("dataset {} not found", dataset_id),
+        ))
+    }
+}
+
+/// Add or upsert a dataset source for a dataset.
+pub async fn create_dataset_source(
+    State(state): State<AppState>,
+    Path(dataset_id): Path<Uuid>,
+    Json(req): Json<CreateDatasetSourceRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let source = db::upsert_dataset_source(
+        &state.pool,
+        dataset_id,
+        &req.endpoint,
+        &req.region,
+        &req.bucket,
+        req.requires_credentials,
+    )
+    .await
+    .map_err(|e| {
+        metrics::db_error("upsert_dataset_source");
+        tracing::error!("failed to upsert dataset source: {:?}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("failed to upsert dataset source: {}", e),
+        )
+    })?;
+
+    Ok((StatusCode::CREATED, Json(source)))
+}
+
+/// List all dataset sources for a dataset.
+pub async fn list_dataset_sources(
+    State(state): State<AppState>,
+    Path(dataset_id): Path<Uuid>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let sources = db::list_dataset_sources(&state.pool, dataset_id)
+        .await
+        .map_err(|e| {
+            metrics::db_error("list_dataset_sources");
+            tracing::error!("failed to list dataset sources: {:?}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("failed to list dataset sources: {}", e),
+            )
+        })?;
+
+    Ok(Json(sources))
+}
+
+/// Delete a dataset source for a dataset.
+pub async fn delete_dataset_source(
+    State(state): State<AppState>,
+    Path((dataset_id, source_id)): Path<(Uuid, Uuid)>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let deleted = db::delete_dataset_source(&state.pool, dataset_id, source_id)
+        .await
+        .map_err(|e| {
+            metrics::db_error("delete_dataset_source");
+            tracing::error!("failed to delete dataset source: {:?}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("failed to delete dataset source: {}", e),
+            )
+        })?;
+
+    if deleted {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err((
+            StatusCode::NOT_FOUND,
+            format!(
+                "dataset source {} for dataset {} not found",
+                source_id, dataset_id
+            ),
         ))
     }
 }

@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use aws_credential_types::{Credentials, provider::SharedCredentialsProvider};
 use aws_sdk_s3::Client as S3Client;
 use aws_sdk_s3::config::Region;
 use std::path::Path;
@@ -6,16 +7,45 @@ use tokio::fs::File;
 use tokio::io::{AsyncWriteExt, BufWriter};
 
 use crate::args::S3Args;
+use crate::meta_client::DatasetSource;
 
 const FLUSH_THRESHOLD: usize = 8 * 1024 * 1024; // 8 MB
 
 /// Create an S3 client from the provided arguments.
 pub async fn create_s3_client(args: &S3Args) -> Result<S3Client> {
-    let mut config_loader = aws_config::defaults(aws_config::BehaviorVersion::latest())
-        .region(Region::new(args.region.clone()));
+    create_s3_client_with_params(
+        args.endpoint.as_deref(),
+        &args.region,
+        true,
+    )
+    .await
+}
 
-    if let Some(ref endpoint) = args.endpoint {
+/// Create an S3 client from a dataset source record.
+pub async fn create_s3_client_from_source(source: &DatasetSource) -> Result<S3Client> {
+    create_s3_client_with_params(
+        Some(source.endpoint.as_str()),
+        &source.region,
+        source.requires_credentials,
+    )
+    .await
+}
+
+async fn create_s3_client_with_params(
+    endpoint: Option<&str>,
+    region: &str,
+    requires_credentials: bool,
+) -> Result<S3Client> {
+    let mut config_loader =
+        aws_config::defaults(aws_config::BehaviorVersion::latest()).region(Region::new(region.to_string()));
+
+    if let Some(endpoint) = endpoint {
         config_loader = config_loader.endpoint_url(endpoint);
+    }
+
+    if !requires_credentials {
+        let creds = Credentials::new("", "", None, None, "anonymous");
+        config_loader = config_loader.credentials_provider(SharedCredentialsProvider::new(creds));
     }
 
     let config = config_loader.load().await;
@@ -42,7 +72,9 @@ pub async fn list_tif_files(client: &S3Client, bucket: &str, prefix: &str) -> Re
             for object in contents {
                 if let Some(key) = object.key {
                     // Check if it's a .tif or .svs file (case-insensitive)
-                    if [".tif", ".tiff", ".svs"].contains(&key.to_lowercase().as_str())
+                    if [".tif", ".tiff", ".svs"]
+                        .iter()
+                        .any(|ext| key.to_lowercase().ends_with(ext))
                     {
                         keys.push(key);
                     }

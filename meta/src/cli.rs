@@ -2,8 +2,10 @@ use anyhow::Result;
 use uuid::Uuid;
 
 use crate::args::{
-    CreateDatasetArgs, CreateSlideArgs, DeleteDatasetArgs, DeleteSlideArgs, GetDatasetArgs,
-    GetSlideArgs, ListDatasetsArgs, ListSlidesArgs, UpdateDatasetArgs, UpdateSlideArgs,
+    AddDatasetSourceArgs, CreateDatasetArgs, CreateSlideArgs, DeleteDatasetArgs,
+    DeleteDatasetSourceArgs, DeleteSlideArgs, GetDatasetArgs, GetSlideArgs,
+    ListDatasetSourcesArgs, ListDatasetsArgs, ListSlidesArgs, UpdateDatasetArgs,
+    UpdateSlideArgs,
 };
 use crate::client::MetaClient;
 
@@ -255,6 +257,78 @@ pub async fn run_list_datasets(args: ListDatasetsArgs) -> Result<()> {
     } else {
         for dataset in &response.items {
             println!("{},{},{}", dataset.id, dataset.name, dataset.description.clone().unwrap_or_default());
+        }
+    }
+
+    Ok(())
+}
+
+/// Run the add dataset source CLI command.
+pub async fn run_add_dataset_source(args: AddDatasetSourceArgs) -> Result<()> {
+    let endpoint = args.endpoint.unwrap_or_else(default_endpoint);
+    let client = MetaClient::new(&endpoint);
+
+    let dataset_id: Uuid = args.dataset_id.parse()?;
+    let source = client
+        .create_dataset_source(
+            dataset_id,
+            &args.s3_endpoint,
+            &args.s3_region,
+            &args.s3_bucket,
+            args.requires_credentials,
+        )
+        .await?;
+
+    println!("Added dataset source:");
+    println!("  Source ID: {}", source.id);
+    println!("  Dataset:   {}", source.dataset_id);
+    println!("  Endpoint:  {}", source.endpoint);
+    println!("  Region:    {}", source.region);
+    println!("  Bucket:    {}", source.bucket);
+    println!("  Requires credentials: {}", source.requires_credentials);
+    Ok(())
+}
+
+/// Run the delete dataset source CLI command.
+pub async fn run_delete_dataset_source(args: DeleteDatasetSourceArgs) -> Result<()> {
+    let endpoint = args.endpoint.unwrap_or_else(default_endpoint);
+    let client = MetaClient::new(&endpoint);
+
+    let dataset_id: Uuid = args.dataset_id.parse()?;
+    let source_id: Uuid = args.source_id.parse()?;
+    if client.delete_dataset_source(dataset_id, source_id).await? {
+        println!("Deleted dataset source {} from dataset {}", source_id, dataset_id);
+    } else {
+        println!(
+            "Dataset source {} not found in dataset {}",
+            source_id, dataset_id
+        );
+    }
+
+    Ok(())
+}
+
+/// Run the list dataset sources CLI command.
+pub async fn run_list_dataset_sources(args: ListDatasetSourcesArgs) -> Result<()> {
+    let endpoint = args.endpoint.unwrap_or_else(default_endpoint);
+    let client = MetaClient::new(&endpoint);
+
+    let dataset_id: Uuid = args.dataset_id.parse()?;
+    let sources = client.list_dataset_sources(dataset_id).await?;
+
+    println!("Dataset sources for {}:", dataset_id);
+    if sources.is_empty() {
+        println!("  (no dataset sources)");
+    } else {
+        for source in sources {
+            println!(
+                "{},{},{},{},{}",
+                source.id,
+                source.endpoint,
+                source.region,
+                source.bucket,
+                source.requires_credentials
+            );
         }
     }
 

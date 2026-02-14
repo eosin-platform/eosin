@@ -3,9 +3,9 @@ use reqwest::Client;
 use uuid::Uuid;
 
 use crate::models::{
-    CreateDatasetRequest, CreateSlideRequest, Dataset, ListDatasetsRequest,
-    ListDatasetsResponse, ListSlidesRequest, ListSlidesResponse, Slide, UpdateDatasetRequest,
-    UpdateSlideRequest,
+    CreateDatasetRequest, CreateDatasetSourceRequest, CreateSlideRequest, Dataset, DatasetSource,
+    ListDatasetsRequest, ListDatasetsResponse, ListSlidesRequest, ListSlidesResponse, Slide,
+    UpdateDatasetRequest, UpdateSlideRequest,
 };
 
 /// Client for interacting with the Meta service HTTP API.
@@ -377,5 +377,91 @@ impl MetaClient {
         resp.json::<ListDatasetsResponse>()
             .await
             .context("failed to parse list datasets response")
+    }
+
+    /// Add or update a dataset source.
+    pub async fn create_dataset_source(
+        &self,
+        dataset_id: Uuid,
+        endpoint: &str,
+        region: &str,
+        bucket: &str,
+        requires_credentials: bool,
+    ) -> Result<DatasetSource> {
+        let url = format!("{}/dataset/{}/sources", self.base_url, dataset_id);
+        let req = CreateDatasetSourceRequest {
+            endpoint: endpoint.to_string(),
+            region: region.to_string(),
+            bucket: bucket.to_string(),
+            requires_credentials,
+        };
+
+        let resp = self
+            .client
+            .post(&url)
+            .json(&req)
+            .send()
+            .await
+            .context("failed to send create dataset source request")?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            bail!("create dataset source failed with status {}: {}", status, body);
+        }
+
+        resp.json::<DatasetSource>()
+            .await
+            .context("failed to parse create dataset source response")
+    }
+
+    /// Delete a dataset source by dataset and source IDs.
+    pub async fn delete_dataset_source(&self, dataset_id: Uuid, source_id: Uuid) -> Result<bool> {
+        let url = format!("{}/dataset/{}/sources/{}", self.base_url, dataset_id, source_id);
+
+        let resp = self
+            .client
+            .delete(&url)
+            .send()
+            .await
+            .context("failed to send delete dataset source request")?;
+
+        if resp.status() == reqwest::StatusCode::NOT_FOUND {
+            return Ok(false);
+        }
+
+        if resp.status() == reqwest::StatusCode::NO_CONTENT {
+            return Ok(true);
+        }
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            bail!("delete dataset source failed with status {}: {}", status, body);
+        }
+
+        Ok(true)
+    }
+
+    /// List dataset sources for a dataset.
+    pub async fn list_dataset_sources(&self, dataset_id: Uuid) -> Result<Vec<DatasetSource>> {
+        let url = format!("{}/dataset/{}/sources", self.base_url, dataset_id);
+
+        let resp = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .context("failed to send list dataset sources request")?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            bail!("list dataset sources failed with status {}: {}", status, body);
+        }
+
+        resp.json::<Vec<DatasetSource>>()
+            .await
+            .context("failed to parse list dataset sources response")
     }
 }

@@ -7,6 +7,7 @@ use eosin_common::shutdown::shutdown_signal;
 use eosin_common::streams::{ProcessSlideEvent, SlideCreatedEvent, topics, topics::PROCESS_SLIDE};
 use eosin_storage::StorageClient;
 use futures::StreamExt;
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -21,9 +22,15 @@ const SLIDE_NAMESPACE: Uuid = Uuid::from_bytes([
 
 use crate::args::ProcessArgs;
 use crate::db;
-use crate::meta_client::MetaClient;
+use crate::meta_client::{DatasetSource, MetaClient};
 use crate::s3;
 use crate::tiler;
+
+#[derive(Clone)]
+struct ResolvedDatasetSource {
+    source: DatasetSource,
+    s3_client: aws_sdk_s3::Client,
+}
 
 /// Run the process worker.
 pub async fn run_process(args: ProcessArgs) -> Result<()> {
@@ -42,8 +49,6 @@ pub async fn run_process(args: ProcessArgs) -> Result<()> {
     }
 
     tracing::info!(
-        bucket = %args.s3.bucket,
-        prefix = %args.s3.path_prefix,
         download_dir = %args.download_dir,
         meta_endpoint = %args.meta_endpoint,
         storage_endpoint = %args.storage_endpoint,
@@ -58,10 +63,6 @@ pub async fn run_process(args: ProcessArgs) -> Result<()> {
     let pg_pool = create_pool(args.postgres.clone()).await;
     db::init_schema(&pg_pool).await?;
     tracing::info!("connected to postgres");
-
-    // Create S3 client
-    let s3_client = s3::create_s3_client(&args.s3).await?;
-    tracing::info!("connected to S3");
 
     // Create meta client
     let meta_client = MetaClient::new(&args.meta_endpoint);
@@ -120,9 +121,9 @@ pub async fn run_process(args: ProcessArgs) -> Result<()> {
     eosin_common::signal_ready();
 
     // Clone clients for use in the loop
-    let bucket = args.s3.bucket.clone();
     let download_dir = args.download_dir.clone();
     let nats_for_tiles = nats_core.clone();
+    let mut dataset_source_cache: HashMap<Uuid, ResolvedDatasetSource> = HashMap::new();
 
     // Clear the download directory at startup. It's a mounted dir so we can't
     // remove it directly and must remove contents only.
@@ -188,10 +189,9 @@ pub async fn run_process(args: ProcessArgs) -> Result<()> {
 
                         let result = handle_process_slide(
                             &message.payload,
-                            &s3_client,
-                            &bucket,
                             &download_dir,
                             &meta_client,
+                            &mut dataset_source_cache,
                             &mut storage,
                             &nats_for_tiles,
                             &pg_pool,
@@ -232,17 +232,20 @@ pub async fn run_process(args: ProcessArgs) -> Result<()> {
     Ok(())
 }
 
-fn lock_key_for_slide(key: &str) -> String {
-    format!("eosin:l:{}", key)
+fn lock_key_for_slide(dataset_id: Uuid, key: &str) -> String {
+    format!("eosin:l:{dataset_id}:{key}")
+}
+
+fn slide_identity(dataset_id: Uuid, key: &str) -> String {
+    format!("{dataset_id}:{key}")
 }
 
 /// Handle a `ProcessSlideEvent`: download TIF, insert metadata, extract and upload tiles.
 async fn handle_process_slide(
     payload: &[u8],
-    s3_client: &aws_sdk_s3::Client,
-    bucket: &str,
     download_dir: &str,
     meta_client: &MetaClient,
+    dataset_source_cache: &mut HashMap<Uuid, ResolvedDatasetSource>,
     storage_client: &mut StorageClient,
     nats_client: &async_nats::Client,
     pg_pool: &Pool,
@@ -255,18 +258,27 @@ async fn handle_process_slide(
     tracing::info!(key = %event.key, "processing slide");
 
     let _lock = locker
-        .acquire(&lock_key_for_slide(&event.key))
+        .acquire(&lock_key_for_slide(event.dataset_id, &event.key))
         .await
         .context("failed to acquire lock for slide")?;
 
+    let resolved_source =
+        resolve_dataset_source(meta_client, dataset_source_cache, event.dataset_id).await?;
+
     // Download the TIF file
-    let local_path = s3::download_file(s3_client, bucket, &event.key, download_dir).await?;
+    let local_path = s3::download_file(
+        &resolved_source.s3_client,
+        &resolved_source.source.bucket,
+        &event.key,
+        download_dir,
+    )
+    .await?;
     tracing::info!(key = %event.key, path = %local_path, "slide downloaded");
 
     // Process the slide, ensuring cleanup happens regardless of success/failure
     let result = process_downloaded_slide(
-        s3_client,
-        bucket,
+        &resolved_source.s3_client,
+        &resolved_source.source.bucket,
         &local_path,
         event.dataset_id,
         &event.key,
@@ -288,6 +300,42 @@ async fn handle_process_slide(
     result
 }
 
+async fn resolve_dataset_source(
+    meta_client: &MetaClient,
+    dataset_source_cache: &mut HashMap<Uuid, ResolvedDatasetSource>,
+    dataset_id: Uuid,
+) -> Result<ResolvedDatasetSource> {
+    if let Some(cached) = dataset_source_cache.get(&dataset_id) {
+        return Ok(cached.clone());
+    }
+
+    let sources = meta_client
+        .list_dataset_sources(dataset_id)
+        .await
+        .with_context(|| format!("failed to list dataset sources for dataset {dataset_id}"))?;
+
+    if sources.is_empty() {
+        anyhow::bail!("no dataset sources configured for dataset {}", dataset_id);
+    }
+
+    if sources.len() > 1 {
+        tracing::warn!(
+            dataset_id = %dataset_id,
+            count = sources.len(),
+            "multiple dataset sources configured, using first source"
+        );
+    }
+
+    let source = sources.into_iter().next().expect("sources is non-empty");
+    let s3_client = s3::create_s3_client_from_source(&source)
+        .await
+        .context("failed to create S3 client from dataset source")?;
+
+    let resolved = ResolvedDatasetSource { source, s3_client };
+    dataset_source_cache.insert(dataset_id, resolved.clone());
+    Ok(resolved)
+}
+
 /// Process a downloaded slide file: insert metadata first, then extract and upload tiles.
 ///
 /// Slide metadata is inserted into the meta service first, then tiles are processed
@@ -307,8 +355,9 @@ async fn process_downloaded_slide(
 ) -> Result<()> {
     let path = Path::new(local_path);
 
-    // Generate deterministic UUID from S3 key
-    let slide_id = Uuid::new_v5(&SLIDE_NAMESPACE, key.as_bytes());
+    // Generate deterministic UUID from dataset + S3 key
+    let slide_identity = slide_identity(dataset_id, key);
+    let slide_id = Uuid::new_v5(&SLIDE_NAMESPACE, slide_identity.as_bytes());
 
     // Get file size for metadata
     let file_metadata = tokio::fs::metadata(path)

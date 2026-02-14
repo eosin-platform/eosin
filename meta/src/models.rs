@@ -58,6 +58,30 @@ pub struct CreateDatasetRequest {
     pub metadata: Option<serde_json::Value>,
 }
 
+/// Represents an S3 source configuration for a dataset.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DatasetSource {
+    pub id: Uuid,
+    pub dataset_id: Uuid,
+    pub endpoint: String,
+    pub region: String,
+    pub bucket: String,
+    pub requires_credentials: bool,
+    /// Unix epoch timestamp in milliseconds.
+    pub created_at: i64,
+    /// Unix epoch timestamp in milliseconds.
+    pub updated_at: i64,
+}
+
+/// Request to add or upsert a dataset source.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateDatasetSourceRequest {
+    pub endpoint: String,
+    pub region: String,
+    pub bucket: String,
+    pub requires_credentials: bool,
+}
+
 /// Represents a slide image stored in the system.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Slide {

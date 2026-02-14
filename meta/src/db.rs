@@ -3,7 +3,8 @@ use deadpool_postgres::Pool;
 use uuid::Uuid;
 
 use crate::models::{
-    Dataset, DatasetListItem, ListDatasetsResponse, ListSlidesResponse, Slide, SlideListItem,
+    Dataset, DatasetListItem, DatasetSource, ListDatasetsResponse, ListSlidesResponse, Slide,
+    SlideListItem,
 };
 
 pub enum UpdateDatasetResult {
@@ -65,6 +66,36 @@ pub async fn init_schema(pool: &Pool) -> Result<()> {
         )
         .await
         .context("failed to create slides table")?;
+
+    client
+        .execute(
+            r#"
+            CREATE TABLE IF NOT EXISTS dataset_sources (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                dataset_id UUID NOT NULL REFERENCES datasets(id) ON DELETE CASCADE,
+                endpoint TEXT NOT NULL,
+                region TEXT NOT NULL,
+                bucket TEXT NOT NULL,
+                requires_credentials BOOLEAN NOT NULL,
+                created_at BIGINT NOT NULL,
+                updated_at BIGINT NOT NULL,
+                UNIQUE(dataset_id, endpoint, region, bucket)
+            )
+            "#,
+            &[],
+        )
+        .await
+        .context("failed to create dataset_sources table")?;
+
+    client
+        .execute(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_dataset_sources_dataset_id ON dataset_sources (dataset_id)
+            "#,
+            &[],
+        )
+        .await
+        .context("failed to create dataset_sources dataset index")?;
 
     // Create index on url for faster lookups
     client
@@ -672,4 +703,109 @@ pub async fn delete_dataset(pool: &Pool, id: Uuid) -> Result<bool> {
         .context("failed to soft-delete dataset")?;
 
     Ok(rows_affected > 0)
+}
+
+/// Add or update a dataset source for a dataset.
+pub async fn upsert_dataset_source(
+    pool: &Pool,
+    dataset_id: Uuid,
+    endpoint: &str,
+    region: &str,
+    bucket: &str,
+    requires_credentials: bool,
+) -> Result<DatasetSource> {
+    let client = pool.get().await.context("failed to get db connection")?;
+    let now = now_ms();
+
+    let row = client
+        .query_one(
+            r#"
+            INSERT INTO dataset_sources (
+                dataset_id,
+                endpoint,
+                region,
+                bucket,
+                requires_credentials,
+                created_at,
+                updated_at
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $6)
+            ON CONFLICT (dataset_id, endpoint, region, bucket) DO UPDATE
+            SET
+                requires_credentials = EXCLUDED.requires_credentials,
+                updated_at = EXCLUDED.updated_at
+            RETURNING id, dataset_id, endpoint, region, bucket, requires_credentials, created_at, updated_at
+            "#,
+            &[
+                &dataset_id,
+                &endpoint,
+                &region,
+                &bucket,
+                &requires_credentials,
+                &now,
+            ],
+        )
+        .await
+        .context("failed to upsert dataset source")?;
+
+    Ok(DatasetSource {
+        id: row.get("id"),
+        dataset_id: row.get("dataset_id"),
+        endpoint: row.get("endpoint"),
+        region: row.get("region"),
+        bucket: row.get("bucket"),
+        requires_credentials: row.get("requires_credentials"),
+        created_at: row.get("created_at"),
+        updated_at: row.get("updated_at"),
+    })
+}
+
+/// Delete a dataset source by dataset and source IDs.
+pub async fn delete_dataset_source(pool: &Pool, dataset_id: Uuid, source_id: Uuid) -> Result<bool> {
+    let client = pool.get().await.context("failed to get db connection")?;
+
+    let rows_affected = client
+        .execute(
+            r#"
+            DELETE FROM dataset_sources
+            WHERE id = $1 AND dataset_id = $2
+            "#,
+            &[&source_id, &dataset_id],
+        )
+        .await
+        .context("failed to delete dataset source")?;
+
+    Ok(rows_affected > 0)
+}
+
+/// List all dataset sources for a given dataset.
+pub async fn list_dataset_sources(pool: &Pool, dataset_id: Uuid) -> Result<Vec<DatasetSource>> {
+    let client = pool.get().await.context("failed to get db connection")?;
+
+    let rows = client
+        .query(
+            r#"
+            SELECT id, dataset_id, endpoint, region, bucket, requires_credentials, created_at, updated_at
+            FROM dataset_sources
+            WHERE dataset_id = $1
+            ORDER BY created_at ASC, id ASC
+            "#,
+            &[&dataset_id],
+        )
+        .await
+        .context("failed to list dataset sources")?;
+
+    Ok(rows
+        .iter()
+        .map(|row| DatasetSource {
+            id: row.get("id"),
+            dataset_id: row.get("dataset_id"),
+            endpoint: row.get("endpoint"),
+            region: row.get("region"),
+            bucket: row.get("bucket"),
+            requires_credentials: row.get("requires_credentials"),
+            created_at: row.get("created_at"),
+            updated_at: row.get("updated_at"),
+        })
+        .collect())
 }

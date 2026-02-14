@@ -44,6 +44,19 @@ pub struct UpdateSlideProgressRequest {
     pub progress_total: i32,
 }
 
+/// Dataset source configuration returned from meta service.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DatasetSource {
+    pub id: Uuid,
+    pub dataset_id: Uuid,
+    pub endpoint: String,
+    pub region: String,
+    pub bucket: String,
+    pub requires_credentials: bool,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
 /// Client for the meta HTTP API
 #[derive(Clone)]
 pub struct MetaClient {
@@ -158,5 +171,26 @@ impl MetaClient {
         }
 
         Ok(())
+    }
+
+    /// List dataset source records for a dataset.
+    pub async fn list_dataset_sources(&self, dataset_id: Uuid) -> Result<Vec<DatasetSource>> {
+        let response = self
+            .client
+            .get(format!("{}/dataset/{dataset_id}/sources", &self.base_url))
+            .send()
+            .await
+            .context("failed to send list dataset sources request")?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            anyhow::bail!("failed to list dataset sources: {status} - {body}");
+        }
+
+        response
+            .json()
+            .await
+            .context("failed to parse list dataset sources response")
     }
 }

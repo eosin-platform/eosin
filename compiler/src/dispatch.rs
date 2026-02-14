@@ -12,11 +12,6 @@ fn message_id_for_key(dataset_id: uuid::Uuid, key: &str) -> String {
     format!("process-slide:{dataset_id}:{key}")
 }
 
-/// Build dispatch table key to isolate keys across datasets.
-fn dispatch_key(dataset_id: uuid::Uuid, key: &str) -> String {
-    format!("{dataset_id}:{key}")
-}
-
 /// Get current time in milliseconds since Unix epoch.
 #[allow(clippy::cast_possible_truncation)]
 fn now_ms() -> i64 {
@@ -100,10 +95,9 @@ pub async fn run_dispatch(args: DispatchArgs) -> Result<()> {
         let js = jetstream.clone();
         let payload_bytes: bytes::Bytes = payload.into();
         let msg_id = message_id_for_key(args.dataset_id, &key);
-        let record_key = dispatch_key(args.dataset_id, &key);
 
         // Try to dispatch with publish callback
-        let result = db::try_dispatch_with_publish(&pg_pool, &record_key, current_time, || {
+        let result = db::try_dispatch_with_publish(&pg_pool, args.dataset_id, &key, current_time, || {
             let js = js.clone();
             let payload = payload_bytes.clone();
             let msg_id = msg_id.clone();

@@ -65,6 +65,7 @@ pub enum DispatchResult {
 /// is marked as dispatched and the transaction is committed.
 pub async fn try_dispatch_with_publish<F, Fut>(
     pool: &Pool,
+    dataset_id: Uuid,
     key: &str,
     now_ms: i64,
     publish_fn: F,
@@ -74,6 +75,7 @@ where
     Fut: std::future::Future<Output = Result<()>>,
 {
     let mut client = pool.get().await.context("failed to get db connection")?;
+    let scoped_key = format!("{dataset_id}:{key}");
 
     // Start a transaction
     let tx = client
@@ -88,7 +90,7 @@ where
         VALUES ($1, $2, NULL)
         ON CONFLICT (key) DO NOTHING
         ",
-        &[&key, &now_ms],
+        &[&scoped_key, &now_ms],
     )
     .await
     .context("failed to upsert dispatch row")?;
@@ -101,7 +103,7 @@ where
             WHERE key = $1
             FOR UPDATE
             ",
-            &[&key],
+            &[&scoped_key],
         )
         .await
         .context("failed to select dispatch row")?;
@@ -132,7 +134,7 @@ where
         SET dispatched_at = $1
         WHERE key = $2
         ",
-        &[&now_ms, &key],
+        &[&now_ms, &scoped_key],
     )
     .await
     .context("failed to mark key as dispatched")?;

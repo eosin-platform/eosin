@@ -62,6 +62,24 @@ pub enum DatasetCommands {
     Delete(DeleteDatasetArgs),
     /// List datasets with pagination
     List(ListDatasetsArgs),
+    /// Manage dataset sources
+    Source(DatasetSourceCommandArgs),
+}
+
+#[derive(Parser, Debug, Clone)]
+pub struct DatasetSourceCommandArgs {
+    #[command(subcommand)]
+    pub command: DatasetSourceCommands,
+}
+
+#[derive(Subcommand, Debug, Clone)]
+pub enum DatasetSourceCommands {
+    /// Add or update a dataset source
+    Add(AddDatasetSourceArgs),
+    /// Delete a dataset source by source ID
+    Delete(DeleteDatasetSourceArgs),
+    /// List dataset sources for a dataset
+    List(ListDatasetSourcesArgs),
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -284,4 +302,57 @@ pub struct ListDatasetsArgs {
     /// Maximum number of datasets to return
     #[arg(long, default_value_t = 100)]
     pub limit: i64,
+}
+
+#[derive(Parser, Debug, Clone)]
+pub struct AddDatasetSourceArgs {
+    /// Meta service endpoint
+    #[arg(long, env = "META_ENDPOINT")]
+    pub endpoint: Option<String>,
+
+    /// Dataset UUID
+    #[arg(long)]
+    pub dataset_id: String,
+
+    /// S3 endpoint URL
+    #[arg(long)]
+    pub s3_endpoint: String,
+
+    /// S3 region
+    #[arg(long)]
+    pub s3_region: String,
+
+    /// S3 bucket
+    #[arg(long)]
+    pub s3_bucket: String,
+
+    /// Whether source requires credentials
+    #[arg(long, default_value_t = true)]
+    pub requires_credentials: bool,
+}
+
+#[derive(Parser, Debug, Clone)]
+pub struct DeleteDatasetSourceArgs {
+    /// Meta service endpoint
+    #[arg(long, env = "META_ENDPOINT")]
+    pub endpoint: Option<String>,
+
+    /// Dataset UUID
+    #[arg(long)]
+    pub dataset_id: String,
+
+    /// Dataset source UUID
+    #[arg(long)]
+    pub source_id: String,
+}
+
+#[derive(Parser, Debug, Clone)]
+pub struct ListDatasetSourcesArgs {
+    /// Meta service endpoint
+    #[arg(long, env = "META_ENDPOINT")]
+    pub endpoint: Option<String>,
+
+    /// Dataset UUID
+    #[arg(long)]
+    pub dataset_id: String,
 }

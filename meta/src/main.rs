@@ -14,7 +14,7 @@ pub mod metrics;
 mod models;
 mod server;
 
-use args::{Cli, Commands, DatasetCommands, SlideCommands};
+use args::{Cli, Commands, DatasetCommands, DatasetSourceCommands, SlideCommands};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -39,6 +39,11 @@ async fn main() -> Result<()> {
             DatasetCommands::Update(args) => cli::run_update_dataset(args).await,
             DatasetCommands::Delete(args) => cli::run_delete_dataset(args).await,
             DatasetCommands::List(args) => cli::run_list_datasets(args).await,
+            DatasetCommands::Source(args) => match args.command {
+                DatasetSourceCommands::Add(args) => cli::run_add_dataset_source(args).await,
+                DatasetSourceCommands::Delete(args) => cli::run_delete_dataset_source(args).await,
+                DatasetSourceCommands::List(args) => cli::run_list_dataset_sources(args).await,
+            },
         },
         Commands::Health(args) => cli::run_health(args.endpoint).await,
     }
