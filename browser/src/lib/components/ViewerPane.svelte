@@ -77,6 +77,13 @@
     height: 600,
     zoom: 0.1,
   });
+  let presentedViewport = $state<ViewportState>({
+    x: 0,
+    y: 0,
+    width: 800,
+    height: 600,
+    zoom: 0.1,
+  });
 
   // Tile cache and render trigger
   let cache = $state<TileCache | null>(null);
@@ -1501,6 +1508,18 @@
       fallbackTiles: metrics.fallbackTiles,
       placeholderTiles: metrics.placeholderTiles,
     });
+  }
+
+  function handlePresentedViewport(next: ViewportState) {
+    const EPS = 1e-6;
+    const unchanged =
+      Math.abs(presentedViewport.x - next.x) < EPS &&
+      Math.abs(presentedViewport.y - next.y) < EPS &&
+      Math.abs(presentedViewport.width - next.width) < EPS &&
+      Math.abs(presentedViewport.height - next.height) < EPS &&
+      Math.abs(presentedViewport.zoom - next.zoom) < EPS;
+    if (unchanged) return;
+    presentedViewport = { ...next };
   }
 
   function registerHandler() {
@@ -3918,7 +3937,7 @@
   {#if imageDesc && cache}
     <!-- Image layer with brightness/contrast/gamma filters applied -->
     <div class="image-layer" style="filter: {imageFilter()}">
-      <TileRenderer image={imageDesc} {viewport} {cache} {renderTrigger} {stainNormalization} {stainEnhancement} client={client ?? undefined} slot={currentSlot ?? undefined} onMetrics={handleRenderMetrics} />
+      <TileRenderer image={imageDesc} {viewport} {cache} {renderTrigger} {stainNormalization} {stainEnhancement} client={client ?? undefined} slot={currentSlot ?? undefined} onMetrics={handleRenderMetrics} onPresentedViewport={handlePresentedViewport} />
     </div>
     
     <!-- Scale bar (bottom-left) - controlled by settings -->
@@ -3933,11 +3952,11 @@
     <!-- Annotation overlay -->
     <AnnotationOverlay
       slideId={activeSlideId}
-      viewportX={viewport.x}
-      viewportY={viewport.y}
-      viewportZoom={viewport.zoom}
-      containerWidth={viewport.width}
-      containerHeight={viewport.height}
+      viewportX={presentedViewport.x}
+      viewportY={presentedViewport.y}
+      viewportZoom={presentedViewport.zoom}
+      containerWidth={presentedViewport.width}
+      containerHeight={presentedViewport.height}
       onAnnotationRightClick={handleAnnotationRightClick}
       modifyPhase={modifyMode.phase}
       modifyAnnotationId={modifyMode.annotation?.id ?? null}

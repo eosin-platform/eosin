@@ -52,9 +52,11 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
     stainEnhancement?: StainEnhancementMode;
     /** Callback for performance metrics */
     onMetrics?: (metrics: RenderMetrics) => void;
+    /** Callback with the exact viewport used for the presented frame */
+    onPresentedViewport?: (viewport: ViewportState) => void;
   }
 
-  let { image, viewport, cache, client, slot, renderTrigger = 0, stainNormalization = 'none', stainEnhancement = 'none', onMetrics }: Props = $props();
+  let { image, viewport, cache, client, slot, renderTrigger = 0, stainNormalization = 'none', stainEnhancement = 'none', onMetrics, onPresentedViewport }: Props = $props();
 
   let canvas: HTMLCanvasElement;
   let ctx: CanvasRenderingContext2D | null = null;
@@ -1244,6 +1246,7 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
     // This eliminates visual tearing by ensuring the visible canvas is only updated atomically
     if (ctx && offscreenCanvas) {
       ctx.drawImage(offscreenCanvas, 0, 0);
+      onPresentedViewport?.({ ...viewport });
     }
     
     // Clear active context (rendering complete)

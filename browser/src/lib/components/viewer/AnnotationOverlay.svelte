@@ -116,14 +116,6 @@
 
   // Canvas for mask rendering (much faster than SVG for pixel-based graphics)
   let maskCanvas: HTMLCanvasElement | null = $state(null);
-  let maskCanvasTransform = $state('none');
-  let lastMaskRenderViewportX = 0;
-  let lastMaskRenderViewportY = 0;
-  let lastMaskRenderViewportZoom = 1;
-  let hasMaskRenderViewport = false;
-  let lastMaskRenderSignature = '';
-  let lastInteractionMaskRenderAt = 0;
-  const INTERACTION_MASK_RERENDER_MS = 80;
   
   // Offscreen canvas for creating mask bitmaps (reused for efficiency)
   let offscreenCanvas: OffscreenCanvas | null = null;
@@ -300,14 +292,6 @@
     
     // Get visible mask annotations (excluding those being edited in mask-paint mode)
     const masks = visibleAnnotations.filter(a => a && a.annotation && a.annotation.kind === 'mask_patch' && isInView(a.annotation) && !maskEditingAnnotationIds.has(a.annotation.id));
-    lastMaskRenderSignature = masks
-      .map(({ annotation, color }) => {
-        const isHovered = hoveredMaskId === annotation.id || highlightedId === annotation.id;
-        const renderColor = isHovered ? MASK_HOVER_COLOR : color;
-        return `${annotation.id}:${renderColor}`;
-      })
-      .sort()
-      .join('|');
     
     // Render stored masks using cached ImageBitmaps
     for (const { annotation, color } of masks) {
@@ -348,56 +332,20 @@
         renderMaskToCanvasDirect(ctx, tile.data, tile.origin.x, tile.origin.y, 512, 512, previewColor, 0.5);
       }
     }
-
-    // Snapshot viewport used for this rasterized frame and clear any temporary transform.
-    lastMaskRenderViewportX = viewportX;
-    lastMaskRenderViewportY = viewportY;
-    lastMaskRenderViewportZoom = Math.max(viewportZoom, 1e-6);
-    hasMaskRenderViewport = true;
-    maskCanvasTransform = 'none';
   }
 
-  function updateMaskCanvasTransformForInteraction() {
-    if (!maskCanvas || !hasMaskRenderViewport || !isInteracting) {
-      maskCanvasTransform = 'none';
-      return;
-    }
-
-    const currentZoom = Math.max(viewportZoom, 1e-6);
-    const scale = currentZoom / lastMaskRenderViewportZoom;
-    const translateX = (lastMaskRenderViewportX - viewportX) * currentZoom;
-    const translateY = (lastMaskRenderViewportY - viewportY) * currentZoom;
-
-    const isNearlyIdentity =
-      Math.abs(scale - 1) < 1e-4 &&
-      Math.abs(translateX) < 0.01 &&
-      Math.abs(translateY) < 0.01;
-
-    maskCanvasTransform = isNearlyIdentity
-      ? 'none'
-      : `matrix(${scale}, 0, 0, ${scale}, ${translateX}, ${translateY})`;
-  }
-
-  function getCurrentMaskRenderSignature(): string {
-    if (!Array.isArray(visibleAnnotations)) return '';
-    return visibleAnnotations
-      .filter(a => a && a.annotation && a.annotation.kind === 'mask_patch' && isInView(a.annotation) && !maskEditingAnnotationIds.has(a.annotation.id))
-      .map(({ annotation, color }) => {
-        const isHovered = hoveredMaskId === annotation.id || highlightedId === annotation.id;
-        const renderColor = isHovered ? MASK_HOVER_COLOR : color;
-        return `${annotation.id}:${renderColor}`;
-      })
-      .sort()
-      .join('|');
-  }
-
-  // Render all masks to canvas - uses pre-rendered ImageBitmaps for speed
-  // During interaction (panning/zooming), defer mask re-renders to avoid
-  // blocking the main thread every frame.  Tile rendering (TileRenderer)
-  // already handles viewport paint; masks just need to catch up once the
-  // user stops moving.
+  // Render all masks to canvas - uses pre-rendered ImageBitmaps for speed.
+  // Keep rendering bound directly to viewport updates so masks stay glued
+  // to the tile imagery without interaction hysteresis artifacts.
   let _maskRenderRaf: number | null = null;
-  let _maskDirtyDuringInteraction = false;
+
+  function scheduleMaskRender() {
+    if (_maskRenderRaf !== null) return;
+    _maskRenderRaf = requestAnimationFrame(() => {
+      _maskRenderRaf = null;
+      renderMaskCanvas();
+    });
+  }
 
   $effect(() => {
     // Touch reactive deps so Svelte tracks them
@@ -409,42 +357,8 @@
 
     if (!maskCanvas || !globalVisible) return;
 
-    // Fast path: while actively panning/zooming, avoid re-rasterizing masks but
-    // keep them visually aligned using a cheap canvas CSS transform.
-    if (isInteracting) {
-      updateMaskCanvasTransformForInteraction();
-
-      // If new masks entered/leaved view while panning, refresh at a throttled rate
-      // so panned-in masks appear without waiting for interaction end.
-      const now = performance.now();
-      const currentSignature = getCurrentMaskRenderSignature();
-      if (
-        currentSignature !== lastMaskRenderSignature &&
-        now - lastInteractionMaskRenderAt >= INTERACTION_MASK_RERENDER_MS
-      ) {
-        lastInteractionMaskRenderAt = now;
-        renderMaskCanvas();
-      }
-
-      _maskDirtyDuringInteraction = true;
-      return;
-    }
-
-    // Not interacting — render immediately (catches catch-up after interaction)
-    renderMaskCanvas();
-    _maskDirtyDuringInteraction = false;
-  });
-
-  // When interaction ends, catch up with a single deferred render
-  $effect(() => {
-    if (!isInteracting && _maskDirtyDuringInteraction) {
-      if (_maskRenderRaf !== null) cancelAnimationFrame(_maskRenderRaf);
-      _maskRenderRaf = requestAnimationFrame(() => {
-        _maskRenderRaf = null;
-        _maskDirtyDuringInteraction = false;
-        renderMaskCanvas();
-      });
-    }
+    // Coalesce to rAF so overlay redraw cadence matches tile presentation cadence.
+    scheduleMaskRender();
   });
   
   // Reusable canvas for painting preview (avoids creating new canvas every frame)
@@ -906,7 +820,6 @@
     class="mask-canvas"
     width={containerWidth}
     height={containerHeight}
-    style="transform: {maskCanvasTransform}; transform-origin: 0 0;"
   ></canvas>
   
   <svg 
