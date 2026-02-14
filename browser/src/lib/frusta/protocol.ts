@@ -69,6 +69,7 @@ export interface ProgressEvent {
 /** Slide created event from the server */
 export interface SlideCreatedEvent {
   id: string;
+  dataset?: string;
   width: number;
   height: number;
   filename: string;

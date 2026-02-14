@@ -5,6 +5,11 @@ import type { RequestHandler } from './$types';
 export const GET: RequestHandler = async ({ url }) => {
   const offset = parseInt(url.searchParams.get('offset') ?? '0');
   const limit = parseInt(url.searchParams.get('limit') ?? '50');
+  const datasetId = url.searchParams.get('dataset_id');
+
+  if (!datasetId || datasetId.trim().length === 0) {
+    return json({ error: 'dataset_id is required' }, { status: 400 });
+  }
 
   const metaEndpoint = env.META_ENDPOINT;
   
@@ -13,7 +18,13 @@ export const GET: RequestHandler = async ({ url }) => {
   }
 
   try {
-    const response = await fetch(`${metaEndpoint}/slides?offset=${offset}&limit=${limit}`);
+    const params = new URLSearchParams({
+      offset: offset.toString(),
+      limit: limit.toString(),
+      dataset_id: datasetId,
+    });
+
+    const response = await fetch(`${metaEndpoint}/slides?${params.toString()}`);
 
     if (!response.ok) {
       return json({ error: 'Failed to fetch slides' }, { status: response.status });

@@ -326,7 +326,7 @@ pub async fn list_slides(
 
     let limit = req.limit.min(1000);
 
-    let response = db::list_slides(&state.pool, req.offset, limit)
+    let response = db::list_slides(&state.pool, req.dataset_id, req.offset, limit)
         .await
         .map_err(|e| {
             tracing::error!("failed to list slides: {:?}", e);

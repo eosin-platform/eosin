@@ -190,9 +190,18 @@ impl MetaClient {
     }
 
     /// List slides with pagination.
-    pub async fn list_slides(&self, offset: i64, limit: i64) -> Result<ListSlidesResponse> {
+    pub async fn list_slides(
+        &self,
+        dataset_id: Uuid,
+        offset: i64,
+        limit: i64,
+    ) -> Result<ListSlidesResponse> {
         let url = format!("{}/slides", self.base_url);
-        let req = ListSlidesRequest { offset, limit };
+        let req = ListSlidesRequest {
+            dataset_id,
+            offset,
+            limit,
+        };
 
         let resp = self
             .client

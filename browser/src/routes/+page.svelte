@@ -158,6 +158,7 @@
       onSlideCreated: (event: SlideCreatedEvent) => {
         newSlides.push({
           id: event.id,
+          dataset: event.dataset,
           width: event.width,
           height: event.height,
           filename: event.filename,

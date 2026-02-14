@@ -112,6 +112,7 @@ pub struct UpdateSlideRequest {
 /// Request to list slides with pagination.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ListSlidesRequest {
+    pub dataset_id: Uuid,
     pub offset: i64,
     pub limit: i64,
 }

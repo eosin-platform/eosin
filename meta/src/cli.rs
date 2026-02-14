@@ -119,7 +119,11 @@ pub async fn run_list_slides(args: ListSlidesArgs) -> Result<()> {
     let endpoint = args.endpoint.unwrap_or_else(default_endpoint);
     let client = MetaClient::new(&endpoint);
 
-    let response = client.list_slides(args.offset, args.limit).await?;
+    let dataset_id: Uuid = args.dataset_id.parse()?;
+
+    let response = client
+        .list_slides(dataset_id, args.offset, args.limit)
+        .await?;
 
     println!(
         "Slides (offset: {}, limit: {}, total: {}, truncated: {}):",

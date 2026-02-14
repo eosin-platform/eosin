@@ -2,6 +2,7 @@ import { writable } from 'svelte/store';
 
 export interface NewSlide {
   id: string;
+  dataset?: string;
   width: number;
   height: number;
   filename: string;

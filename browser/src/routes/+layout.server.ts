@@ -9,6 +9,7 @@ const DEFAULT_REFRESH_EXPIRY_SECONDS = 30 * 24 * 60 * 60;
 
 export interface SlideListItem {
   id: string;
+  dataset: string;
   width: number;
   height: number;
   /** Original filename extracted from the S3 key */
@@ -29,7 +30,49 @@ export interface SlidesResponse {
   items: SlideListItem[];
 }
 
+export interface DatasetListItem {
+  id: string;
+  name: string;
+  description: string | null;
+  created_at: number;
+  updated_at: number;
+  metadata: unknown;
+}
+
+interface DatasetsResponse {
+  offset: number;
+  limit: number;
+  full_count: number;
+  truncated: boolean;
+  items: DatasetListItem[];
+}
+
 const PAGE_SIZE = 50;
+const DATASET_PAGE_SIZE = 1000;
+
+async function fetchAllDatasets(metaEndpoint: string): Promise<DatasetListItem[]> {
+  const items: DatasetListItem[] = [];
+  let offset = 0;
+
+  while (true) {
+    const response = await fetch(`${metaEndpoint}/dataset?offset=${offset}&limit=${DATASET_PAGE_SIZE}`);
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch datasets (${response.status})`);
+    }
+
+    const data: DatasetsResponse = await response.json();
+    items.push(...data.items);
+
+    if (!data.truncated || data.items.length === 0) {
+      break;
+    }
+
+    offset += data.items.length;
+  }
+
+  return items;
+}
 
 export const load = async ({ cookies, request, url }) => {
   // Detect if we're behind HTTPS
@@ -97,6 +140,8 @@ export const load = async ({ cookies, request, url }) => {
     console.error('META_ENDPOINT environment variable is not set');
     return { 
       slides: [], 
+      datasets: [],
+      selectedDatasetId: null,
       totalCount: 0, 
       hasMore: false,
       pageSize: PAGE_SIZE,
@@ -108,13 +153,44 @@ export const load = async ({ cookies, request, url }) => {
     };
   }
 
+  let datasets: DatasetListItem[] = [];
   try {
-    const response = await fetch(`${metaEndpoint}/slides?offset=0&limit=${PAGE_SIZE}`);
+    datasets = await fetchAllDatasets(metaEndpoint);
+  } catch (err) {
+    console.error('Failed to fetch datasets from meta server:', err);
+  }
+
+  const selectedDatasetId = datasets.length > 0 ? datasets[0].id : null;
+
+  if (!selectedDatasetId) {
+    return {
+      slides: [],
+      datasets,
+      selectedDatasetId: null,
+      totalCount: 0,
+      hasMore: false,
+      pageSize: PAGE_SIZE,
+      error: null,
+      auth: userCredentials
+        ? {
+            user: userCredentials,
+            refreshExpiry: newRefreshExpiry,
+          }
+        : null,
+    };
+  }
+
+  try {
+    const response = await fetch(
+      `${metaEndpoint}/slides?offset=0&limit=${PAGE_SIZE}&dataset_id=${selectedDatasetId}`
+    );
 
     if (!response.ok) {
       console.error(`Meta server returned ${response.status}: ${await response.text()}`);
       return { 
         slides: [], 
+        datasets,
+        selectedDatasetId,
         totalCount: 0, 
         hasMore: false,
         pageSize: PAGE_SIZE,
@@ -130,6 +206,8 @@ export const load = async ({ cookies, request, url }) => {
 
     return { 
       slides: data.items, 
+      datasets,
+      selectedDatasetId,
       totalCount: data.full_count,
       hasMore: data.offset + data.items.length < data.full_count,
       pageSize: PAGE_SIZE,
@@ -143,6 +221,8 @@ export const load = async ({ cookies, request, url }) => {
     console.error('Failed to fetch slides from meta server:', err);
     return { 
       slides: [], 
+      datasets,
+      selectedDatasetId,
       totalCount: 0, 
       hasMore: false,
       pageSize: PAGE_SIZE,

@@ -183,6 +183,10 @@ pub struct ListSlidesArgs {
     #[arg(long, env = "META_ENDPOINT")]
     pub endpoint: Option<String>,
 
+    /// Dataset UUID to list slides from
+    #[arg(long)]
+    pub dataset_id: String,
+
     /// Offset for pagination
     #[arg(long, default_value_t = 0)]
     pub offset: i64,

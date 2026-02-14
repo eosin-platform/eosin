@@ -13,6 +13,7 @@
 
   interface SlideListItem {
     id: string;
+    dataset: string;
     width: number;
     height: number;
     /** Original filename extracted from the S3 key */
@@ -25,8 +26,15 @@
     progress_total: number;
   }
 
+  interface DatasetListItem {
+    id: string;
+    name: string;
+  }
+
   interface Props {
     initialSlides: SlideListItem[];
+    initialDatasets: DatasetListItem[];
+    initialSelectedDatasetId: string | null;
     totalCount: number;
     hasMore: boolean;
     pageSize: number;
@@ -34,9 +42,20 @@
     onToggle?: () => void;
   }
 
-  let { initialSlides, totalCount, hasMore, pageSize, collapsed = false, onToggle }: Props = $props();
+  let {
+    initialSlides,
+    initialDatasets,
+    initialSelectedDatasetId,
+    totalCount,
+    hasMore,
+    pageSize,
+    collapsed = false,
+    onToggle,
+  }: Props = $props();
 
   let slides = $state<SlideListItem[]>([]);
+  let datasets = $state<DatasetListItem[]>([]);
+  let selectedDatasetId = $state<string>('');
   let loading = $state(false);
   let canLoadMore = $state(false);
   let currentOffset = $state(0);
@@ -47,6 +66,16 @@
 
   /** Slide IDs that just arrived via WebSocket and should play the entrance animation */
   let animatingSlideIds = $state<Set<string>>(new Set());
+
+  function buildSlidesUrl(offset: number, limit: number, datasetId: string): string {
+    const params = new URLSearchParams({
+      offset: offset.toString(),
+      limit: limit.toString(),
+      dataset_id: datasetId,
+    });
+
+    return `/api/slides?${params.toString()}`;
+  }
 
   // Live progress from WebSocket (shared store)
   let progressMap = $state<Map<string, SlideProgress>>(new Map());
@@ -83,12 +112,19 @@
   // Subscribe to new slides arriving via WebSocket
   const unsubNewSlides = newSlides.subscribe((incoming) => {
     for (const ns of incoming) {
+      const matchesDataset = !!selectedDatasetId && ns.dataset === selectedDatasetId;
+
+      if (!matchesDataset) {
+        continue;
+      }
+
       // Only add if not already in the list (deduplicate by id)
       if (!slides.some((s) => s.id === ns.id)) {
         animatingSlideIds = new Set([...animatingSlideIds, ns.id]);
         slides = [
           {
             id: ns.id,
+            dataset: ns.dataset ?? '',
             width: ns.width,
             height: ns.height,
             filename: ns.filename,
@@ -111,14 +147,65 @@
     canLoadMore = hasMore;
   });
 
-  async function loadMore() {
-    if (loading || !canLoadMore) return;
+  $effect(() => {
+    datasets = [...initialDatasets];
+
+    const hasSelected = datasets.some((d) => d.id === selectedDatasetId);
+    if (!hasSelected) {
+      selectedDatasetId = initialSelectedDatasetId ?? datasets[0]?.id ?? '';
+    }
+  });
+
+  async function reloadSlidesForSelectedDataset() {
+    if (!selectedDatasetId) {
+      slides = [];
+      currentOffset = 0;
+      canLoadMore = false;
+      totalCount = 0;
+      return;
+    }
 
     loading = true;
     error = null;
 
     try {
-      const response = await fetch(`/api/slides?offset=${currentOffset}&limit=${pageSize}`);
+      const response = await fetch(buildSlidesUrl(0, pageSize, selectedDatasetId));
+      if (!response.ok) {
+        throw new Error('Failed to load slides');
+      }
+
+      const data = await response.json();
+      slides = data.items;
+      currentOffset = data.items.length;
+      canLoadMore = currentOffset < data.full_count;
+      totalCount = data.full_count;
+    } catch (err) {
+      error = err instanceof Error ? err.message : 'Failed to load slides';
+      console.error('Error loading slides:', err);
+    } finally {
+      loading = false;
+    }
+  }
+
+  function handleDatasetSelectChange(e: Event) {
+    e.stopPropagation();
+    const target = e.currentTarget as HTMLSelectElement;
+    if (target.value === selectedDatasetId) {
+      return;
+    }
+
+    selectedDatasetId = target.value;
+    reloadSlidesForSelectedDataset();
+  }
+
+  async function loadMore() {
+    if (loading || !canLoadMore || !selectedDatasetId) return;
+
+    loading = true;
+    error = null;
+
+    try {
+      const response = await fetch(buildSlidesUrl(currentOffset, pageSize, selectedDatasetId));
       
       if (!response.ok) {
         throw new Error('Failed to load slides');
@@ -407,23 +494,10 @@
 
   async function refreshSlides() {
     refreshing = true;
-    error = null;
-    try {
-      const response = await fetch(`/api/slides?offset=0&limit=${pageSize}`);
-      if (!response.ok) throw new Error('Failed to refresh slides');
-      const data = await response.json();
-      slides = data.items;
-      currentOffset = data.items.length;
-      canLoadMore = currentOffset < data.full_count;
-      totalCount = data.full_count;
-    } catch (err) {
-      error = err instanceof Error ? err.message : 'Failed to refresh slides';
-      console.error('Error refreshing slides:', err);
-    } finally {
-      refreshing = false;
-      pullDistance = 0;
-      isPulling = false;
-    }
+    await reloadSlidesForSelectedDataset();
+    refreshing = false;
+    pullDistance = 0;
+    isPulling = false;
   }
 
   function handlePullTouchStart(e: TouchEvent) {
@@ -499,6 +573,26 @@
           <polyline points="9 18 15 12 9 6"></polyline>
         </svg>
         <span class="section-title">Slides</span>
+        <div
+          class="dataset-select-wrap"
+          onclick={(e) => e.stopPropagation()}
+          onkeydown={(e) => e.stopPropagation()}
+        >
+          <select
+            class="dataset-select"
+            value={selectedDatasetId}
+            onchange={handleDatasetSelectChange}
+            disabled={datasets.length === 0}
+            aria-label="Select dataset"
+          >
+            {#if datasets.length === 0}
+              <option value="">No datasets</option>
+            {/if}
+            {#each datasets as dataset (dataset.id)}
+              <option value={dataset.id}>{dataset.name}</option>
+            {/each}
+          </select>
+        </div>
         <span class="section-count">({totalCount})</span>
       </div>
       
@@ -1208,6 +1302,37 @@
   .section-count {
     font-size: 0.6875rem;
     color: #666;
+  }
+
+  .dataset-select-wrap {
+    max-width: 150px;
+    min-width: 90px;
+    display: flex;
+    align-items: center;
+  }
+
+  .dataset-select {
+    width: 100%;
+    background: #242424;
+    color: #cfcfcf;
+    border: 1px solid #3a3a3a;
+    border-radius: 4px;
+    font-size: 0.6875rem;
+    padding: 0.15rem 1.25rem 0.15rem 0.4rem;
+    appearance: none;
+    cursor: pointer;
+    line-height: 1.25;
+  }
+
+  .dataset-select:hover {
+    border-color: #4a4a4a;
+    background: #2b2b2b;
+  }
+
+  .dataset-select:focus {
+    outline: none;
+    border-color: var(--primary-hex);
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.15);
   }
 
   .chevron {

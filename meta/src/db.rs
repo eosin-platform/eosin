@@ -359,7 +359,12 @@ pub async fn delete_slide(pool: &Pool, id: Uuid) -> Result<bool> {
 
 /// List slides with pagination.
 /// Uses a window function for efficient full count retrieval.
-pub async fn list_slides(pool: &Pool, offset: i64, limit: i64) -> Result<ListSlidesResponse> {
+pub async fn list_slides(
+    pool: &Pool,
+    dataset_id: Uuid,
+    offset: i64,
+    limit: i64,
+) -> Result<ListSlidesResponse> {
     let client = pool.get().await.context("failed to get db connection")?;
 
     // Use window function to get full count in a single query
@@ -379,11 +384,12 @@ pub async fn list_slides(pool: &Pool, offset: i64, limit: i64) -> Result<ListSli
                 metadata,
                 COUNT(*) OVER() AS full_count
             FROM slides
+            WHERE dataset = $3
             ORDER BY filename ASC, id ASC
             LIMIT $1
             OFFSET $2
             "#,
-            &[&limit, &offset],
+            &[&limit, &offset, &dataset_id],
         )
         .await
         .context("failed to list slides")?;

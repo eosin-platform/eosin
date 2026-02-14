@@ -9,6 +9,7 @@
 
 	interface SlideListItem {
 		id: string;
+		dataset: string;
 		width: number;
 		height: number;
 		/** Original filename extracted from the S3 key */
@@ -22,8 +23,15 @@
 		url: string;
 	}
 
+	interface DatasetListItem {
+		id: string;
+		name: string;
+	}
+
 	interface LayoutData {
 		slides: SlideListItem[];
+		datasets: DatasetListItem[];
+		selectedDatasetId: string | null;
 		totalCount: number;
 		hasMore: boolean;
 		pageSize: number;
@@ -111,6 +119,8 @@
 	<div class="sidebar-container" class:collapsed={sidebarCollapsed} class:mobile-open={isMobile && !sidebarCollapsed}>
 		<Sidebar 
 			initialSlides={data.slides} 
+			initialDatasets={data.datasets}
+			initialSelectedDatasetId={data.selectedDatasetId}
 			totalCount={data.totalCount} 
 			hasMore={data.hasMore}
 			pageSize={data.pageSize}
