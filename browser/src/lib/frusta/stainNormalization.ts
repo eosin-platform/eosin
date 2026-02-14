@@ -98,8 +98,8 @@ const sampleAccumulator = new Map<string, number[][]>();
 /** Minimum number of OD samples needed for reliable parameter estimation */
 const MIN_SAMPLES_FOR_ESTIMATION = 5000;
 
-/** Maximum samples to accumulate (for memory efficiency) */
-const MAX_ACCUMULATED_SAMPLES = 100000;
+/** Maximum samples to accumulate (reduced from 100k for memory efficiency) */
+const MAX_ACCUMULATED_SAMPLES = 15000;
 
 /** Number of tiles we've sampled from, for tracking */
 const tilesContributed = new Map<string, number>();
@@ -118,6 +118,12 @@ const STABILITY_CHECK_INTERVAL = 4;
  * If new candidate params differ by more than this threshold, we invalidate and re-estimate.
  */
 const STABILITY_THRESHOLD = 0.25;
+
+/** Track consecutive stable checks to know when we can clear the accumulator */
+const stableCheckCount = new Map<string, number>();
+
+/** Number of consecutive stable checks before clearing accumulator */
+const STABLE_CHECKS_BEFORE_CLEANUP = 3;
 
 /** Track last stability check tile count per cache key */
 const lastStabilityCheck = new Map<string, number>();
@@ -148,11 +154,17 @@ export function clearNormalizationCache(slideId?: string): void {
         lastStabilityCheck.delete(key);
       }
     }
+    for (const key of stableCheckCount.keys()) {
+      if (key.startsWith(`${slideId}_`)) {
+        stableCheckCount.delete(key);
+      }
+    }
   } else {
     normalizationCache.clear();
     sampleAccumulator.clear();
     tilesContributed.clear();
     lastStabilityCheck.clear();
+    stableCheckCount.clear();
   }
 }
 
@@ -1082,9 +1094,20 @@ export function getOrComputeNormalizationParams(
         // Parameters diverged too much - invalidate cache and re-estimate with more samples
         console.warn(`Stain normalization params unstable for ${slideId}, invalidating cache`);
         normalizationCache.delete(cacheKey);
+        stableCheckCount.delete(cacheKey);
         // Don't clear accumulated samples - keep building up for better estimate
       } else {
-        // Params are stable, return cached
+        // Params are stable - track consecutive stable checks
+        const stableCount = (stableCheckCount.get(cacheKey) || 0) + 1;
+        stableCheckCount.set(cacheKey, stableCount);
+        
+        // Clear accumulator after params have been stable for a few checks
+        if (stableCount >= STABLE_CHECKS_BEFORE_CLEANUP) {
+          sampleAccumulator.delete(cacheKey);
+          tilesContributed.delete(cacheKey);
+          lastStabilityCheck.delete(cacheKey);
+          // Keep stableCheckCount to remember we already cleaned up
+        }
         return cachedParams;
       }
     } else {

@@ -386,6 +386,8 @@ function applyEnhancement(
 // ============================================================================
 
 const cancelledIds = new Set<string>();
+/** Maximum cancelled IDs to track before cleanup (prevents memory leak) */
+const MAX_CANCELLED_IDS = 500;
 
 // ============================================================================
 // Sharpening Settings (Worker-Local State)
@@ -545,6 +547,14 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
   if (request.type === 'cancel') {
     for (const id of request.ids) {
       cancelledIds.add(id);
+    }
+    // Prevent unbounded growth - clear oldest entries when over limit
+    if (cancelledIds.size > MAX_CANCELLED_IDS) {
+      const idsArray = Array.from(cancelledIds);
+      const toRemove = idsArray.slice(0, cancelledIds.size - MAX_CANCELLED_IDS / 2);
+      for (const id of toRemove) {
+        cancelledIds.delete(id);
+      }
     }
     return;
   }

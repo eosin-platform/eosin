@@ -339,6 +339,16 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
     // Skip if this tile has already contributed
     const tileKey = `${slideId}_${tileKeyFromMeta(tile.meta)}`;
     if (sampledTileKeys.has(tileKey)) return;
+    
+    // Limit sampledTileKeys size to prevent unbounded growth
+    if (sampledTileKeys.size >= MAX_SAMPLED_KEYS) {
+      // Clear oldest half when limit reached
+      const keysToDelete = Array.from(sampledTileKeys).slice(0, MAX_SAMPLED_KEYS / 2);
+      for (const k of keysToDelete) {
+        sampledTileKeys.delete(k);
+      }
+    }
+    
     sampledTileKeys.add(tileKey);
     
     // Extract pixels and contribute to sample accumulation
