@@ -165,26 +165,30 @@ export function toProtocolViewport(state: ViewportState): Viewport {
  */
 export function tileScreenRect(
   tile: TileCoord,
-  viewport: ViewportState
+  viewport: ViewportState,
+  image: ImageDesc
 ): { x: number; y: number; width: number; height: number } {
   const downsample = Math.pow(2, tile.level);
   const pxPerTile = downsample * TILE_SIZE;
   const zoom = Math.max(viewport.zoom, 1e-6);
 
-  // Tile position in level-0 image pixels
+  // Tile bounds in level-0 image pixels (clipped at right/bottom image edges)
   const tileX0 = tile.x * pxPerTile;
   const tileY0 = tile.y * pxPerTile;
+  const tileX1 = Math.min(tileX0 + pxPerTile, image.width);
+  const tileY1 = Math.min(tileY0 + pxPerTile, image.height);
 
   // Convert to screen coordinates
   const screenX = (tileX0 - viewport.x) * zoom;
   const screenY = (tileY0 - viewport.y) * zoom;
-  const screenSize = pxPerTile * zoom;
+  const screenWidth = (tileX1 - tileX0) * zoom;
+  const screenHeight = (tileY1 - tileY0) * zoom;
 
   return {
     x: screenX,
     y: screenY,
-    width: screenSize,
-    height: screenSize,
+    width: screenWidth,
+    height: screenHeight,
   };
 }
 

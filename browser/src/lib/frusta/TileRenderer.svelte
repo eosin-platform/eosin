@@ -1307,7 +1307,7 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
 
     // Find the tile under the cursor
     for (const coord of idealTiles) {
-      const rect = tileScreenRect(coord, viewport);
+      const rect = tileScreenRect(coord, viewport, image);
 
       // Check if mouse is within this tile
       if (
@@ -1392,7 +1392,7 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
   ): RenderResult {
     if (!ctx) return 'skipped';
 
-    const rect = tileScreenRect(targetCoord, viewport);
+    const rect = tileScreenRect(targetCoord, viewport, image);
 
     // Skip tiles completely outside the viewport
     if (
@@ -1560,17 +1560,30 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
       return false;
     }
 
-    // Compute which portion of the fallback tile to use
-    const scale = Math.pow(2, fallbackLevel - idealLevel);
+    // Compute source rectangle in the fallback bitmap from true image-space bounds.
+    // This preserves correct geometry for right/bottom edge tiles that are not
+    // exact multiples of TILE_SIZE.
+    const idealDownsample = Math.pow(2, idealLevel);
+    const idealPxPerTile = idealDownsample * TILE_SIZE;
+    const targetX0 = targetCoord.x * idealPxPerTile;
+    const targetY0 = targetCoord.y * idealPxPerTile;
+    const targetX1 = Math.min(targetX0 + idealPxPerTile, image.width);
+    const targetY1 = Math.min(targetY0 + idealPxPerTile, image.height);
 
-    // Position within the fallback tile (0 to scale-1)
-    const subX = targetCoord.x % scale;
-    const subY = targetCoord.y % scale;
+    const fallbackDownsample = Math.pow(2, fallbackLevel);
+    const fallbackPxPerTile = fallbackDownsample * TILE_SIZE;
+    const fallbackX0 = fallbackTile.meta.x * fallbackPxPerTile;
+    const fallbackY0 = fallbackTile.meta.y * fallbackPxPerTile;
+    const fallbackX1 = Math.min(fallbackX0 + fallbackPxPerTile, image.width);
+    const fallbackY1 = Math.min(fallbackY0 + fallbackPxPerTile, image.height);
 
-    // Source rectangle in the fallback tile
-    const srcSize = TILE_SIZE / scale;
-    const srcX = subX * srcSize;
-    const srcY = subY * srcSize;
+    const fallbackSpanX = Math.max(1, fallbackX1 - fallbackX0);
+    const fallbackSpanY = Math.max(1, fallbackY1 - fallbackY0);
+
+    const srcX = ((targetX0 - fallbackX0) / fallbackSpanX) * fallbackTile.bitmap.width;
+    const srcY = ((targetY0 - fallbackY0) / fallbackSpanY) * fallbackTile.bitmap.height;
+    const srcWidth = ((targetX1 - targetX0) / fallbackSpanX) * fallbackTile.bitmap.width;
+    const srcHeight = ((targetY1 - targetY0) / fallbackSpanY) * fallbackTile.bitmap.height;
 
     // Apply stain normalization, enhancement, and/or sharpening if enabled
     const needsProcessing = stainNormalization !== 'none' || stainEnhancement !== 'none' ||
@@ -1585,8 +1598,8 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
           cachedProcessed,
           srcX,
           srcY,
-          srcSize,
-          srcSize,
+          srcWidth,
+          srcHeight,
           targetRect.x,
           targetRect.y,
           targetRect.width,
@@ -1602,8 +1615,8 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
         fallbackTile.bitmap,
         srcX,
         srcY,
-        srcSize,
-        srcSize,
+        srcWidth,
+        srcHeight,
         targetRect.x,
         targetRect.y,
         targetRect.width,
@@ -1614,8 +1627,8 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
         fallbackTile.bitmap,
         srcX,
         srcY,
-        srcSize,
-        srcSize,
+        srcWidth,
+        srcHeight,
         targetRect.x,
         targetRect.y,
         targetRect.width,
