@@ -1210,6 +1210,9 @@
   let inertiaAnimationFrame: number | null = null;
   let inertiaVelocityX = 0;
   let inertiaVelocityY = 0;
+  
+  // Track which button started the drag for inertia
+  let dragButton: number | null = null;
 
   // Subscribe to active annotation set for creation permission
   let currentActiveSet = $state<typeof $activeAnnotationSet>(null);
@@ -1684,6 +1687,7 @@
       // Reset velocity tracking
       panVelocityHistory = [];
       isDragging = true;
+      dragButton = 2;
       lastMouseX = e.clientX;
       lastMouseY = e.clientY;
       rightClickStart = { x: e.clientX, y: e.clientY };
@@ -1778,6 +1782,13 @@
         return;
       }
       isDragging = true;
+      dragButton = 0;
+      // Cancel any ongoing inertia animation
+      if (inertiaAnimationFrame !== null) {
+        cancelAnimationFrame(inertiaAnimationFrame);
+        inertiaAnimationFrame = null;
+      }
+      panVelocityHistory = [];
       lastMouseX = e.clientX;
       lastMouseY = e.clientY;
       tabStore.setFocusedPane(paneId);
@@ -1981,6 +1992,7 @@
     if (e && e.button === 2) {
       const wasDragging = isDragging;
       isDragging = false;
+      dragButton = null;
       
       // First check if we started a right-click on an annotation
       if (annotationRightClickStart) {
@@ -2074,7 +2086,35 @@
       return;
     }
 
+    // LMB released - check for inertia on pan
+    if (e && e.button === 0 && isDragging && dragButton === 0) {
+      const wasDragging = isDragging;
+      isDragging = false;
+      dragButton = null;
+      
+      if (wasDragging && smoothNavigation && imageDesc && panVelocityHistory.length > 0) {
+        // Calculate average velocity from history
+        let totalDx = 0, totalDy = 0;
+        for (const v of panVelocityHistory) {
+          totalDx += v.dx;
+          totalDy += v.dy;
+        }
+        const avgDx = totalDx / panVelocityHistory.length;
+        const avgDy = totalDy / panVelocityHistory.length;
+        inertiaVelocityX = avgDx * 60; // pixels per second
+        inertiaVelocityY = avgDy * 60;
+        
+        const speed = Math.sqrt(inertiaVelocityX * inertiaVelocityX + inertiaVelocityY * inertiaVelocityY);
+        if (speed > 100) {
+          startInertiaAnimation();
+        }
+        panVelocityHistory = [];
+      }
+      return;
+    }
+
     isDragging = false;
+    dragButton = null;
   }
 
   // Window event handlers (with event parameter)
@@ -2385,6 +2425,8 @@
 
   function showContextMenu(x: number, y: number) {
     if (!imageDesc) return;
+    // Don't show context menu if viewport has momentum
+    if (inertiaAnimationFrame !== null) return;
     contextMenuX = x;
     contextMenuY = y;
     // Convert to image coordinates
@@ -2421,6 +2463,8 @@
   }
 
   function showAnnotationMenu(annotation: Annotation, x: number, y: number) {
+    // Don't show context menu if viewport has momentum
+    if (inertiaAnimationFrame !== null) return;
     annotationMenuX = x;
     annotationMenuY = y;
     annotationMenuTarget = annotation;
