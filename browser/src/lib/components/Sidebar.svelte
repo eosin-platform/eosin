@@ -941,6 +941,7 @@
                   <span>Updated {formatTimestamp(dataset.updated_at)}</span>
                   <span>{dataset.slide_count} slides</span>
                   <span>{formatSize(dataset.full_size)}</span>
+                  <span>(Warm / in-cache)</span>
                 </div>
               </button>
             {/each}
