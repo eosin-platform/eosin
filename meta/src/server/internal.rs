@@ -353,6 +353,7 @@ pub async fn create_dataset(
         req.id,
         &req.name,
         req.description.as_deref(),
+        req.credit.as_deref(),
         req.metadata.as_ref(),
     )
     .await
@@ -437,6 +438,7 @@ pub async fn update_dataset(
         dataset_id,
         req.name.as_deref(),
         req.description.as_deref(),
+        req.credit.as_deref(),
         req.metadata.as_ref(),
     )
     .await

@@ -239,6 +239,10 @@ pub struct CreateDatasetArgs {
     #[arg(long)]
     pub description: Option<String>,
 
+    /// Dataset credit
+    #[arg(long)]
+    pub credit: Option<String>,
+
     /// Arbitrary dataset metadata as JSON
     #[arg(long)]
     pub metadata: Option<serde_json::Value>,
@@ -272,6 +276,10 @@ pub struct UpdateDatasetArgs {
     /// Dataset description
     #[arg(long)]
     pub description: Option<String>,
+
+    /// Dataset credit
+    #[arg(long)]
+    pub credit: Option<String>,
 
     /// Arbitrary dataset metadata as JSON
     #[arg(long)]

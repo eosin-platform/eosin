@@ -33,6 +33,7 @@ pub async fn init_schema(pool: &Pool) -> Result<()> {
                 id UUID PRIMARY KEY,
                 name TEXT NOT NULL,
                 description TEXT,
+                credit TEXT,
                 created_at BIGINT NOT NULL,
                 updated_at BIGINT NOT NULL,
                 deleted_at BIGINT,
@@ -119,6 +120,16 @@ pub async fn init_schema(pool: &Pool) -> Result<()> {
         .context("failed to create slides dataset index")?;
 
     // Add filename column to existing tables (migration for existing databases)
+    client
+        .execute(
+            r#"
+            ALTER TABLE datasets ADD COLUMN IF NOT EXISTS credit TEXT
+            "#,
+            &[],
+        )
+        .await
+        .context("failed to add datasets credit column")?;
+
     client
         .execute(
             r#"
@@ -504,6 +515,7 @@ pub async fn list_datasets(pool: &Pool, offset: i64, limit: i64) -> Result<ListD
                     id,
                     name,
                     description,
+                    credit,
                     created_at,
                     updated_at,
                     metadata,
@@ -527,6 +539,7 @@ pub async fn list_datasets(pool: &Pool, offset: i64, limit: i64) -> Result<ListD
                 p.id,
                 p.name,
                 p.description,
+                p.credit,
                 p.created_at,
                 p.updated_at,
                 p.metadata,
@@ -550,6 +563,7 @@ pub async fn list_datasets(pool: &Pool, offset: i64, limit: i64) -> Result<ListD
             id: r.get("id"),
             name: r.get("name"),
             description: r.get("description"),
+            credit: r.get("credit"),
             created_at: r.get("created_at"),
             updated_at: r.get("updated_at"),
             metadata: r.get("metadata"),
@@ -576,7 +590,7 @@ pub async fn get_dataset(pool: &Pool, id: Uuid) -> Result<Option<Dataset>> {
     let row = client
         .query_opt(
             r#"
-            SELECT id, name, description, created_at, updated_at, deleted_at, metadata
+            SELECT id, name, description, credit, created_at, updated_at, deleted_at, metadata
             FROM datasets
             WHERE id = $1 AND deleted_at IS NULL
             "#,
@@ -589,6 +603,7 @@ pub async fn get_dataset(pool: &Pool, id: Uuid) -> Result<Option<Dataset>> {
         id: r.get("id"),
         name: r.get("name"),
         description: r.get("description"),
+        credit: r.get("credit"),
         created_at: r.get("created_at"),
         updated_at: r.get("updated_at"),
         deleted_at: r.get("deleted_at"),
@@ -603,6 +618,7 @@ pub async fn upsert_dataset(
     id: Uuid,
     name: &str,
     description: Option<&str>,
+    credit: Option<&str>,
     metadata: Option<&serde_json::Value>,
 ) -> Result<Dataset> {
     let client = pool.get().await.context("failed to get db connection")?;
@@ -611,18 +627,19 @@ pub async fn upsert_dataset(
     let row = client
         .query_one(
             r#"
-            INSERT INTO datasets (id, name, description, created_at, updated_at, deleted_at, metadata)
-            VALUES ($1, $2, $3, $4, $4, NULL, $5)
+            INSERT INTO datasets (id, name, description, credit, created_at, updated_at, deleted_at, metadata)
+            VALUES ($1, $2, $3, $4, $5, $5, NULL, $6)
             ON CONFLICT (id) DO UPDATE
             SET
                 name = EXCLUDED.name,
                 description = EXCLUDED.description,
+                credit = EXCLUDED.credit,
                 metadata = EXCLUDED.metadata,
                 deleted_at = NULL,
                 updated_at = EXCLUDED.updated_at
-            RETURNING id, name, description, created_at, updated_at, deleted_at, metadata
+            RETURNING id, name, description, credit, created_at, updated_at, deleted_at, metadata
             "#,
-            &[&id, &name, &description, &now, &metadata],
+            &[&id, &name, &description, &credit, &now, &metadata],
         )
         .await
         .context("failed to upsert dataset")?;
@@ -631,6 +648,7 @@ pub async fn upsert_dataset(
         id: row.get("id"),
         name: row.get("name"),
         description: row.get("description"),
+        credit: row.get("credit"),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
         deleted_at: row.get("deleted_at"),
@@ -645,6 +663,7 @@ pub async fn update_dataset(
     id: Uuid,
     name: Option<&str>,
     description: Option<&str>,
+    credit: Option<&str>,
     metadata: Option<&serde_json::Value>,
 ) -> Result<UpdateDatasetResult> {
     let client = pool.get().await.context("failed to get db connection")?;
@@ -686,6 +705,12 @@ pub async fn update_dataset(
         param_idx += 1;
     }
 
+    if let Some(ref c) = credit {
+        set_clauses.push(format!("credit = ${}", param_idx));
+        params.push(c);
+        param_idx += 1;
+    }
+
     if let Some(ref m) = metadata {
         set_clauses.push(format!("metadata = ${}", param_idx));
         params.push(m);
@@ -698,7 +723,7 @@ pub async fn update_dataset(
     param_idx += 1;
 
     let query = format!(
-        "UPDATE datasets SET {} WHERE id = ${} RETURNING id, name, description, created_at, updated_at, deleted_at, metadata",
+        "UPDATE datasets SET {} WHERE id = ${} RETURNING id, name, description, credit, created_at, updated_at, deleted_at, metadata",
         set_clauses.join(", "),
         param_idx
     );
@@ -713,6 +738,7 @@ pub async fn update_dataset(
         id: row.get("id"),
         name: row.get("name"),
         description: row.get("description"),
+        credit: row.get("credit"),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
         deleted_at: row.get("deleted_at"),

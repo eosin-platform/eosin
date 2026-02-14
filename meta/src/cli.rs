@@ -164,13 +164,20 @@ pub async fn run_create_dataset(args: CreateDatasetArgs) -> Result<()> {
 
     let id: Uuid = args.id.parse()?;
     let dataset = client
-        .create_dataset(id, &args.name, args.description.as_deref(), args.metadata.as_ref())
+        .create_dataset(
+            id,
+            &args.name,
+            args.description.as_deref(),
+            args.credit.as_deref(),
+            args.metadata.as_ref(),
+        )
         .await?;
 
     println!("Created dataset:");
     println!("  ID:   {}", dataset.id);
     println!("  Name: {}", dataset.name);
     println!("  Description: {}", dataset.description.unwrap_or_default());
+    println!("  Credit: {}", dataset.credit.unwrap_or_default());
 
     Ok(())
 }
@@ -187,6 +194,7 @@ pub async fn run_get_dataset(args: GetDatasetArgs) -> Result<()> {
             println!("  ID:   {}", dataset.id);
             println!("  Name: {}", dataset.name);
             println!("  Description: {}", dataset.description.unwrap_or_default());
+            println!("  Credit: {}", dataset.credit.unwrap_or_default());
         }
         None => {
             println!("Dataset {} not found", id);
@@ -207,6 +215,7 @@ pub async fn run_update_dataset(args: UpdateDatasetArgs) -> Result<()> {
             id,
             args.name.as_deref(),
             args.description.as_deref(),
+            args.credit.as_deref(),
             args.metadata.as_ref(),
         )
         .await?
@@ -216,6 +225,7 @@ pub async fn run_update_dataset(args: UpdateDatasetArgs) -> Result<()> {
             println!("  ID:   {}", dataset.id);
             println!("  Name: {}", dataset.name);
             println!("  Description: {}", dataset.description.unwrap_or_default());
+            println!("  Credit: {}", dataset.credit.unwrap_or_default());
         }
         None => {
             println!("Dataset {} not found", id);
@@ -256,7 +266,13 @@ pub async fn run_list_datasets(args: ListDatasetsArgs) -> Result<()> {
         println!("  (no datasets)");
     } else {
         for dataset in &response.items {
-            println!("{},{},{}", dataset.id, dataset.name, dataset.description.clone().unwrap_or_default());
+            println!(
+                "{},{},{},{}",
+                dataset.id,
+                dataset.name,
+                dataset.description.clone().unwrap_or_default(),
+                dataset.credit.clone().unwrap_or_default()
+            );
         }
     }
 

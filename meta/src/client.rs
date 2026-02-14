@@ -228,6 +228,7 @@ impl MetaClient {
         id: Uuid,
         name: &str,
         description: Option<&str>,
+        credit: Option<&str>,
         metadata: Option<&serde_json::Value>,
     ) -> Result<Dataset> {
         let url = format!("{}/dataset", self.base_url);
@@ -235,6 +236,7 @@ impl MetaClient {
             id,
             name: name.to_string(),
             description: description.map(|v| v.to_string()),
+            credit: credit.map(|v| v.to_string()),
             metadata: metadata.cloned(),
         };
 
@@ -292,12 +294,14 @@ impl MetaClient {
         id: Uuid,
         name: Option<&str>,
         description: Option<&str>,
+        credit: Option<&str>,
         metadata: Option<&serde_json::Value>,
     ) -> Result<Option<Dataset>> {
         let url = format!("{}/dataset/{}", self.base_url, id);
         let req = UpdateDatasetRequest {
             name: name.map(|v| v.to_string()),
             description: description.map(|v| v.to_string()),
+            credit: credit.map(|v| v.to_string()),
             metadata: metadata.cloned(),
         };
 
