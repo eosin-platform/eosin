@@ -1206,8 +1206,11 @@
   let zoomPivotY: number | null = null;
 
   // Velocity tracking for pan inertia (throw effect)
-  let panVelocityHistory: { dx: number; dy: number; dt: number }[] = [];
-  const VELOCITY_HISTORY_SIZE = 5;
+  let panVelocityHistory: { dx: number; dy: number; timestamp: number }[] = [];
+  const VELOCITY_HISTORY_SIZE = 10;
+  const VELOCITY_MAX_AGE_MS = 100; // Only consider samples from the last 100ms
+  const VELOCITY_MIN_SPEED = 50; // Minimum speed (px/s) to trigger inertia
+  let lastMoveTimestamp = 0;
   let inertiaAnimationFrame: number | null = null;
   let inertiaVelocityX = 0;
   let inertiaVelocityY = 0;
@@ -1916,9 +1919,11 @@
     const deltaX = e.clientX - lastMouseX;
     const deltaY = e.clientY - lastMouseY;
     
-    // Track velocity history for inertia
+    // Track velocity history for inertia with actual timestamps
     if (smoothNavigation) {
-      panVelocityHistory.push({ dx: deltaX, dy: deltaY, dt: 16 }); // Assume ~60fps
+      const now = performance.now();
+      panVelocityHistory.push({ dx: deltaX, dy: deltaY, timestamp: now });
+      lastMoveTimestamp = now;
       if (panVelocityHistory.length > VELOCITY_HISTORY_SIZE) {
         panVelocityHistory.shift();
       }
@@ -2022,21 +2027,33 @@
           showContextMenu(e.clientX, e.clientY);
           panVelocityHistory = [];
         } else if (wasDragging && smoothNavigation && imageDesc && panVelocityHistory.length > 0) {
-          // Was dragging and moved - calculate average velocity and apply inertia
-          let totalDx = 0, totalDy = 0;
-          for (const v of panVelocityHistory) {
-            totalDx += v.dx;
-            totalDy += v.dy;
-          }
-          // Convert to pixels per second (assuming 60fps, each sample is ~16ms)
-          const avgDx = totalDx / panVelocityHistory.length;
-          const avgDy = totalDy / panVelocityHistory.length;
-          inertiaVelocityX = avgDx * 60; // pixels per second
-          inertiaVelocityY = avgDy * 60;
+          // Was dragging and moved - calculate velocity from recent samples only
+          const now = performance.now();
+          const recentSamples = panVelocityHistory.filter(v => (now - v.timestamp) <= VELOCITY_MAX_AGE_MS);
           
-          const speed = Math.sqrt(inertiaVelocityX * inertiaVelocityX + inertiaVelocityY * inertiaVelocityY);
-          if (speed > 100) { // Only apply inertia if moving fast enough
-            startInertiaAnimation();
+          if (recentSamples.length >= 2) {
+            // Calculate velocity using time-weighted average of recent samples
+            let totalDx = 0, totalDy = 0;
+            let totalTime = 0;
+            for (let i = 1; i < recentSamples.length; i++) {
+              const dt = recentSamples[i].timestamp - recentSamples[i-1].timestamp;
+              if (dt > 0) {
+                totalDx += recentSamples[i].dx;
+                totalDy += recentSamples[i].dy;
+                totalTime += dt;
+              }
+            }
+            
+            if (totalTime > 0) {
+              // Convert to pixels per second
+              inertiaVelocityX = (totalDx / totalTime) * 1000;
+              inertiaVelocityY = (totalDy / totalTime) * 1000;
+              
+              const speed = Math.sqrt(inertiaVelocityX * inertiaVelocityX + inertiaVelocityY * inertiaVelocityY);
+              if (speed > VELOCITY_MIN_SPEED) {
+                startInertiaAnimation();
+              }
+            }
           }
           panVelocityHistory = [];
         }
@@ -2098,20 +2115,33 @@
       dragButton = null;
       
       if (wasDragging && smoothNavigation && imageDesc && panVelocityHistory.length > 0) {
-        // Calculate average velocity from history
-        let totalDx = 0, totalDy = 0;
-        for (const v of panVelocityHistory) {
-          totalDx += v.dx;
-          totalDy += v.dy;
-        }
-        const avgDx = totalDx / panVelocityHistory.length;
-        const avgDy = totalDy / panVelocityHistory.length;
-        inertiaVelocityX = avgDx * 60; // pixels per second
-        inertiaVelocityY = avgDy * 60;
+        // Calculate velocity from recent samples only
+        const now = performance.now();
+        const recentSamples = panVelocityHistory.filter(v => (now - v.timestamp) <= VELOCITY_MAX_AGE_MS);
         
-        const speed = Math.sqrt(inertiaVelocityX * inertiaVelocityX + inertiaVelocityY * inertiaVelocityY);
-        if (speed > 100) {
-          startInertiaAnimation();
+        if (recentSamples.length >= 2) {
+          // Calculate velocity using time-weighted average of recent samples
+          let totalDx = 0, totalDy = 0;
+          let totalTime = 0;
+          for (let i = 1; i < recentSamples.length; i++) {
+            const dt = recentSamples[i].timestamp - recentSamples[i-1].timestamp;
+            if (dt > 0) {
+              totalDx += recentSamples[i].dx;
+              totalDy += recentSamples[i].dy;
+              totalTime += dt;
+            }
+          }
+          
+          if (totalTime > 0) {
+            // Convert to pixels per second
+            inertiaVelocityX = (totalDx / totalTime) * 1000;
+            inertiaVelocityY = (totalDy / totalTime) * 1000;
+            
+            const speed = Math.sqrt(inertiaVelocityX * inertiaVelocityX + inertiaVelocityY * inertiaVelocityY);
+            if (speed > VELOCITY_MIN_SPEED) {
+              startInertiaAnimation();
+            }
+          }
         }
         panVelocityHistory = [];
       }
@@ -2386,9 +2416,11 @@
       const deltaX = e.touches[0].clientX - lastMouseX;
       const deltaY = e.touches[0].clientY - lastMouseY;
       
-      // Track velocity for inertia
+      // Track velocity for inertia with timestamps
       if (smoothNavigation) {
-        panVelocityHistory.push({ dx: deltaX, dy: deltaY, dt: 16 });
+        const now = performance.now();
+        panVelocityHistory.push({ dx: deltaX, dy: deltaY, timestamp: now });
+        lastMoveTimestamp = now;
         if (panVelocityHistory.length > VELOCITY_HISTORY_SIZE) {
           panVelocityHistory.shift();
         }
@@ -2437,19 +2469,31 @@
       
       // Apply inertia if was panning with momentum
       if (wasDragging && smoothNavigation && imageDesc && panVelocityHistory.length > 0) {
-        let totalDx = 0, totalDy = 0;
-        for (const v of panVelocityHistory) {
-          totalDx += v.dx;
-          totalDy += v.dy;
-        }
-        const avgDx = totalDx / panVelocityHistory.length;
-        const avgDy = totalDy / panVelocityHistory.length;
-        inertiaVelocityX = avgDx * 60;
-        inertiaVelocityY = avgDy * 60;
+        // Calculate velocity from recent samples only
+        const now = performance.now();
+        const recentSamples = panVelocityHistory.filter(v => (now - v.timestamp) <= VELOCITY_MAX_AGE_MS);
         
-        const speed = Math.sqrt(inertiaVelocityX * inertiaVelocityX + inertiaVelocityY * inertiaVelocityY);
-        if (speed > 100) {
-          startInertiaAnimation();
+        if (recentSamples.length >= 2) {
+          let totalDx = 0, totalDy = 0;
+          let totalTime = 0;
+          for (let i = 1; i < recentSamples.length; i++) {
+            const dt = recentSamples[i].timestamp - recentSamples[i-1].timestamp;
+            if (dt > 0) {
+              totalDx += recentSamples[i].dx;
+              totalDy += recentSamples[i].dy;
+              totalTime += dt;
+            }
+          }
+          
+          if (totalTime > 0) {
+            inertiaVelocityX = (totalDx / totalTime) * 1000;
+            inertiaVelocityY = (totalDy / totalTime) * 1000;
+            
+            const speed = Math.sqrt(inertiaVelocityX * inertiaVelocityX + inertiaVelocityY * inertiaVelocityY);
+            if (speed > VELOCITY_MIN_SPEED) {
+              startInertiaAnimation();
+            }
+          }
         }
         panVelocityHistory = [];
       }
