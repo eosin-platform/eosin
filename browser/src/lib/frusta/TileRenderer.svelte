@@ -868,10 +868,13 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
     }
   });
 
+  let scheduleRenderTime: number = 0;
+  
   /** Schedule a render on the next animation frame, coalescing multiple requests. */
   function scheduleRender() {
     if (renderScheduled) return;
     renderScheduled = true;
+    scheduleRenderTime = performance.now();
     animationFrameId = requestAnimationFrame(() => {
       renderScheduled = false;
       render();
@@ -1023,12 +1026,23 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
 
   // Render timing debug (exposed for console inspection)
   let lastRenderTimings: Record<string, number> | null = null;
+  let lastRenderEndTime: number = 0;
   
   function render() {
     if (!ctx || !canvas) return;
 
     const timings: Record<string, number> = {};
     const renderStart = performance.now();
+    
+    // Track inter-frame overhead (time between last render end and this render start)
+    if (lastRenderEndTime > 0) {
+      timings.interFrameMs = renderStart - lastRenderEndTime;
+    }
+    
+    // Track rAF delay (time from scheduleRender to render callback)
+    if (scheduleRenderTime > 0) {
+      timings.rafDelayMs = renderStart - scheduleRenderTime;
+    }
     
     // Track render stats
     let renderedTiles = 0;
@@ -1173,6 +1187,9 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
       prefetchCoarseLevelProcessing(idealLevel, stainNormalization, stainEnhancement);
       prefetchProcessing(idealLevel, visibleMinTx, visibleMinTy, visibleMaxTx, visibleMaxTy, stainNormalization, stainEnhancement);
     }
+    
+    // Track when render ended for inter-frame timing
+    lastRenderEndTime = performance.now();
   }
   
   /**
