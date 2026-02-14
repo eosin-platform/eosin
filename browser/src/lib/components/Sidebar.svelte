@@ -1391,8 +1391,8 @@
 
   .dataset-select:focus {
     outline: none;
-    border-color: var(--primary-hex);
-    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.15);
+    border-color: #3a3a3a;
+    box-shadow: none;
   }
 
   .chevron {
