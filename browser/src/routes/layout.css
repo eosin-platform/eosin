@@ -1,5 +1,6 @@
 @import 'tailwindcss';
 @plugin '@tailwindcss/typography';
+@import '@fontsource/inter/500.css';
 
 /* Eosin Design System Color Palette */
 @theme {

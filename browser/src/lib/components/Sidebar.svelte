@@ -656,7 +656,7 @@
       <img src="/logo_half.png" alt="App logo" class="app-logo" />
     </div>
     {#if !collapsed}
-      <span class="app-title">Eosin</span>
+      <span class="app-title">EOSIN</span>
       <button class="toggle-btn" onclick={(e) => { e.stopPropagation(); handleToggle(); }} aria-label="Collapse sidebar">
         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <rect x="3" y="3" width="18" height="18" rx="2"></rect>
@@ -1391,7 +1391,8 @@
   /* Section styles for VS Code-like split view */
   .app-title {
     font-size: 0.9rem;
-    font-weight: 600;
+    font-family: 'Inter', sans-serif;
+    font-weight: 500;
     color: #eee;
   }
 
