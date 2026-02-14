@@ -116,6 +116,11 @@
 
   // Canvas for mask rendering (much faster than SVG for pixel-based graphics)
   let maskCanvas: HTMLCanvasElement | null = $state(null);
+  let maskCanvasTransform = $state('none');
+  let lastMaskRenderViewportX = 0;
+  let lastMaskRenderViewportY = 0;
+  let lastMaskRenderViewportZoom = 1;
+  let hasMaskRenderViewport = false;
   
   // Offscreen canvas for creating mask bitmaps (reused for efficiency)
   let offscreenCanvas: OffscreenCanvas | null = null;
@@ -332,6 +337,34 @@
         renderMaskToCanvasDirect(ctx, tile.data, tile.origin.x, tile.origin.y, 512, 512, previewColor, 0.5);
       }
     }
+
+    // Snapshot viewport used for this rasterized frame and clear any temporary transform.
+    lastMaskRenderViewportX = viewportX;
+    lastMaskRenderViewportY = viewportY;
+    lastMaskRenderViewportZoom = Math.max(viewportZoom, 1e-6);
+    hasMaskRenderViewport = true;
+    maskCanvasTransform = 'none';
+  }
+
+  function updateMaskCanvasTransformForInteraction() {
+    if (!maskCanvas || !hasMaskRenderViewport || !isInteracting) {
+      maskCanvasTransform = 'none';
+      return;
+    }
+
+    const currentZoom = Math.max(viewportZoom, 1e-6);
+    const scale = currentZoom / lastMaskRenderViewportZoom;
+    const translateX = (lastMaskRenderViewportX - viewportX) * currentZoom;
+    const translateY = (lastMaskRenderViewportY - viewportY) * currentZoom;
+
+    const isNearlyIdentity =
+      Math.abs(scale - 1) < 1e-4 &&
+      Math.abs(translateX) < 0.01 &&
+      Math.abs(translateY) < 0.01;
+
+    maskCanvasTransform = isNearlyIdentity
+      ? 'none'
+      : `matrix(${scale}, 0, 0, ${scale}, ${translateX}, ${translateY})`;
   }
 
   // Render all masks to canvas - uses pre-rendered ImageBitmaps for speed
@@ -352,8 +385,10 @@
 
     if (!maskCanvas || !globalVisible) return;
 
-    // Fast path: while actively panning/zooming, just mark dirty
+    // Fast path: while actively panning/zooming, avoid re-rasterizing masks but
+    // keep them visually aligned using a cheap canvas CSS transform.
     if (isInteracting) {
+      updateMaskCanvasTransformForInteraction();
       _maskDirtyDuringInteraction = true;
       return;
     }
@@ -834,6 +869,7 @@
     class="mask-canvas"
     width={containerWidth}
     height={containerHeight}
+    style="transform: {maskCanvasTransform}; transform-origin: 0 0;"
   ></canvas>
   
   <svg 
