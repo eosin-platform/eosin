@@ -3,7 +3,9 @@ use reqwest::Client;
 use uuid::Uuid;
 
 use crate::models::{
-    CreateSlideRequest, ListSlidesRequest, ListSlidesResponse, Slide, UpdateSlideRequest,
+    CreateDatasetRequest, CreateSlideRequest, Dataset, ListDatasetsRequest,
+    ListDatasetsResponse, ListSlidesRequest, ListSlidesResponse, Slide, UpdateDatasetRequest,
+    UpdateSlideRequest,
 };
 
 /// Client for interacting with the Meta service HTTP API.
@@ -209,5 +211,162 @@ impl MetaClient {
         resp.json::<ListSlidesResponse>()
             .await
             .context("failed to parse list slides response")
+    }
+
+    /// Create a new dataset.
+    pub async fn create_dataset(
+        &self,
+        id: Uuid,
+        name: &str,
+        description: Option<&str>,
+        metadata: Option<&serde_json::Value>,
+    ) -> Result<Dataset> {
+        let url = format!("{}/dataset", self.base_url);
+        let req = CreateDatasetRequest {
+            id,
+            name: name.to_string(),
+            description: description.map(|v| v.to_string()),
+            metadata: metadata.cloned(),
+        };
+
+        let resp = self
+            .client
+            .post(&url)
+            .json(&req)
+            .send()
+            .await
+            .context("failed to send create dataset request")?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            bail!("create dataset failed with status {}: {}", status, body);
+        }
+
+        resp.json::<Dataset>()
+            .await
+            .context("failed to parse create dataset response")
+    }
+
+    /// Get a dataset by ID.
+    pub async fn get_dataset(&self, id: Uuid) -> Result<Option<Dataset>> {
+        let url = format!("{}/dataset/{}", self.base_url, id);
+
+        let resp = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .context("failed to send get dataset request")?;
+
+        if resp.status() == reqwest::StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            bail!("get dataset failed with status {}: {}", status, body);
+        }
+
+        let dataset = resp
+            .json::<Dataset>()
+            .await
+            .context("failed to parse get dataset response")?;
+
+        Ok(Some(dataset))
+    }
+
+    /// Update a dataset by ID.
+    pub async fn update_dataset(
+        &self,
+        id: Uuid,
+        name: Option<&str>,
+        description: Option<&str>,
+        metadata: Option<&serde_json::Value>,
+    ) -> Result<Option<Dataset>> {
+        let url = format!("{}/dataset/{}", self.base_url, id);
+        let req = UpdateDatasetRequest {
+            name: name.map(|v| v.to_string()),
+            description: description.map(|v| v.to_string()),
+            metadata: metadata.cloned(),
+        };
+
+        let resp = self
+            .client
+            .patch(&url)
+            .json(&req)
+            .send()
+            .await
+            .context("failed to send update dataset request")?;
+
+        if resp.status() == reqwest::StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            bail!("update dataset failed with status {}: {}", status, body);
+        }
+
+        let dataset = resp
+            .json::<Dataset>()
+            .await
+            .context("failed to parse update dataset response")?;
+
+        Ok(Some(dataset))
+    }
+
+    /// Delete a dataset by ID.
+    pub async fn delete_dataset(&self, id: Uuid) -> Result<bool> {
+        let url = format!("{}/dataset/{}", self.base_url, id);
+
+        let resp = self
+            .client
+            .delete(&url)
+            .send()
+            .await
+            .context("failed to send delete dataset request")?;
+
+        if resp.status() == reqwest::StatusCode::NOT_FOUND {
+            return Ok(false);
+        }
+
+        if resp.status() == reqwest::StatusCode::NO_CONTENT {
+            return Ok(true);
+        }
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            bail!("delete dataset failed with status {}: {}", status, body);
+        }
+
+        Ok(true)
+    }
+
+    /// List datasets with pagination.
+    pub async fn list_datasets(&self, offset: i64, limit: i64) -> Result<ListDatasetsResponse> {
+        let url = format!("{}/dataset", self.base_url);
+        let req = ListDatasetsRequest { offset, limit };
+
+        let resp = self
+            .client
+            .get(&url)
+            .query(&req)
+            .send()
+            .await
+            .context("failed to send list datasets request")?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            bail!("list datasets failed with status {}: {}", status, body);
+        }
+
+        resp.json::<ListDatasetsResponse>()
+            .await
+            .context("failed to parse list datasets response")
     }
 }

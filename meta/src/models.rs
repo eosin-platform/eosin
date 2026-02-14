@@ -49,6 +49,15 @@ pub struct UpdateDatasetRequest {
     pub metadata: Option<serde_json::Value>,
 }
 
+/// Request to create or upsert a dataset.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateDatasetRequest {
+    pub id: Uuid,
+    pub name: String,
+    pub description: Option<String>,
+    pub metadata: Option<serde_json::Value>,
+}
+
 /// Represents a slide image stored in the system.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Slide {

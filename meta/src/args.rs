@@ -14,23 +14,54 @@ pub enum Commands {
     /// Run the metadata server
     Server(ServerArgs),
 
-    /// Create a new slide
-    Create(CreateSlideArgs),
+    /// Slide operations
+    Slide(SlideCommandArgs),
 
-    /// Get a slide by ID
-    Get(GetSlideArgs),
-
-    /// Update a slide by ID
-    Update(UpdateSlideArgs),
-
-    /// Delete a slide by ID
-    Delete(DeleteSlideArgs),
-
-    /// List slides with pagination
-    List(ListSlidesArgs),
+    /// Dataset operations
+    Dataset(DatasetCommandArgs),
 
     /// Check service health
     Health(HealthArgs),
+}
+
+#[derive(Parser, Debug, Clone)]
+pub struct SlideCommandArgs {
+    #[command(subcommand)]
+    pub command: SlideCommands,
+}
+
+#[derive(Subcommand, Debug, Clone)]
+pub enum SlideCommands {
+    /// Create a new slide
+    Create(CreateSlideArgs),
+    /// Get a slide by ID
+    Get(GetSlideArgs),
+    /// Update a slide by ID
+    Update(UpdateSlideArgs),
+    /// Delete a slide by ID
+    Delete(DeleteSlideArgs),
+    /// List slides with pagination
+    List(ListSlidesArgs),
+}
+
+#[derive(Parser, Debug, Clone)]
+pub struct DatasetCommandArgs {
+    #[command(subcommand)]
+    pub command: DatasetCommands,
+}
+
+#[derive(Subcommand, Debug, Clone)]
+pub enum DatasetCommands {
+    /// Create a new dataset
+    Create(CreateDatasetArgs),
+    /// Get a dataset by ID
+    Get(GetDatasetArgs),
+    /// Update a dataset by ID
+    Update(UpdateDatasetArgs),
+    /// Delete a dataset by ID
+    Delete(DeleteDatasetArgs),
+    /// List datasets with pagination
+    List(ListDatasetsArgs),
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -166,4 +197,87 @@ pub struct HealthArgs {
     /// Meta service endpoint
     #[arg(long, env = "META_ENDPOINT")]
     pub endpoint: Option<String>,
+}
+
+#[derive(Parser, Debug, Clone)]
+pub struct CreateDatasetArgs {
+    /// Meta service endpoint
+    #[arg(long, env = "META_ENDPOINT")]
+    pub endpoint: Option<String>,
+
+    /// Dataset UUID
+    #[arg(long)]
+    pub id: String,
+
+    /// Dataset name
+    #[arg(long)]
+    pub name: String,
+
+    /// Dataset description
+    #[arg(long)]
+    pub description: Option<String>,
+
+    /// Arbitrary dataset metadata as JSON
+    #[arg(long)]
+    pub metadata: Option<serde_json::Value>,
+}
+
+#[derive(Parser, Debug, Clone)]
+pub struct GetDatasetArgs {
+    /// Meta service endpoint
+    #[arg(long, env = "META_ENDPOINT")]
+    pub endpoint: Option<String>,
+
+    /// Dataset UUID
+    #[arg(long)]
+    pub id: String,
+}
+
+#[derive(Parser, Debug, Clone)]
+pub struct UpdateDatasetArgs {
+    /// Meta service endpoint
+    #[arg(long, env = "META_ENDPOINT")]
+    pub endpoint: Option<String>,
+
+    /// Dataset UUID
+    #[arg(long)]
+    pub id: String,
+
+    /// Dataset name
+    #[arg(long)]
+    pub name: Option<String>,
+
+    /// Dataset description
+    #[arg(long)]
+    pub description: Option<String>,
+
+    /// Arbitrary dataset metadata as JSON
+    #[arg(long)]
+    pub metadata: Option<serde_json::Value>,
+}
+
+#[derive(Parser, Debug, Clone)]
+pub struct DeleteDatasetArgs {
+    /// Meta service endpoint
+    #[arg(long, env = "META_ENDPOINT")]
+    pub endpoint: Option<String>,
+
+    /// Dataset UUID
+    #[arg(long)]
+    pub id: String,
+}
+
+#[derive(Parser, Debug, Clone)]
+pub struct ListDatasetsArgs {
+    /// Meta service endpoint
+    #[arg(long, env = "META_ENDPOINT")]
+    pub endpoint: Option<String>,
+
+    /// Offset for pagination
+    #[arg(long, default_value_t = 0)]
+    pub offset: i64,
+
+    /// Maximum number of datasets to return
+    #[arg(long, default_value_t = 100)]
+    pub limit: i64,
 }

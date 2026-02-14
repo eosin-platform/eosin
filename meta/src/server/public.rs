@@ -31,7 +31,8 @@ use crate::{
     db,
     metrics,
     models::{
-        CreateSlideRequest, ListDatasetsRequest, ListSlidesRequest, UpdateDatasetRequest,
+        CreateDatasetRequest, CreateSlideRequest, ListDatasetsRequest, ListSlidesRequest,
+        UpdateDatasetRequest,
         UpdateSlideProgressRequest, UpdateSlideRequest,
     },
 };
@@ -138,6 +139,7 @@ pub async fn run_server(
         .route("/slides", post(create_slide))
         .route("/slides/{id}", patch(update_slide).delete(delete_slide))
         .route("/slides/{id}/progress", put(update_slide_progress))
+        .route("/dataset", post(create_dataset))
         .route(
             "/dataset/{dataset_id}",
             patch(update_dataset).delete(delete_dataset),
@@ -365,6 +367,33 @@ pub async fn update_slide_progress(
     } else {
         Err((StatusCode::NOT_FOUND, format!("slide {} not found", id)))
     }
+}
+
+/// Create or upsert a dataset.
+pub async fn create_dataset(
+    State(state): State<AppState>,
+    UserId(user_id): UserId,
+    Json(req): Json<CreateDatasetRequest>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    metrics::authenticated_request(&user_id.to_string());
+    let dataset = db::upsert_dataset(
+        &state.pool,
+        req.id,
+        &req.name,
+        req.description.as_deref(),
+        req.metadata.as_ref(),
+    )
+    .await
+    .map_err(|e| {
+        metrics::db_error("upsert_dataset");
+        tracing::error!("failed to upsert dataset: {:?}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("failed to upsert dataset: {}", e),
+        )
+    })?;
+
+    Ok((StatusCode::CREATED, Json(dataset)))
 }
 
 /// List datasets with pagination.

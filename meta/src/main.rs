@@ -14,7 +14,7 @@ pub mod metrics;
 mod models;
 mod server;
 
-use args::{Cli, Commands};
+use args::{Cli, Commands, DatasetCommands, SlideCommands};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -26,11 +26,20 @@ async fn main() -> Result<()> {
 
     match cli.command {
         Commands::Server(args) => run_servers(args).await,
-        Commands::Create(args) => cli::run_create_slide(args).await,
-        Commands::Get(args) => cli::run_get_slide(args).await,
-        Commands::Update(args) => cli::run_update_slide(args).await,
-        Commands::Delete(args) => cli::run_delete_slide(args).await,
-        Commands::List(args) => cli::run_list_slides(args).await,
+        Commands::Slide(args) => match args.command {
+            SlideCommands::Create(args) => cli::run_create_slide(args).await,
+            SlideCommands::Get(args) => cli::run_get_slide(args).await,
+            SlideCommands::Update(args) => cli::run_update_slide(args).await,
+            SlideCommands::Delete(args) => cli::run_delete_slide(args).await,
+            SlideCommands::List(args) => cli::run_list_slides(args).await,
+        },
+        Commands::Dataset(args) => match args.command {
+            DatasetCommands::Create(args) => cli::run_create_dataset(args).await,
+            DatasetCommands::Get(args) => cli::run_get_dataset(args).await,
+            DatasetCommands::Update(args) => cli::run_update_dataset(args).await,
+            DatasetCommands::Delete(args) => cli::run_delete_dataset(args).await,
+            DatasetCommands::List(args) => cli::run_list_datasets(args).await,
+        },
         Commands::Health(args) => cli::run_health(args.endpoint).await,
     }
 }

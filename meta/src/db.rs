@@ -55,6 +55,8 @@ pub async fn init_schema(pool: &Pool) -> Result<()> {
                 filename TEXT NOT NULL DEFAULT '',
                 full_size BIGINT NOT NULL DEFAULT 0,
                 metadata JSONB,
+                created_at BIGINT NOT NULL,
+                updated_at BIGINT NOT NULL,
                 progress_steps INT NOT NULL DEFAULT 0,
                 progress_total INT NOT NULL DEFAULT 0
             )
@@ -86,6 +88,70 @@ pub async fn init_schema(pool: &Pool) -> Result<()> {
         .await
         .context("failed to add filename column")?;
 
+    client
+        .execute(
+            r#"
+            ALTER TABLE slides ADD COLUMN IF NOT EXISTS created_at BIGINT
+            "#,
+            &[],
+        )
+        .await
+        .context("failed to add created_at column")?;
+
+    client
+        .execute(
+            r#"
+            ALTER TABLE slides ADD COLUMN IF NOT EXISTS updated_at BIGINT
+            "#,
+            &[],
+        )
+        .await
+        .context("failed to add updated_at column")?;
+
+    client
+        .execute(
+            r#"
+            UPDATE slides
+            SET created_at = (extract(epoch from clock_timestamp()) * 1000)::bigint
+            WHERE created_at IS NULL
+            "#,
+            &[],
+        )
+        .await
+        .context("failed to backfill created_at column")?;
+
+    client
+        .execute(
+            r#"
+            UPDATE slides
+            SET updated_at = created_at
+            WHERE updated_at IS NULL
+            "#,
+            &[],
+        )
+        .await
+        .context("failed to backfill updated_at column")?;
+
+    client
+        .execute(
+            r#"
+            ALTER TABLE slides ALTER COLUMN created_at SET NOT NULL
+            "#,
+            &[],
+        )
+        .await
+        .context("failed to enforce created_at NOT NULL")?;
+
+    client
+        .execute(
+            r#"
+            ALTER TABLE slides ALTER COLUMN updated_at SET NOT NULL
+            "#,
+            &[],
+        )
+        .await
+        .context("failed to enforce updated_at NOT NULL")?;
+
     tracing::info!("database schema initialized");
     Ok(())
 }
@@ -103,14 +169,23 @@ pub async fn insert_slide(
     metadata: Option<&serde_json::Value>,
 ) -> Result<Slide> {
     let client = pool.get().await.context("failed to get db connection")?;
+    let now = now_ms();
 
     let row = client
         .query_one(
             r#"
-            INSERT INTO slides (id, dataset, width, height, url, filename, full_size, metadata)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            INSERT INTO slides (id, dataset, width, height, url, filename, full_size, metadata, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
             ON CONFLICT (id) DO UPDATE
-            SET id = slides.id
+            SET
+                dataset = EXCLUDED.dataset,
+                width = EXCLUDED.width,
+                height = EXCLUDED.height,
+                url = EXCLUDED.url,
+                filename = EXCLUDED.filename,
+                full_size = EXCLUDED.full_size,
+                metadata = EXCLUDED.metadata,
+                updated_at = EXCLUDED.updated_at
             RETURNING id, dataset, width, height, url, filename, full_size, progress_steps, progress_total, metadata;
             "#,
             &[
@@ -122,6 +197,7 @@ pub async fn insert_slide(
                 &filename,
                 &full_size,
                 &metadata,
+                &now,
             ],
         )
         .await
@@ -231,6 +307,11 @@ pub async fn update_slide(
         // Nothing to update, just return the existing slide
         return get_slide(pool, id).await;
     }
+
+    let updated_at = now_ms();
+    set_clauses.push(format!("updated_at = ${}", param_idx));
+    params.push(&updated_at);
+    param_idx += 1;
 
     let query = format!(
         "UPDATE slides SET {} WHERE id = ${} RETURNING id, dataset, width, height, url, filename, full_size, progress_steps, progress_total, metadata",
@@ -346,15 +427,16 @@ pub async fn update_slide_progress(
     progress_total: i32,
 ) -> Result<bool> {
     let client = pool.get().await.context("failed to get db connection")?;
+    let updated_at = now_ms();
 
     let rows_affected = client
         .execute(
             r#"
             UPDATE slides
-            SET progress_steps = $2, progress_total = $3
+            SET progress_steps = $2, progress_total = $3, updated_at = $4
             WHERE id = $1
             "#,
-            &[&id, &progress_steps, &progress_total],
+            &[&id, &progress_steps, &progress_total, &updated_at],
         )
         .await
         .context("failed to update slide progress")?;
@@ -439,6 +521,48 @@ pub async fn get_dataset(pool: &Pool, id: Uuid) -> Result<Option<Dataset>> {
         deleted_at: r.get("deleted_at"),
         metadata: r.get("metadata"),
     }))
+}
+
+/// Create or upsert a dataset by ID.
+/// On upsert, overwrites mutable columns and updates updated_at while leaving created_at unchanged.
+pub async fn upsert_dataset(
+    pool: &Pool,
+    id: Uuid,
+    name: &str,
+    description: Option<&str>,
+    metadata: Option<&serde_json::Value>,
+) -> Result<Dataset> {
+    let client = pool.get().await.context("failed to get db connection")?;
+
+    let now = now_ms();
+    let row = client
+        .query_one(
+            r#"
+            INSERT INTO datasets (id, name, description, created_at, updated_at, deleted_at, metadata)
+            VALUES ($1, $2, $3, $4, $4, NULL, $5)
+            ON CONFLICT (id) DO UPDATE
+            SET
+                name = EXCLUDED.name,
+                description = EXCLUDED.description,
+                metadata = EXCLUDED.metadata,
+                deleted_at = NULL,
+                updated_at = EXCLUDED.updated_at
+            RETURNING id, name, description, created_at, updated_at, deleted_at, metadata
+            "#,
+            &[&id, &name, &description, &now, &metadata],
+        )
+        .await
+        .context("failed to upsert dataset")?;
+
+    Ok(Dataset {
+        id: row.get("id"),
+        name: row.get("name"),
+        description: row.get("description"),
+        created_at: row.get("created_at"),
+        updated_at: row.get("updated_at"),
+        deleted_at: row.get("deleted_at"),
+        metadata: row.get("metadata"),
+    })
 }
 
 /// Update a dataset by ID.
