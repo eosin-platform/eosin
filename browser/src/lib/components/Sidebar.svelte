@@ -7,6 +7,7 @@
   import { sidebarLayoutStore } from '$lib/stores/annotations';
   import { navigateToPoint } from '$lib/stores/navigation';
   import { authStore } from '$lib/stores/auth';
+  import { toastStore } from '$lib/stores/toast';
   import ActivityIndicator from './ActivityIndicator.svelte';
   import ContextMenu from './ContextMenu.svelte';
   import AnnotationsPanel from './AnnotationsPanel.svelte';
@@ -26,6 +27,8 @@
     progress_steps: number;
     /** Total tiles to process */
     progress_total: number;
+    /** Optional slide metadata payload */
+    metadata?: unknown | null;
   }
 
   interface DatasetListItem {
@@ -280,8 +283,17 @@
     datasetModalOpen = false;
   }
 
-  function handleDatasetModalKeydown(event: KeyboardEvent) {
-    if (event.key === 'Escape' && datasetModalOpen) {
+  function handleGlobalModalKeydown(event: KeyboardEvent) {
+    if (event.key !== 'Escape') {
+      return;
+    }
+
+    if (propertiesModalOpen) {
+      closePropertiesModal();
+      return;
+    }
+
+    if (datasetModalOpen) {
       closeDatasetModal();
     }
   }
@@ -406,6 +418,10 @@
   let contextMenuY = $state(0);
   let contextMenuSlide = $state<SlideListItem | null>(null);
 
+  // Slide properties modal state
+  let propertiesModalOpen = $state(false);
+  let propertiesSlide = $state<SlideListItem | null>(null);
+
   // Long press state for mobile
   let longPressTimer: ReturnType<typeof setTimeout> | null = null;
   const LONG_PRESS_MS = 300;
@@ -474,6 +490,93 @@
   function handleContextMenuClose() {
     contextMenuVisible = false;
     contextMenuSlide = null;
+  }
+
+  function handleContextMenuProperties() {
+    if (!contextMenuSlide) return;
+    propertiesSlide = contextMenuSlide;
+    propertiesModalOpen = true;
+  }
+
+  function closePropertiesModal() {
+    propertiesModalOpen = false;
+    propertiesSlide = null;
+  }
+
+  function formatPropertyLabel(key: string): string {
+    return key
+      .replace(/_/g, ' ')
+      .replace(/\b\w/g, (char) => char.toUpperCase());
+  }
+
+  function formatPropertyValue(value: unknown): string {
+    if (value === null || value === undefined) return '—';
+    if (typeof value === 'boolean') return value ? 'true' : 'false';
+    if (typeof value === 'number') return Number.isFinite(value) ? String(value) : '—';
+    if (typeof value === 'string') return value.length > 0 ? value : '—';
+    return JSON.stringify(value);
+  }
+
+  function asRecord(value: unknown): Record<string, unknown> {
+    return value as Record<string, unknown>;
+  }
+
+  const propertiesRows = $derived.by(() => {
+    if (!propertiesSlide) {
+      return [] as { key: string; label: string; value: string }[];
+    }
+
+    const entries = Object.entries(asRecord(propertiesSlide)).filter(
+      ([key]) => key !== 'metadata'
+    );
+
+    return entries.map(([key, value]) => ({
+      key,
+      label: formatPropertyLabel(key),
+      value: formatPropertyValue(value),
+    }));
+  });
+
+  const propertiesMetadataJson = $derived.by(() => {
+    if (!propertiesSlide) {
+      return 'null';
+    }
+
+    const metadata = asRecord(propertiesSlide).metadata ?? null;
+    return JSON.stringify(metadata, null, 2);
+  });
+
+  async function copyTextToClipboard(text: string, label: string) {
+    if (!browser) return;
+
+    try {
+      if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const textArea = document.createElement('textarea');
+        textArea.value = text;
+        textArea.style.position = 'fixed';
+        textArea.style.opacity = '0';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+      }
+
+      toastStore.success(`${label} copied`);
+    } catch {
+      toastStore.error(`Failed to copy ${label.toLowerCase()}`);
+    }
+  }
+
+  async function copyAllProperties() {
+    if (!propertiesSlide) return;
+    await copyTextToClipboard(JSON.stringify(propertiesSlide, null, 2), 'All properties');
+  }
+
+  async function copyMetadataJson() {
+    await copyTextToClipboard(propertiesMetadataJson, 'Metadata JSON');
   }
 
   // Track the active tab's slideId for highlighting
@@ -642,7 +745,7 @@
   }
 </script>
 
-<svelte:window onkeydown={handleDatasetModalKeydown} />
+<svelte:window onkeydown={handleGlobalModalKeydown} />
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <aside
@@ -952,12 +1055,55 @@
   </div>
 {/if}
 
+{#if propertiesModalOpen && propertiesSlide}
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="properties-modal-overlay" onclick={closePropertiesModal}>
+    <div class="properties-modal" onclick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Slide properties" tabindex="-1">
+      <div class="properties-modal-header">
+        <div class="properties-modal-title-wrap">
+          <h3>Slide Properties</h3>
+          <p>{getSlideLabel(propertiesSlide)}</p>
+        </div>
+        <div class="properties-modal-actions">
+          <button class="properties-copy-btn" onclick={copyAllProperties}>Copy All</button>
+          <button class="properties-modal-close" onclick={closePropertiesModal} aria-label="Close properties">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+              <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="properties-modal-body">
+        <div class="properties-list" role="list">
+          {#each propertiesRows as row (row.key)}
+            <div class="properties-row" role="listitem">
+              <span class="properties-key">{row.label}</span>
+              <span class="properties-value" title={row.value}>{row.value}</span>
+            </div>
+          {/each}
+        </div>
+
+        <div class="properties-metadata">
+          <div class="properties-metadata-header">
+            <span>Metadata JSON</span>
+            <button class="properties-copy-btn" onclick={copyMetadataJson}>Copy JSON</button>
+          </div>
+          <pre class="properties-metadata-code"><code>{propertiesMetadataJson}</code></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+{/if}
+
 <ContextMenu
   x={contextMenuX}
   y={contextMenuY}
   visible={contextMenuVisible}
   onOpen={handleContextMenuOpen}
   onOpenInNewTab={handleContextMenuOpenInNewTab}
+  onProperties={handleContextMenuProperties}
   onClose={handleContextMenuClose}
 />
 
@@ -1756,5 +1902,225 @@
   .collapsed-section-btn:hover {
     background: #333;
     color: #fff;
+  }
+
+  .properties-modal-overlay {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+    background: rgba(0, 0, 0, 0.62);
+    z-index: 1010;
+  }
+
+  .properties-modal {
+    width: min(760px, 100%);
+    height: 620px;
+    background: #1a1a1a;
+    border: 1px solid #3a3a3a;
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .properties-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.75rem 0.9rem;
+    border-bottom: 1px solid #2f2f2f;
+  }
+
+  .properties-modal-title-wrap {
+    min-width: 0;
+  }
+
+  .properties-modal-title-wrap h3 {
+    margin: 0;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #e3e3e3;
+  }
+
+  .properties-modal-title-wrap p {
+    margin: 0.2rem 0 0;
+    font-size: 0.75rem;
+    color: #9d9d9d;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .properties-modal-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .properties-copy-btn {
+    border: 1px solid #3a3a3a;
+    border-radius: 6px;
+    background: #242424;
+    color: #d6d6d6;
+    font-size: 0.75rem;
+    font-weight: 500;
+    padding: 0.35rem 0.6rem;
+    cursor: pointer;
+    transition: background-color 0.1s, border-color 0.1s;
+  }
+
+  .properties-copy-btn:hover {
+    background: #2d2d2d;
+    border-color: #4a4a4a;
+  }
+
+  .properties-modal-close {
+    width: 28px;
+    height: 28px;
+    border: 1px solid #3a3a3a;
+    border-radius: 6px;
+    background: #232323;
+    color: #bdbdbd;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+  }
+
+  .properties-modal-close:hover {
+    background: #2d2d2d;
+    color: #e3e3e3;
+  }
+
+  .properties-modal-close svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  .properties-modal-body {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.7rem;
+    padding: 0.75rem;
+  }
+
+  .properties-list {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    border: 1px solid #2f2f2f;
+    border-radius: 6px;
+    background: #171717;
+    scrollbar-width: thin;
+    scrollbar-color: #333 transparent;
+  }
+
+  .properties-list::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  .properties-list::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .properties-list::-webkit-scrollbar-thumb {
+    background: #333;
+    border-radius: 3px;
+  }
+
+  .properties-list::-webkit-scrollbar-thumb:hover {
+    background: #555;
+  }
+
+  .properties-row {
+    display: grid;
+    grid-template-columns: minmax(120px, 180px) minmax(0, 1fr);
+    gap: 0.75rem;
+    padding: 0.45rem 0.6rem;
+    border-bottom: 1px solid #242424;
+  }
+
+  .properties-row:last-child {
+    border-bottom: none;
+  }
+
+  .properties-key {
+    font-size: 0.74rem;
+    color: #9a9a9a;
+  }
+
+  .properties-value {
+    font-size: 0.78rem;
+    color: #dfdfdf;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .properties-metadata {
+    border: 1px solid #2f2f2f;
+    border-radius: 6px;
+    background: #171717;
+    overflow: hidden;
+  }
+
+  .properties-metadata-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.45rem 0.6rem;
+    border-bottom: 1px solid #2a2a2a;
+    background: #1f1f1f;
+    font-size: 0.74rem;
+    color: #b5b5b5;
+  }
+
+  .properties-metadata-code {
+    margin: 0;
+    height: 190px;
+    overflow: auto;
+    padding: 0.6rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+    font-size: 0.72rem;
+    line-height: 1.35;
+    color: #cfcfcf;
+    scrollbar-width: thin;
+    scrollbar-color: #333 transparent;
+  }
+
+  .properties-metadata-code::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .properties-metadata-code::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .properties-metadata-code::-webkit-scrollbar-thumb {
+    background: #333;
+    border-radius: 3px;
+  }
+
+  .properties-metadata-code::-webkit-scrollbar-thumb:hover {
+    background: #555;
+  }
+
+  @media (max-width: 860px) {
+    .properties-modal {
+      height: min(620px, calc(100vh - 2rem));
+    }
+
+    .properties-row {
+      grid-template-columns: 1fr;
+      gap: 0.25rem;
+    }
   }
 </style>
