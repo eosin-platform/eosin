@@ -121,6 +121,9 @@
   let lastMaskRenderViewportY = 0;
   let lastMaskRenderViewportZoom = 1;
   let hasMaskRenderViewport = false;
+  let lastMaskRenderSignature = '';
+  let lastInteractionMaskRenderAt = 0;
+  const INTERACTION_MASK_RERENDER_MS = 80;
   
   // Offscreen canvas for creating mask bitmaps (reused for efficiency)
   let offscreenCanvas: OffscreenCanvas | null = null;
@@ -297,6 +300,14 @@
     
     // Get visible mask annotations (excluding those being edited in mask-paint mode)
     const masks = visibleAnnotations.filter(a => a && a.annotation && a.annotation.kind === 'mask_patch' && isInView(a.annotation) && !maskEditingAnnotationIds.has(a.annotation.id));
+    lastMaskRenderSignature = masks
+      .map(({ annotation, color }) => {
+        const isHovered = hoveredMaskId === annotation.id || highlightedId === annotation.id;
+        const renderColor = isHovered ? MASK_HOVER_COLOR : color;
+        return `${annotation.id}:${renderColor}`;
+      })
+      .sort()
+      .join('|');
     
     // Render stored masks using cached ImageBitmaps
     for (const { annotation, color } of masks) {
@@ -367,6 +378,19 @@
       : `matrix(${scale}, 0, 0, ${scale}, ${translateX}, ${translateY})`;
   }
 
+  function getCurrentMaskRenderSignature(): string {
+    if (!Array.isArray(visibleAnnotations)) return '';
+    return visibleAnnotations
+      .filter(a => a && a.annotation && a.annotation.kind === 'mask_patch' && isInView(a.annotation) && !maskEditingAnnotationIds.has(a.annotation.id))
+      .map(({ annotation, color }) => {
+        const isHovered = hoveredMaskId === annotation.id || highlightedId === annotation.id;
+        const renderColor = isHovered ? MASK_HOVER_COLOR : color;
+        return `${annotation.id}:${renderColor}`;
+      })
+      .sort()
+      .join('|');
+  }
+
   // Render all masks to canvas - uses pre-rendered ImageBitmaps for speed
   // During interaction (panning/zooming), defer mask re-renders to avoid
   // blocking the main thread every frame.  Tile rendering (TileRenderer)
@@ -389,6 +413,19 @@
     // keep them visually aligned using a cheap canvas CSS transform.
     if (isInteracting) {
       updateMaskCanvasTransformForInteraction();
+
+      // If new masks entered/leaved view while panning, refresh at a throttled rate
+      // so panned-in masks appear without waiting for interaction end.
+      const now = performance.now();
+      const currentSignature = getCurrentMaskRenderSignature();
+      if (
+        currentSignature !== lastMaskRenderSignature &&
+        now - lastInteractionMaskRenderAt >= INTERACTION_MASK_RERENDER_MS
+      ) {
+        lastInteractionMaskRenderAt = now;
+        renderMaskCanvas();
+      }
+
       _maskDirtyDuringInteraction = true;
       return;
     }
