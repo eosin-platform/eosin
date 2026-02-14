@@ -686,7 +686,7 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
    * Debug function to log sizes of all internal data structures.
    * Call from browser console: window.__tileRendererDebug?.()
    */
-  function logInternalSizes(): Record<string, number | string> {
+  function logInternalSizes(): Record<string, unknown> {
     const sizes = {
       processedBitmapCache: processedBitmapCache.size,
       pendingProcessing: pendingProcessing.size,
@@ -700,8 +700,13 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
       retryManagerPending: retryManager?.pendingCount ?? 0,
       workerPoolQueue: workerPool?.queueLength ?? 0,
       workerPoolPending: workerPool?.pendingCount ?? 0,
+      lastRenderTimings: lastRenderTimings,
     };
     console.table(sizes);
+    if (lastRenderTimings) {
+      console.log('Last render timing breakdown:');
+      console.table(lastRenderTimings);
+    }
     return sizes;
   }
   
@@ -1016,9 +1021,13 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
     }
   });
 
+  // Render timing debug (exposed for console inspection)
+  let lastRenderTimings: Record<string, number> | null = null;
+  
   function render() {
     if (!ctx || !canvas) return;
 
+    const timings: Record<string, number> = {};
     const renderStart = performance.now();
     
     // Track render stats
@@ -1042,7 +1051,10 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
       checkerboardPattern = null;
     }
 
+    timings.setupMs = performance.now() - renderStart;
+
     // Clear canvas with a checkerboard transparency pattern
+    const clearStart = performance.now();
     if (!checkerboardPattern) {
       checkerboardPattern = createCheckerboardPattern(ctx);
     }
@@ -1052,8 +1064,10 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
       ctx.fillStyle = '#ffffff';
     }
     ctx.fillRect(0, 0, displayWidth, displayHeight);
+    timings.clearMs = performance.now() - clearStart;
 
     // Compute the ideal mip level for current zoom
+    const computeStart = performance.now();
     const dpi = window.devicePixelRatio * 96;
     const idealLevel = computeIdealLevel(viewport.zoom, image.levels, dpi);
 
@@ -1078,9 +1092,11 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
 
     // Build set of all tiles we want to track (ideal + finer)
     const allTrackableTiles = [...idealTiles, ...finerTiles];
+    timings.computeMs = performance.now() - computeStart;
     
     // Queue sample contribution for normalization parameter estimation
     // This is deferred to idle time to avoid blocking during pan/zoom
+    const sampleStart = performance.now();
     if (stainNormalization !== 'none' && !isInteracting) {
       const slideId = getSlideId();
       for (const coord of idealTiles) {
@@ -1090,21 +1106,26 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
         }
       }
     }
+    timings.sampleQueueMs = performance.now() - sampleStart;
 
     // Cancel retry tracking for tiles no longer visible at ideal or finer level
+    const retryStart = performance.now();
     if (retryManager) {
       retryManager.cancelTilesNotIn(allTrackableTiles);
     }
+    timings.retryMs = performance.now() - retryStart;
 
     // Render tiles with mip fallback
     // Strategy: For each tile position at the ideal level,
     // find the best available tile (finest resolution first, then fallback to coarser)
+    const drawStart = performance.now();
     for (const coord of idealTiles) {
       const result = renderTileWithFallback(coord, idealLevel, finerLevel, forcedMipLevel);
       if (result === 'rendered') renderedTiles++;
       else if (result === 'fallback') fallbackTiles++;
       else if (result === 'placeholder') placeholderTiles++;
     }
+    timings.drawTilesMs = performance.now() - drawStart;
 
     // Debug overlay when 'y' is held or mip level is forced
     if (yKeyHeld || forcedMipLevel !== null) {
@@ -1114,6 +1135,9 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
     // Calculate render time and FPS
     const renderEnd = performance.now();
     const renderTimeMs = renderEnd - renderStart;
+    timings.totalMs = renderTimeMs;
+    timings.tileCount = idealTiles.length;
+    lastRenderTimings = timings;
     
     // Update FPS tracking
     if (lastFrameTime > 0) {
