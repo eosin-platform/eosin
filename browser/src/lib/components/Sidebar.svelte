@@ -35,6 +35,7 @@
     id: string;
     name: string;
     description: string | null;
+    credit: string | null;
     created_at: number;
     updated_at: number;
     metadata: unknown | null;
@@ -74,6 +75,7 @@
   let error = $state<string | null>(null);
   let datasetModalOpen = $state(false);
   let datasetSearch = $state('');
+  let datasetLongPressTriggered = $state(false);
 
   const selectedDataset = $derived(
     datasets.find((dataset) => dataset.id === selectedDatasetId) ?? null
@@ -87,7 +89,8 @@
     return datasets.filter((dataset) => {
       const name = dataset.name.toLowerCase();
       const description = (dataset.description ?? '').toLowerCase();
-      return name.includes(query) || description.includes(query);
+      const credit = (dataset.credit ?? '').toLowerCase();
+      return name.includes(query) || description.includes(query) || credit.includes(query);
     });
   });
 
@@ -274,6 +277,10 @@
   }
 
   function openDatasetModal(e?: Event) {
+    if (datasetLongPressTriggered) {
+      datasetLongPressTriggered = false;
+      return;
+    }
     e?.stopPropagation();
     datasetSearch = '';
     datasetModalOpen = true;
@@ -285,6 +292,11 @@
 
   function handleGlobalModalKeydown(event: KeyboardEvent) {
     if (event.key !== 'Escape') {
+      return;
+    }
+
+    if (datasetPropertiesModalOpen) {
+      closeDatasetPropertiesModal();
       return;
     }
 
@@ -418,9 +430,19 @@
   let contextMenuY = $state(0);
   let contextMenuSlide = $state<SlideListItem | null>(null);
 
+  // Dataset selector context menu state
+  let datasetContextMenuVisible = $state(false);
+  let datasetContextMenuX = $state(0);
+  let datasetContextMenuY = $state(0);
+  let datasetContextMenuDataset = $state<DatasetListItem | null>(null);
+
   // Slide properties modal state
   let propertiesModalOpen = $state(false);
   let propertiesSlide = $state<SlideListItem | null>(null);
+
+  // Dataset properties modal state
+  let datasetPropertiesModalOpen = $state(false);
+  let datasetPropertiesDataset = $state<DatasetListItem | null>(null);
 
   // Long press state for mobile
   let longPressTimer: ReturnType<typeof setTimeout> | null = null;
@@ -428,6 +450,9 @@
   const LONG_PRESS_MOVE_THRESHOLD = 20; // Pixels of movement allowed before canceling long press
   let longPressStartX = 0;
   let longPressStartY = 0;
+  let datasetLongPressTimer: ReturnType<typeof setTimeout> | null = null;
+  let datasetLongPressStartX = 0;
+  let datasetLongPressStartY = 0;
 
   function showContextMenu(x: number, y: number, slide: SlideListItem) {
     contextMenuX = x;
@@ -492,6 +517,68 @@
     contextMenuSlide = null;
   }
 
+  function showDatasetContextMenu(x: number, y: number, dataset: DatasetListItem) {
+    datasetContextMenuX = x;
+    datasetContextMenuY = y;
+    datasetContextMenuDataset = dataset;
+    datasetContextMenuVisible = true;
+  }
+
+  function handleDatasetContextMenu(e: MouseEvent) {
+    if (!selectedDataset) return;
+    e.preventDefault();
+    e.stopPropagation();
+    showDatasetContextMenu(e.clientX, e.clientY, selectedDataset);
+  }
+
+  function handleDatasetTouchStart(e: TouchEvent) {
+    if (!selectedDataset || e.touches.length === 0) return;
+    datasetLongPressTriggered = false;
+    const touch = e.touches[0];
+    datasetLongPressStartX = touch.clientX;
+    datasetLongPressStartY = touch.clientY;
+    datasetLongPressTimer = setTimeout(() => {
+      datasetLongPressTimer = null;
+      datasetLongPressTriggered = true;
+      showDatasetContextMenu(touch.clientX, touch.clientY, selectedDataset);
+    }, LONG_PRESS_MS);
+  }
+
+  function handleDatasetTouchEnd() {
+    if (datasetLongPressTimer) {
+      clearTimeout(datasetLongPressTimer);
+      datasetLongPressTimer = null;
+    }
+  }
+
+  function handleDatasetTouchMove(e: TouchEvent) {
+    if (datasetLongPressTimer && e.touches.length > 0) {
+      const dx = Math.abs(e.touches[0].clientX - datasetLongPressStartX);
+      const dy = Math.abs(e.touches[0].clientY - datasetLongPressStartY);
+      if (dx > LONG_PRESS_MOVE_THRESHOLD || dy > LONG_PRESS_MOVE_THRESHOLD) {
+        clearTimeout(datasetLongPressTimer);
+        datasetLongPressTimer = null;
+      }
+    }
+  }
+
+  function handleDatasetContextMenuClose() {
+    datasetContextMenuVisible = false;
+    datasetContextMenuDataset = null;
+  }
+
+  function handleDatasetContextMenuProperties() {
+    if (!datasetContextMenuDataset) return;
+    datasetPropertiesDataset = datasetContextMenuDataset;
+    datasetPropertiesModalOpen = true;
+    handleDatasetContextMenuClose();
+  }
+
+  function closeDatasetPropertiesModal() {
+    datasetPropertiesModalOpen = false;
+    datasetPropertiesDataset = null;
+  }
+
   function handleContextMenuProperties() {
     if (!contextMenuSlide) return;
     propertiesSlide = contextMenuSlide;
@@ -546,6 +633,40 @@
     return JSON.stringify(metadata, null, 2);
   });
 
+  const propertiesDataset = $derived.by(() => {
+    const slide = propertiesSlide;
+    if (!slide) {
+      return null as DatasetListItem | null;
+    }
+
+    return datasets.find((dataset) => dataset.id === slide.dataset) ?? null;
+  });
+
+  const datasetPropertiesRows = $derived.by(() => {
+    if (!datasetPropertiesDataset) {
+      return [] as { key: string; label: string; value: string }[];
+    }
+
+    const entries = Object.entries(asRecord(datasetPropertiesDataset)).filter(
+      ([key]) => key !== 'metadata'
+    );
+
+    return entries.map(([key, value]) => ({
+      key,
+      label: formatPropertyLabel(key),
+      value: formatPropertyValue(value),
+    }));
+  });
+
+  const datasetPropertiesMetadataJson = $derived.by(() => {
+    if (!datasetPropertiesDataset) {
+      return 'null';
+    }
+
+    const metadata = asRecord(datasetPropertiesDataset).metadata ?? null;
+    return JSON.stringify(metadata, null, 2);
+  });
+
   async function copyTextToClipboard(text: string, label: string) {
     if (!browser) return;
 
@@ -577,6 +698,15 @@
 
   async function copyMetadataJson() {
     await copyTextToClipboard(propertiesMetadataJson, 'Metadata JSON');
+  }
+
+  async function copyAllDatasetProperties() {
+    if (!datasetPropertiesDataset) return;
+    await copyTextToClipboard(JSON.stringify(datasetPropertiesDataset, null, 2), 'All properties');
+  }
+
+  async function copyDatasetMetadataJson() {
+    await copyTextToClipboard(datasetPropertiesMetadataJson, 'Metadata JSON');
   }
 
   // Track the active tab's slideId for highlighting
@@ -613,6 +743,17 @@
   onDestroy(() => {
     unsubAuth();
   });
+
+  function handleGlobalPointerDown(event: MouseEvent) {
+    if (!datasetContextMenuVisible) return;
+
+    const target = event.target as HTMLElement | null;
+    if (target?.closest('.dataset-context-menu')) {
+      return;
+    }
+
+    handleDatasetContextMenuClose();
+  }
 
   // --- New layer dialog state ---
   let showNewLayerDialog = $state(false);
@@ -745,7 +886,7 @@
   }
 </script>
 
-<svelte:window onkeydown={handleGlobalModalKeydown} />
+<svelte:window onkeydown={handleGlobalModalKeydown} onclick={handleGlobalPointerDown} />
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <aside
@@ -793,6 +934,10 @@
           <button
             class="dataset-picker-btn"
             onclick={openDatasetModal}
+            oncontextmenu={handleDatasetContextMenu}
+            ontouchstart={handleDatasetTouchStart}
+            ontouchend={handleDatasetTouchEnd}
+            ontouchmove={handleDatasetTouchMove}
             disabled={datasets.length === 0}
             aria-label="Open dataset picker"
           >
@@ -1040,6 +1185,9 @@
                 {#if dataset.description}
                   <p class="dataset-item-description">{dataset.description}</p>
                 {/if}
+                {#if dataset.credit}
+                  <p class="dataset-item-credit" title={dataset.credit}>{dataset.credit}</p>
+                {/if}
                 <div class="dataset-item-meta">
                   <span>Updated {formatTimestamp(dataset.updated_at)}</span>
                   <span>{dataset.slide_count} slides</span>
@@ -1092,8 +1240,72 @@
           </div>
           <pre class="properties-metadata-code"><code>{propertiesMetadataJson}</code></pre>
         </div>
+
+        <div class="properties-dataset-card">
+          <div class="properties-metadata-header">
+            <span>Dataset Credit</span>
+          </div>
+          <div class="properties-dataset-body">
+            <div class="properties-dataset-name">{propertiesDataset?.name ?? '—'}</div>
+            <div class="properties-dataset-credit" title={propertiesDataset?.credit ?? '—'}>{propertiesDataset?.credit ?? '—'}</div>
+          </div>
+        </div>
       </div>
     </div>
+  </div>
+{/if}
+
+{#if datasetPropertiesModalOpen && datasetPropertiesDataset}
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="properties-modal-overlay" onclick={closeDatasetPropertiesModal}>
+    <div class="properties-modal" onclick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Dataset properties" tabindex="-1">
+      <div class="properties-modal-header">
+        <div class="properties-modal-title-wrap">
+          <h3>Dataset Properties</h3>
+          <p>{datasetPropertiesDataset.name}</p>
+        </div>
+        <div class="properties-modal-actions">
+          <button class="properties-copy-btn" onclick={copyAllDatasetProperties}>Copy All</button>
+          <button class="properties-modal-close" onclick={closeDatasetPropertiesModal} aria-label="Close properties">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+              <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="properties-modal-body">
+        <div class="properties-list" role="list">
+          {#each datasetPropertiesRows as row (row.key)}
+            <div class="properties-row" role="listitem">
+              <span class="properties-key">{row.label}</span>
+              <span class="properties-value" title={row.value}>{row.value}</span>
+            </div>
+          {/each}
+        </div>
+
+        <div class="properties-metadata">
+          <div class="properties-metadata-header">
+            <span>Metadata JSON</span>
+            <button class="properties-copy-btn" onclick={copyDatasetMetadataJson}>Copy JSON</button>
+          </div>
+          <pre class="properties-metadata-code"><code>{datasetPropertiesMetadataJson}</code></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+{/if}
+
+{#if datasetContextMenuVisible}
+  <div class="dataset-context-menu" style="left: {Math.min(datasetContextMenuX, (browser ? window.innerWidth : 9999) - 200)}px; top: {Math.min(datasetContextMenuY, (browser ? window.innerHeight : 9999) - 80)}px;" role="menu">
+    <button class="context-menu-item" role="menuitem" onclick={handleDatasetContextMenuProperties}>
+      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="3"></circle>
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+      </svg>
+      Properties
+    </button>
   </div>
 {/if}
 
@@ -1673,6 +1885,39 @@
     z-index: 1000;
   }
 
+  .dataset-context-menu {
+    position: fixed;
+    z-index: 10050;
+    background: #222;
+    border: 1px solid #444;
+    border-radius: 6px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+    padding: 4px 0;
+    min-width: 180px;
+    animation: fadeIn 0.1s ease-out;
+    user-select: none;
+  }
+
+  .dataset-context-menu .context-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    background: transparent;
+    border: none;
+    color: #ddd;
+    font-size: 0.8125rem;
+    cursor: pointer;
+    text-align: left;
+    transition: background-color 0.1s;
+  }
+
+  .dataset-context-menu .context-menu-item:hover {
+    background: var(--secondary-hex);
+    color: #fff;
+  }
+
   .dataset-modal {
     width: min(860px, 100%);
     height: 600px;
@@ -1813,6 +2058,16 @@
     font-size: 0.72rem;
     color: #a8a8a8;
     line-height: 1.3;
+  }
+
+  .dataset-item-credit {
+    margin: 0;
+    font-size: 0.69rem;
+    color: #7f7f7f;
+    line-height: 1.3;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .dataset-item-meta {
@@ -2068,6 +2323,55 @@
     border-radius: 6px;
     background: #171717;
     overflow: hidden;
+  }
+
+  .properties-dataset-card {
+    border: 1px solid #2f2f2f;
+    border-radius: 6px;
+    background: #171717;
+    overflow: hidden;
+  }
+
+  .properties-dataset-body {
+    padding: 0.55rem 0.6rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+  }
+
+  .properties-dataset-name {
+    font-size: 0.74rem;
+    color: #9a9a9a;
+  }
+
+  .properties-dataset-credit {
+    font-size: 0.78rem;
+    color: #dfdfdf;
+    line-height: 1.35;
+    max-height: calc(1.35em * 4);
+    overflow-y: auto;
+    overflow-x: hidden;
+    white-space: pre-wrap;
+    word-break: break-word;
+    scrollbar-width: thin;
+    scrollbar-color: #333 transparent;
+  }
+
+  .properties-dataset-credit::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  .properties-dataset-credit::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .properties-dataset-credit::-webkit-scrollbar-thumb {
+    background: #333;
+    border-radius: 3px;
+  }
+
+  .properties-dataset-credit::-webkit-scrollbar-thumb:hover {
+    background: #555;
   }
 
   .properties-metadata-header {

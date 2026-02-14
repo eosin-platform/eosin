@@ -27,6 +27,7 @@
 		id: string;
 		name: string;
 		description: string | null;
+		credit: string | null;
 		created_at: number;
 		updated_at: number;
 		metadata: unknown | null;

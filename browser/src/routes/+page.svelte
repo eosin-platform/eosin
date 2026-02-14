@@ -415,7 +415,7 @@
   }
 
   .toast {
-    position: absolute;
+    position: fixed;
     bottom: 3rem;
     left: 50%;
     transform: translateX(-50%);
@@ -428,7 +428,7 @@
     border-radius: 8px;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
     font-size: 0.875rem;
-    z-index: 1000;
+    z-index: 2147483647;
     animation: slideUp 0.2s ease-out;
   }
 
