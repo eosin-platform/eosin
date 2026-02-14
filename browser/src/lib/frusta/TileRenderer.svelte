@@ -1252,12 +1252,10 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
     // Track when render ended for inter-frame timing
     lastRenderEndTime = performance.now();
 
-    // Continue 60fps loop only while interaction or pending visual work exists.
-    const pendingRetries = retryManager?.pendingCount ?? 0;
-    const pendingDecodes = cache.getPendingDecodeCount();
-    const pendingProcessingCount = pendingProcessing.size;
-
-    return isInteracting || pendingRetries > 0 || pendingDecodes > 0 || pendingProcessingCount > 0;
+    // Keep continuous 60fps only during active interaction.
+    // For tile arrivals/decodes/processing completions, we rely on event-driven
+    // scheduleRender() calls to avoid starving decode throughput.
+    return isInteracting;
   }
   
   /**
