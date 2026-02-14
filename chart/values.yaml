@@ -147,7 +147,7 @@ compiler:
   enabled: true
   image: thavlik/eosin-compiler:latest
   imagePullPolicy: Always
-  replicas: 1
+  replicas: 2
   logLevel: debug
   streamName: eosin
   consumerName: compiler

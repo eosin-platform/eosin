@@ -14,7 +14,7 @@ spec:
       - -u
       - /app/download.py
       - --n
-      - "3"
+      - "50"
     env:
     - name: S3_BUCKET
       value: tcga-brca

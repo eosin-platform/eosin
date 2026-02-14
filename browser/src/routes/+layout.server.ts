@@ -36,7 +36,9 @@ export interface DatasetListItem {
   description: string | null;
   created_at: number;
   updated_at: number;
-  metadata: unknown;
+  metadata: unknown | null;
+  slide_count: number;
+  full_size: number;
 }
 
 interface DatasetsResponse {

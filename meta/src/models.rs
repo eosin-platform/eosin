@@ -29,6 +29,10 @@ pub struct DatasetListItem {
     pub updated_at: i64,
     /// Arbitrary dataset metadata.
     pub metadata: Option<serde_json::Value>,
+    /// Total number of slides in this dataset.
+    pub slide_count: i64,
+    /// Total size in bytes across all slides in this dataset.
+    pub full_size: i64,
 }
 
 /// Response containing paginated list of datasets.

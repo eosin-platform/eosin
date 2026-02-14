@@ -108,6 +108,16 @@ pub async fn init_schema(pool: &Pool) -> Result<()> {
         .await
         .context("failed to create url index")?;
 
+    client
+        .execute(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_slides_dataset ON slides (dataset)
+            "#,
+            &[],
+        )
+        .await
+        .context("failed to create slides dataset index")?;
+
     // Add filename column to existing tables (migration for existing databases)
     client
         .execute(
@@ -489,19 +499,43 @@ pub async fn list_datasets(pool: &Pool, offset: i64, limit: i64) -> Result<ListD
     let rows = client
         .query(
             r#"
+            WITH paged_datasets AS (
+                SELECT
+                    id,
+                    name,
+                    description,
+                    created_at,
+                    updated_at,
+                    metadata,
+                    COUNT(*) OVER() AS full_count
+                FROM datasets
+                WHERE deleted_at IS NULL
+                ORDER BY name ASC, id ASC
+                LIMIT $1
+                OFFSET $2
+            ),
+            slide_aggregates AS (
+                SELECT
+                    s.dataset,
+                    COUNT(*)::BIGINT AS slide_count,
+                    COALESCE(SUM(s.full_size), 0)::BIGINT AS full_size
+                FROM slides s
+                INNER JOIN paged_datasets p ON p.id = s.dataset
+                GROUP BY s.dataset
+            )
             SELECT
-                id,
-                name,
-                description,
-                created_at,
-                updated_at,
-                metadata,
-                COUNT(*) OVER() AS full_count
-            FROM datasets
-            WHERE deleted_at IS NULL
-            ORDER BY name ASC, id ASC
-            LIMIT $1
-            OFFSET $2
+                p.id,
+                p.name,
+                p.description,
+                p.created_at,
+                p.updated_at,
+                p.metadata,
+                p.full_count,
+                COALESCE(a.slide_count, 0)::BIGINT AS slide_count,
+                COALESCE(a.full_size, 0)::BIGINT AS full_size
+            FROM paged_datasets p
+            LEFT JOIN slide_aggregates a ON a.dataset = p.id
+            ORDER BY p.name ASC, p.id ASC
             "#,
             &[&limit, &offset],
         )
@@ -519,6 +553,8 @@ pub async fn list_datasets(pool: &Pool, offset: i64, limit: i64) -> Result<ListD
             created_at: r.get("created_at"),
             updated_at: r.get("updated_at"),
             metadata: r.get("metadata"),
+            slide_count: r.get("slide_count"),
+            full_size: r.get("full_size"),
         })
         .collect();
 

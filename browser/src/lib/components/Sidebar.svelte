@@ -31,6 +31,12 @@
   interface DatasetListItem {
     id: string;
     name: string;
+    description: string | null;
+    created_at: number;
+    updated_at: number;
+    metadata: unknown | null;
+    slide_count: number;
+    full_size: number;
   }
 
   interface Props {
@@ -63,6 +69,24 @@
   let canLoadMore = $state(hasMore);
   let currentOffset = $state(initialSlides.length);
   let error = $state<string | null>(null);
+  let datasetModalOpen = $state(false);
+  let datasetSearch = $state('');
+
+  const selectedDataset = $derived(
+    datasets.find((dataset) => dataset.id === selectedDatasetId) ?? null
+  );
+  const filteredDatasets = $derived.by(() => {
+    const query = datasetSearch.trim().toLowerCase();
+    if (!query) {
+      return datasets;
+    }
+
+    return datasets.filter((dataset) => {
+      const name = dataset.name.toLowerCase();
+      const description = (dataset.description ?? '').toLowerCase();
+      return name.includes(query) || description.includes(query);
+    });
+  });
 
   let scrollContainer: HTMLElement;
   let sentinel: HTMLDivElement;
@@ -246,15 +270,31 @@
     }
   }
 
-  function handleDatasetSelectChange(e: Event) {
-    e.stopPropagation();
-    const target = e.currentTarget as HTMLSelectElement;
-    if (target.value === selectedDatasetId) {
+  function openDatasetModal(e?: Event) {
+    e?.stopPropagation();
+    datasetSearch = '';
+    datasetModalOpen = true;
+  }
+
+  function closeDatasetModal() {
+    datasetModalOpen = false;
+  }
+
+  function handleDatasetModalKeydown(event: KeyboardEvent) {
+    if (event.key === 'Escape' && datasetModalOpen) {
+      closeDatasetModal();
+    }
+  }
+
+  function handleDatasetPick(datasetId: string) {
+    if (datasetId === selectedDatasetId) {
+      closeDatasetModal();
       return;
     }
 
-    selectedDatasetId = target.value;
+    selectedDatasetId = datasetId;
     persistDatasetSelection(selectedDatasetId);
+    closeDatasetModal();
     void reloadSlidesForSelectedDataset();
   }
 
@@ -325,6 +365,13 @@
       return `${(bytes / 1024).toFixed(1)} KB`;
     }
     return `${bytes} B`;
+  }
+
+  function formatTimestamp(timestampMs: number): string {
+    if (!Number.isFinite(timestampMs) || timestampMs <= 0) {
+      return '—';
+    }
+    return new Date(timestampMs).toLocaleString();
   }
 
   function getSlideLabel(slide: SlideListItem): string {
@@ -595,6 +642,8 @@
   }
 </script>
 
+<svelte:window onkeydown={handleDatasetModalKeydown} />
+
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <aside
   class="sidebar"
@@ -634,24 +683,21 @@
         </svg>
         <span class="section-title">Slides</span>
         <div
-          class="dataset-select-wrap"
+          class="dataset-picker-wrap"
           onclick={(e) => e.stopPropagation()}
           onkeydown={(e) => e.stopPropagation()}
         >
-          <select
-            class="dataset-select"
-            value={selectedDatasetId}
-            onchange={handleDatasetSelectChange}
+          <button
+            class="dataset-picker-btn"
+            onclick={openDatasetModal}
             disabled={datasets.length === 0}
-            aria-label="Select dataset"
+            aria-label="Open dataset picker"
           >
-            {#if datasets.length === 0}
-              <option value="">No datasets</option>
-            {/if}
-            {#each datasets as dataset (dataset.id)}
-              <option value={dataset.id}>{dataset.name}</option>
-            {/each}
-          </select>
+            <span class="dataset-picker-label">{selectedDataset?.name ?? 'No datasets'}</span>
+            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+          </button>
         </div>
         <span class="section-count">({totalCount})</span>
       </div>
@@ -846,6 +892,64 @@
     </div>
   {/if}
 </aside>
+
+{#if datasetModalOpen}
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="dataset-modal-overlay" onclick={closeDatasetModal}>
+    <div class="dataset-modal" onclick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Select dataset" tabindex="-1">
+      <div class="dataset-modal-header">
+        <h3>Datasets</h3>
+        <button class="dataset-modal-close" onclick={closeDatasetModal} aria-label="Close dataset picker">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+            <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z"/>
+          </svg>
+        </button>
+      </div>
+
+      <div class="dataset-modal-body">
+        <input
+          class="dataset-search"
+          type="text"
+          bind:value={datasetSearch}
+          placeholder="Search datasets"
+          aria-label="Search datasets"
+        />
+
+        <div class="dataset-list" role="listbox" aria-label="Dataset list">
+          {#if filteredDatasets.length === 0}
+            <div class="dataset-empty">No datasets found</div>
+          {:else}
+            {#each filteredDatasets as dataset (dataset.id)}
+              <button
+                class="dataset-item"
+                class:selected={dataset.id === selectedDatasetId}
+                onclick={() => handleDatasetPick(dataset.id)}
+                role="option"
+                aria-selected={dataset.id === selectedDatasetId}
+              >
+                <div class="dataset-item-top">
+                  <span class="dataset-item-name">{dataset.name}</span>
+                  {#if dataset.id === selectedDatasetId}
+                    <span class="dataset-item-selected">Selected</span>
+                  {/if}
+                </div>
+                {#if dataset.description}
+                  <p class="dataset-item-description">{dataset.description}</p>
+                {/if}
+                <div class="dataset-item-meta">
+                  <span>Updated {formatTimestamp(dataset.updated_at)}</span>
+                  <span>{dataset.slide_count} slides</span>
+                  <span>{formatSize(dataset.full_size)}</span>
+                </div>
+              </button>
+            {/each}
+          {/if}
+        </div>
+      </div>
+    </div>
+  </div>
+{/if}
 
 <ContextMenu
   x={contextMenuX}
@@ -1364,35 +1468,220 @@
     color: #666;
   }
 
-  .dataset-select-wrap {
-    max-width: 150px;
-    min-width: 90px;
+  .dataset-picker-wrap {
+    max-width: 180px;
+    min-width: 100px;
     display: flex;
     align-items: center;
   }
 
-  .dataset-select {
+  .dataset-picker-btn {
     width: 100%;
     background: #242424;
     color: #cfcfcf;
     border: 1px solid #3a3a3a;
     border-radius: 4px;
     font-size: 0.6875rem;
-    padding: 0.15rem 1.25rem 0.15rem 0.4rem;
-    appearance: none;
+    padding: 0.2rem 0.4rem;
     cursor: pointer;
     line-height: 1.25;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.3rem;
   }
 
-  .dataset-select:hover {
+  .dataset-picker-btn:hover {
     border-color: #4a4a4a;
     background: #2b2b2b;
   }
 
-  .dataset-select:focus {
+  .dataset-picker-btn:focus {
     outline: none;
     border-color: #3a3a3a;
     box-shadow: none;
+  }
+
+  .dataset-picker-btn:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+  }
+
+  .dataset-picker-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: left;
+  }
+
+  .dataset-modal-overlay {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+    background: rgba(0, 0, 0, 0.6);
+    z-index: 1000;
+  }
+
+  .dataset-modal {
+    width: min(860px, 100%);
+    height: 600px;
+    background: #1a1a1a;
+    border: 1px solid #3a3a3a;
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .dataset-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.7rem 0.85rem;
+    border-bottom: 1px solid #2f2f2f;
+  }
+
+  .dataset-modal-header h3 {
+    margin: 0;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #e3e3e3;
+  }
+
+  .dataset-modal-close {
+    width: 28px;
+    height: 28px;
+    border: 1px solid #3a3a3a;
+    border-radius: 6px;
+    background: #232323;
+    color: #bdbdbd;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+  }
+
+  .dataset-modal-close:hover {
+    background: #2d2d2d;
+    color: #e3e3e3;
+  }
+
+  .dataset-modal-close svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  .dataset-modal-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    padding: 0.75rem;
+    min-height: 0;
+  }
+
+  .dataset-search {
+    width: 100%;
+    border: 1px solid #3a3a3a;
+    background: #232323;
+    color: #ddd;
+    border-radius: 6px;
+    padding: 0.5rem 0.65rem;
+    font-size: 0.8rem;
+  }
+
+  .dataset-search:focus {
+    outline: none;
+    border-color: #4a4a4a;
+  }
+
+  .dataset-list {
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    padding-right: 0.15rem;
+  }
+
+  .dataset-item {
+    width: 100%;
+    text-align: left;
+    border: 1px solid #313131;
+    background: #202020;
+    color: #ddd;
+    border-radius: 6px;
+    padding: 0.55rem 0.65rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    cursor: pointer;
+  }
+
+  .dataset-item:hover {
+    background: #272727;
+    border-color: #404040;
+  }
+
+  .dataset-item.selected {
+    border-color: var(--secondary-hex);
+    background: var(--primary-hex);
+    color: rgb(var(--primary-foreground));
+  }
+
+  .dataset-item.selected .dataset-item-name,
+  .dataset-item.selected .dataset-item-description,
+  .dataset-item.selected .dataset-item-meta,
+  .dataset-item.selected .dataset-item-selected {
+    color: rgb(var(--primary-foreground));
+  }
+
+  .dataset-item-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+  }
+
+  .dataset-item-name {
+    font-size: 0.83rem;
+    font-weight: 600;
+    color: #f0f0f0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .dataset-item-selected {
+    font-size: 0.65rem;
+    color: #9a9a9a;
+    flex-shrink: 0;
+  }
+
+  .dataset-item-description {
+    margin: 0;
+    font-size: 0.72rem;
+    color: #a8a8a8;
+    line-height: 1.3;
+  }
+
+  .dataset-item-meta {
+    font-size: 0.68rem;
+    color: #8d8d8d;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.7rem;
+  }
+
+  .dataset-empty {
+    padding: 1rem;
+    border: 1px dashed #3a3a3a;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    color: #888;
+    text-align: center;
   }
 
   .chevron {
