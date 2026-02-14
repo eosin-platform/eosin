@@ -102,6 +102,7 @@
   let lastMouseY = 0;
   // Track right-click start position for context menu threshold
   let rightClickStart = $state<{ x: number; y: number } | null>(null);
+  let rightClickHadMomentum = false; // Was there momentum when RMB was pressed?
   const RIGHT_CLICK_THRESHOLD = 5; // Pixels - if moved more than this, don't show context menu
 
   // Measurement tool state
@@ -1679,6 +1680,8 @@
     // Right mouse button (button 2) - pan viewport, show context menu on release if no drag
     if (e.button === 2) {
       e.preventDefault();
+      // Track if there was momentum at press time - don't show context menu if so
+      rightClickHadMomentum = inertiaAnimationFrame !== null;
       // Cancel any ongoing inertia animation
       if (inertiaAnimationFrame !== null) {
         cancelAnimationFrame(inertiaAnimationFrame);
@@ -1999,12 +2002,13 @@
         const dx = e.clientX - annotationRightClickStart.x;
         const dy = e.clientY - annotationRightClickStart.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist < RIGHT_CLICK_THRESHOLD) {
-          // Didn't move much, show annotation context menu
+        if (dist < RIGHT_CLICK_THRESHOLD && !rightClickHadMomentum) {
+          // Didn't move much and no momentum at press time, show annotation context menu
           showAnnotationMenu(annotationRightClickStart.annotation, e.clientX, e.clientY);
         }
         annotationRightClickStart = null;
         panVelocityHistory = [];
+        rightClickHadMomentum = false;
         return;
       }
       
@@ -2013,8 +2017,8 @@
         const dx = e.clientX - rightClickStart.x;
         const dy = e.clientY - rightClickStart.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist < RIGHT_CLICK_THRESHOLD) {
-          // Didn't move much, show context menu
+        if (dist < RIGHT_CLICK_THRESHOLD && !rightClickHadMomentum) {
+          // Didn't move much and no momentum at press time, show context menu
           showContextMenu(e.clientX, e.clientY);
           panVelocityHistory = [];
         } else if (wasDragging && smoothNavigation && imageDesc && panVelocityHistory.length > 0) {
@@ -2037,6 +2041,7 @@
           panVelocityHistory = [];
         }
         rightClickStart = null;
+        rightClickHadMomentum = false;
       }
       return;
     }
@@ -2425,8 +2430,6 @@
 
   function showContextMenu(x: number, y: number) {
     if (!imageDesc) return;
-    // Don't show context menu if viewport has momentum
-    if (inertiaAnimationFrame !== null) return;
     contextMenuX = x;
     contextMenuY = y;
     // Convert to image coordinates
@@ -2463,8 +2466,6 @@
   }
 
   function showAnnotationMenu(annotation: Annotation, x: number, y: number) {
-    // Don't show context menu if viewport has momentum
-    if (inertiaAnimationFrame !== null) return;
     annotationMenuX = x;
     annotationMenuY = y;
     annotationMenuTarget = annotation;
