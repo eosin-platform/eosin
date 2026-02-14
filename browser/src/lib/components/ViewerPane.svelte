@@ -1205,10 +1205,11 @@
   let zoomPivotY: number | null = null;
 
   // Velocity tracking for pan inertia (throw effect)
-  let panVelocityX = 0;
-  let panVelocityY = 0;
-  let lastPanTime = 0;
+  let panVelocityHistory: { dx: number; dy: number; dt: number }[] = [];
+  const VELOCITY_HISTORY_SIZE = 5;
   let inertiaAnimationFrame: number | null = null;
+  let inertiaVelocityX = 0;
+  let inertiaVelocityY = 0;
 
   // Subscribe to active annotation set for creation permission
   let currentActiveSet = $state<typeof $activeAnnotationSet>(null);
@@ -1681,9 +1682,7 @@
         inertiaAnimationFrame = null;
       }
       // Reset velocity tracking
-      panVelocityX = 0;
-      panVelocityY = 0;
-      lastPanTime = performance.now();
+      panVelocityHistory = [];
       isDragging = true;
       lastMouseX = e.clientX;
       lastMouseY = e.clientY;
@@ -1902,22 +1901,17 @@
 
     const deltaX = e.clientX - lastMouseX;
     const deltaY = e.clientY - lastMouseY;
-    const now = performance.now();
-    const dt = now - lastPanTime;
     
-    // Track velocity for inertia (smoothed)
-    if (dt > 0 && smoothNavigation) {
-      const instantVelocityX = deltaX / dt * 1000; // pixels per second
-      const instantVelocityY = deltaY / dt * 1000;
-      // Exponential smoothing for velocity
-      const smoothing = 0.3;
-      panVelocityX = panVelocityX * (1 - smoothing) + instantVelocityX * smoothing;
-      panVelocityY = panVelocityY * (1 - smoothing) + instantVelocityY * smoothing;
+    // Track velocity history for inertia
+    if (smoothNavigation) {
+      panVelocityHistory.push({ dx: deltaX, dy: deltaY, dt: 16 }); // Assume ~60fps
+      if (panVelocityHistory.length > VELOCITY_HISTORY_SIZE) {
+        panVelocityHistory.shift();
+      }
     }
     
     lastMouseX = e.clientX;
     lastMouseY = e.clientY;
-    lastPanTime = now;
 
     // Close context menu when panning starts
     if (contextMenuVisible) {
@@ -1998,8 +1992,7 @@
           showAnnotationMenu(annotationRightClickStart.annotation, e.clientX, e.clientY);
         }
         annotationRightClickStart = null;
-        panVelocityX = 0;
-        panVelocityY = 0;
+        panVelocityHistory = [];
         return;
       }
       
@@ -2011,17 +2004,25 @@
         if (dist < RIGHT_CLICK_THRESHOLD) {
           // Didn't move much, show context menu
           showContextMenu(e.clientX, e.clientY);
-          panVelocityX = 0;
-          panVelocityY = 0;
-        } else if (wasDragging && smoothNavigation && imageDesc) {
-          // Was dragging and moved - apply inertia (throw effect)
-          const speed = Math.sqrt(panVelocityX * panVelocityX + panVelocityY * panVelocityY);
-          if (speed > 50) { // Only apply inertia if moving fast enough
-            startInertiaAnimation();
-          } else {
-            panVelocityX = 0;
-            panVelocityY = 0;
+          panVelocityHistory = [];
+        } else if (wasDragging && smoothNavigation && imageDesc && panVelocityHistory.length > 0) {
+          // Was dragging and moved - calculate average velocity and apply inertia
+          let totalDx = 0, totalDy = 0;
+          for (const v of panVelocityHistory) {
+            totalDx += v.dx;
+            totalDy += v.dy;
           }
+          // Convert to pixels per second (assuming 60fps, each sample is ~16ms)
+          const avgDx = totalDx / panVelocityHistory.length;
+          const avgDy = totalDy / panVelocityHistory.length;
+          inertiaVelocityX = avgDx * 60; // pixels per second
+          inertiaVelocityY = avgDy * 60;
+          
+          const speed = Math.sqrt(inertiaVelocityX * inertiaVelocityX + inertiaVelocityY * inertiaVelocityY);
+          if (speed > 100) { // Only apply inertia if moving fast enough
+            startInertiaAnimation();
+          }
+          panVelocityHistory = [];
         }
         rightClickStart = null;
       }
@@ -2166,8 +2167,8 @@
   function startInertiaAnimation() {
     if (!imageDesc || inertiaAnimationFrame !== null) return;
     
-    const friction = 0.95; // Deceleration factor per frame
-    const minSpeed = 10; // Stop when below this speed (pixels/second)
+    const friction = 0.92; // Deceleration factor per frame (lower = more friction)
+    const minSpeed = 20; // Stop when below this speed (pixels/second)
     
     function animateInertia() {
       if (!imageDesc) {
@@ -2175,12 +2176,12 @@
         return;
       }
       
-      const speed = Math.sqrt(panVelocityX * panVelocityX + panVelocityY * panVelocityY);
+      const speed = Math.sqrt(inertiaVelocityX * inertiaVelocityX + inertiaVelocityY * inertiaVelocityY);
       
       if (speed < minSpeed) {
         // Stop animation
-        panVelocityX = 0;
-        panVelocityY = 0;
+        inertiaVelocityX = 0;
+        inertiaVelocityY = 0;
         inertiaAnimationFrame = null;
         scheduleViewportUpdate();
         return;
@@ -2188,14 +2189,14 @@
       
       // Apply velocity (convert from pixels/second to pixels/frame at ~60fps)
       const dt = 1 / 60;
-      const dx = panVelocityX * dt * panSensitivityFactor;
-      const dy = panVelocityY * dt * panSensitivityFactor;
+      const dx = inertiaVelocityX * dt * panSensitivityFactor;
+      const dy = inertiaVelocityY * dt * panSensitivityFactor;
       
       viewport = pan(viewport, dx, dy, imageDesc.width, imageDesc.height);
       
       // Apply friction
-      panVelocityX *= friction;
-      panVelocityY *= friction;
+      inertiaVelocityX *= friction;
+      inertiaVelocityY *= friction;
       
       inertiaAnimationFrame = requestAnimationFrame(animateInertia);
     }
