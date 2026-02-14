@@ -441,7 +441,7 @@
 		<div class="mx-auto max-w-3xl px-4 text-center sm:px-6 lg:px-8">
 			<h2 class="mb-4 text-2xl font-semibold text-gray-900">Ready to get started?</h2>
 			<p class="mx-auto mb-6 max-w-2xl text-gray-600">
-				Viewer access is unrestricted. Registration required for annotation and analysis tools.
+				Viewer access is unrestricted. Free registration required for annotation/analysis tools.
 			</p>
 			<a
 				href="https://app.eosin.ai"
