@@ -111,7 +111,6 @@
     // Clear preview canvas references
     previewCanvas = null;
     previewImageData = null;
-    if (_maskRenderRaf !== null) cancelAnimationFrame(_maskRenderRaf);
   });
 
   // Canvas for mask rendering (much faster than SVG for pixel-based graphics)
@@ -335,17 +334,7 @@
   }
 
   // Render all masks to canvas - uses pre-rendered ImageBitmaps for speed.
-  // Keep rendering bound directly to viewport updates so masks stay glued
-  // to the tile imagery without interaction hysteresis artifacts.
-  let _maskRenderRaf: number | null = null;
-
-  function scheduleMaskRender() {
-    if (_maskRenderRaf !== null) return;
-    _maskRenderRaf = requestAnimationFrame(() => {
-      _maskRenderRaf = null;
-      renderMaskCanvas();
-    });
-  }
+  // Render directly off the presented viewport updates from TileRenderer.
 
   $effect(() => {
     // Touch reactive deps so Svelte tracks them
@@ -357,8 +346,7 @@
 
     if (!maskCanvas || !globalVisible) return;
 
-    // Coalesce to rAF so overlay redraw cadence matches tile presentation cadence.
-    scheduleMaskRender();
+    renderMaskCanvas();
   });
   
   // Reusable canvas for painting preview (avoids creating new canvas every frame)
