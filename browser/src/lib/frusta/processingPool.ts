@@ -33,6 +33,9 @@ interface PendingTask {
   workerId: number;
 }
 
+/** Maximum tasks to queue before dropping old ones */
+const MAX_QUEUE_SIZE = 100;
+
 /**
  * Pool of Web Workers for parallel tile processing.
  * Keeps the main thread responsive during zoom/pan.
@@ -172,6 +175,14 @@ export class ProcessingWorkerPool {
         this.taskQueue.push(task);
       } else {
         this.taskQueue.splice(insertIndex, 0, task);
+      }
+
+      // Limit queue size - drop lowest priority (highest values) tasks
+      while (this.taskQueue.length > MAX_QUEUE_SIZE) {
+        const dropped = this.taskQueue.pop();
+        if (dropped) {
+          dropped.reject(new Error('Queue overflow'));
+        }
       }
 
       this.processNextTask();

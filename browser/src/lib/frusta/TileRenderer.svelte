@@ -682,6 +682,34 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
     cachedNormMode = null;
   }
   
+  /**
+   * Debug function to log sizes of all internal data structures.
+   * Call from browser console: window.__tileRendererDebug?.()
+   */
+  function logInternalSizes(): Record<string, number | string> {
+    const sizes = {
+      processedBitmapCache: processedBitmapCache.size,
+      pendingProcessing: pendingProcessing.size,
+      pendingProcessingTimestamps: pendingProcessingTimestamps.size,
+      sampledTileKeys: sampledTileKeys.size,
+      tileCoordsToSample: tileCoordsToSample.length,
+      pendingIdleCallbacks: pendingIdleCallbacks.size,
+      frameTimesMs: frameTimesMs.length,
+      cacheTiles: cache?.size ?? 0,
+      cacheMemoryMB: ((cache?.getMemoryUsage() ?? 0) / 1024 / 1024).toFixed(2),
+      retryManagerPending: retryManager?.pendingCount ?? 0,
+      workerPoolQueue: workerPool?.queueLength ?? 0,
+      workerPoolPending: workerPool?.pendingCount ?? 0,
+    };
+    console.table(sizes);
+    return sizes;
+  }
+  
+  // Expose debug function to window for console access
+  if (typeof window !== 'undefined') {
+    (window as any).__tileRendererDebug = logInternalSizes;
+  }
+  
   // Legacy aliases for backward compatibility (used in existing code)
   const enhancedBitmapCache = processedBitmapCache;
   const pendingEnhancements = pendingProcessing;
@@ -812,6 +840,12 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
 
   // Initialize retry manager when client and slot are available
   $effect(() => {
+    // Always clear old retry manager first to prevent leaked timeouts
+    if (retryManager) {
+      retryManager.clear();
+      retryManager = null;
+    }
+    
     if (client && slot !== undefined) {
       retryManager = new TileRetryManager({
         onRequestTile: (coord: TileCoord) => {
@@ -826,9 +860,6 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
           return cache.has(coord.x, coord.y, coord.level);
         },
       });
-    } else {
-      retryManager?.clear();
-      retryManager = null;
     }
   });
 

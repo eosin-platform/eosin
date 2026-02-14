@@ -168,6 +168,32 @@ export function clearNormalizationCache(slideId?: string): void {
   }
 }
 
+/**
+ * Debug function to log sizes of all internal caches.
+ * Call from browser console: window.__stainNormDebug?.()
+ */
+export function logStainNormSizes(): Record<string, number | string> {
+  const totalSamples = Array.from(sampleAccumulator.values())
+    .reduce((sum, arr) => sum + arr.length, 0);
+  
+  const sizes = {
+    normalizationCache: normalizationCache.size,
+    sampleAccumulatorKeys: sampleAccumulator.size,
+    sampleAccumulatorTotalSamples: totalSamples,
+    sampleAccumulatorMemoryKB: ((totalSamples * 3 * 8) / 1024).toFixed(2),
+    tilesContributed: tilesContributed.size,
+    lastStabilityCheck: lastStabilityCheck.size,
+    stableCheckCount: stableCheckCount.size,
+  };
+  console.table(sizes);
+  return sizes;
+}
+
+// Expose debug function to window for console access
+if (typeof window !== 'undefined') {
+  (window as any).__stainNormDebug = logStainNormSizes;
+}
+
 // ============================================================================
 // Color Space Conversion: RGB ↔ Optical Density (OD)
 // ============================================================================
