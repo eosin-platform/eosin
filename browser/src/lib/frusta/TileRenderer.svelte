@@ -82,11 +82,15 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
   let zoomChangeTimer: number | null = null;
   
   // Pending idle callbacks for cleanup
-  let pendingIdleCallbacks: number[] = [];
+  let pendingIdleCallbacks = new Set<number>();
   
-  // Batched sample contribution - collect tiles to sample when idle
-  let tilesToSample: Array<{ tile: CachedTile; normMode: StainNormalizationMode; slideId: string }> = [];
+  // Batched sample contribution - collect tile coordinates to sample when idle
+  // Use coordinates instead of tile references to avoid holding onto old tiles
+  let tileCoordsToSample: Array<{ x: number; y: number; level: number; normMode: StainNormalizationMode; slideId: string }> = [];
   let sampleIdleCallbackId: number | null = null;
+  
+  // Limit sampledTileKeys to prevent unbounded growth
+  const MAX_SAMPLED_KEYS = 1000;
 
   /** Convert UUID bytes to hex string for use as cache key */
   function uuidToString(uuid: Uint8Array | undefined): string {
@@ -120,8 +124,14 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
   const processedBitmapCache = new Map<string, ProcessedBitmapEntry>();
   /** Track pending processing computations to avoid duplicate work */
   const pendingProcessing = new Set<string>();
-  /** Maximum processed bitmaps to cache (separate from main tile cache) */
-  const MAX_PROCESSED_CACHE_SIZE = 500;
+  /** Track when pending entries were added for stale cleanup */
+  const pendingProcessingTimestamps = new Map<string, number>();
+  /** Maximum processed bitmaps to cache (keep low to reduce memory pressure) */
+  const MAX_PROCESSED_CACHE_SIZE = 200;
+  /** Maximum pending processing entries before cleanup */
+  const MAX_PENDING_PROCESSING = 100;
+  /** Stale pending entry timeout (ms) */
+  const PENDING_STALE_TIMEOUT = 30000;
   
   /** Cached normalization parameters per slide */
   let cachedNormParams: NormalizationParams | null = null;
@@ -235,13 +245,34 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
     const tileKey = `${slideId}_${tileKeyFromMeta(tile.meta)}`;
     if (sampledTileKeys.has(tileKey)) return;
     
-    // Add to batch queue
-    tilesToSample.push({ tile, normMode, slideId });
+    // Limit sampledTileKeys size to prevent unbounded growth
+    if (sampledTileKeys.size >= MAX_SAMPLED_KEYS) {
+      // Clear oldest half when limit reached
+      const keysToDelete = Array.from(sampledTileKeys).slice(0, MAX_SAMPLED_KEYS / 2);
+      for (const k of keysToDelete) {
+        sampledTileKeys.delete(k);
+      }
+    }
+    
+    // Limit tileCoordsToSample size to prevent unbounded growth
+    if (tileCoordsToSample.length >= 500) {
+      // Drop oldest entries (front of queue)
+      tileCoordsToSample = tileCoordsToSample.slice(-250);
+    }
+    
+    // Add to batch queue using coordinates (not tile references)
+    tileCoordsToSample.push({ 
+      x: tile.meta.x, 
+      y: tile.meta.y, 
+      level: tile.meta.level, 
+      normMode, 
+      slideId 
+    });
     
     // Schedule idle callback if not already scheduled
     if (sampleIdleCallbackId === null) {
       sampleIdleCallbackId = requestIdleCallback(processSampleBatch, { timeout: 500 });
-      pendingIdleCallbacks.push(sampleIdleCallbackId);
+      pendingIdleCallbacks.add(sampleIdleCallbackId);
     }
   }
   
@@ -250,11 +281,15 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
    * Processes multiple tiles per callback to amortize callback overhead.
    */
   function processSampleBatch(deadline: IdleDeadline): void {
+    // Remove this callback from pending set
+    if (sampleIdleCallbackId !== null) {
+      pendingIdleCallbacks.delete(sampleIdleCallbackId);
+    }
     sampleIdleCallbackId = null;
     
     // Skip if we're interacting or already have params
-    if (isInteracting || tilesToSample.length === 0) {
-      tilesToSample = [];
+    if (isInteracting || tileCoordsToSample.length === 0) {
+      tileCoordsToSample = [];
       return;
     }
     
@@ -262,22 +297,27 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
     const minTimePerTile = 5; // ms estimate per tile
     let processed = 0;
     
-    while (tilesToSample.length > 0 && (deadline.timeRemaining() > minTimePerTile || processed === 0)) {
-      const { tile, normMode, slideId } = tilesToSample.shift()!;
-      contributeSamplesFromTileSync(tile, normMode, slideId);
+    while (tileCoordsToSample.length > 0 && (deadline.timeRemaining() > minTimePerTile || processed === 0)) {
+      const { x, y, level, normMode, slideId } = tileCoordsToSample.shift()!;
+      
+      // Look up the tile from cache (it may have been evicted)
+      const tile = cache.get(x, y, level);
+      if (tile?.bitmap) {
+        contributeSamplesFromTileSync(tile, normMode, slideId);
+      }
       processed++;
       
       // Check if we got params - if so, clear remaining queue
       if (cachedNormParams && cachedNormSlideId === slideId && cachedNormMode === normMode) {
-        tilesToSample = [];
+        tileCoordsToSample = [];
         break;
       }
     }
     
     // If more tiles remain, schedule another idle callback
-    if (tilesToSample.length > 0) {
+    if (tileCoordsToSample.length > 0) {
       sampleIdleCallbackId = requestIdleCallback(processSampleBatch, { timeout: 500 });
-      pendingIdleCallbacks.push(sampleIdleCallbackId);
+      pendingIdleCallbacks.add(sampleIdleCallbackId);
     }
   }
   
@@ -408,15 +448,23 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
     }
     
     pendingProcessing.add(key);
+    pendingProcessingTimestamps.set(key, Date.now());
+    
+    // Clean up stale pending entries periodically
+    cleanupStalePendingEntries();
     
     // Calculate priority (tiles closer to viewport center are processed first)
     const priority = calculateTilePriority(tile);
     
     // Use requestIdleCallback to defer ImageData extraction to idle time
     const idleCallbackId = requestIdleCallback(() => {
+      // Remove from pending set when callback runs
+      pendingIdleCallbacks.delete(idleCallbackId);
+      
       // Re-check conditions after idle delay
       if (isInteracting || !tile.bitmap) {
         pendingProcessing.delete(key);
+        pendingProcessingTimestamps.delete(key);
         return;
       }
       
@@ -424,7 +472,7 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
       processImageBitmapWithWorkerDeferred(tile, normMode, enhanceMode, slideId, key, priority);
     }, { timeout: 100 });
     
-    pendingIdleCallbacks.push(idleCallbackId);
+    pendingIdleCallbacks.add(idleCallbackId);
   }
   
   /** Deferred processing that runs during idle time */
@@ -439,6 +487,7 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
     processImageBitmapWithWorker(tile, normMode, enhanceMode, slideId, key, priority)
       .then((processedBitmap) => {
         pendingProcessing.delete(key);
+        pendingProcessingTimestamps.delete(key);
         
         // Evict old entries if over limit before adding
         evictProcessedCacheIfNeeded();
@@ -455,6 +504,7 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
       })
       .catch((err) => {
         pendingProcessing.delete(key);
+        pendingProcessingTimestamps.delete(key);
         // Don't warn on cancellation (expected during rapid zoom)
         if (err?.message !== 'Cancelled') {
           console.warn('Failed to process bitmap:', err);
@@ -568,6 +618,44 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
     }
   }
   
+  /**
+   * Clean up stale entries from pendingProcessing.
+   * Entries that have been pending for too long are likely orphaned
+   * (worker crashed, promise never resolved, etc.)
+   */
+  function cleanupStalePendingEntries(): void {
+    // Only cleanup if we're over the limit
+    if (pendingProcessing.size < MAX_PENDING_PROCESSING) return;
+    
+    const now = Date.now();
+    const staleKeys: string[] = [];
+    
+    for (const [key, timestamp] of pendingProcessingTimestamps) {
+      if (now - timestamp > PENDING_STALE_TIMEOUT) {
+        staleKeys.push(key);
+      }
+    }
+    
+    // Remove stale entries
+    for (const key of staleKeys) {
+      pendingProcessing.delete(key);
+      pendingProcessingTimestamps.delete(key);
+    }
+    
+    // If still over limit after removing stale entries, remove oldest
+    if (pendingProcessing.size >= MAX_PENDING_PROCESSING) {
+      const sortedEntries = Array.from(pendingProcessingTimestamps.entries())
+        .sort((a, b) => a[1] - b[1]);
+      
+      const toRemove = pendingProcessing.size - Math.floor(MAX_PENDING_PROCESSING * 0.5);
+      for (let i = 0; i < toRemove && sortedEntries.length > 0; i++) {
+        const [key] = sortedEntries.shift()!;
+        pendingProcessing.delete(key);
+        pendingProcessingTimestamps.delete(key);
+      }
+    }
+  }
+  
   /** Clear processed cache (called on destroy or slide change) */
   function clearProcessedCache(): void {
     for (const entry of processedBitmapCache.values()) {
@@ -575,6 +663,7 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
     }
     processedBitmapCache.clear();
     pendingProcessing.clear();
+    pendingProcessingTimestamps.clear();
     sampledTileKeys.clear();
     
     // Also clear normalization params cache
@@ -772,7 +861,7 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
     for (const id of pendingIdleCallbacks) {
       cancelIdleCallback(id);
     }
-    pendingIdleCallbacks = [];
+    pendingIdleCallbacks.clear();
     if (sampleIdleCallbackId !== null) {
       cancelIdleCallback(sampleIdleCallbackId);
     }
