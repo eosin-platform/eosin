@@ -71,9 +71,22 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
   // Worker pool for off-main-thread processing
   let workerPool: ProcessingWorkerPool | null = null;
   
+  // Interaction state tracking for throttling expensive operations
+  // During active pan/zoom, we skip CPU-intensive work to keep UI responsive
+  let isInteracting = false;
+  let interactionEndTimer: number | null = null;
+  const INTERACTION_DEBOUNCE_MS = 150; // Time after last interaction before resuming heavy work
+  
   // Zoom detection for worker pool throttling
-  let lastZoom = viewport.zoom;
+  let lastZoom: number | null = null; // Initialized on first $effect run
   let zoomChangeTimer: number | null = null;
+  
+  // Pending idle callbacks for cleanup
+  let pendingIdleCallbacks: number[] = [];
+  
+  // Batched sample contribution - collect tiles to sample when idle
+  let tilesToSample: Array<{ tile: CachedTile; normMode: StainNormalizationMode; slideId: string }> = [];
+  let sampleIdleCallbackId: number | null = null;
 
   /** Convert UUID bytes to hex string for use as cache key */
   function uuidToString(uuid: Uint8Array | undefined): string {
@@ -203,10 +216,75 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
   const sampledTileKeys = new Set<string>();
   
   /**
-   * Contribute samples from a tile for normalization parameter estimation.
-   * Call this for multiple tiles before getNormalizationParams returns valid params.
+   * Queue a tile for sample contribution during idle time.
+   * This avoids blocking the main thread during pan/zoom.
    */
-  function contributeSamplesFromTile(
+  function queueSampleContribution(
+    tile: CachedTile,
+    normMode: StainNormalizationMode,
+    slideId: string
+  ): void {
+    if (normMode === 'none' || !tile.bitmap) return;
+    
+    // Skip if we already have cached params
+    if (cachedNormParams && cachedNormSlideId === slideId && cachedNormMode === normMode) {
+      return;
+    }
+    
+    // Skip if this tile has already contributed
+    const tileKey = `${slideId}_${tileKeyFromMeta(tile.meta)}`;
+    if (sampledTileKeys.has(tileKey)) return;
+    
+    // Add to batch queue
+    tilesToSample.push({ tile, normMode, slideId });
+    
+    // Schedule idle callback if not already scheduled
+    if (sampleIdleCallbackId === null) {
+      sampleIdleCallbackId = requestIdleCallback(processSampleBatch, { timeout: 500 });
+      pendingIdleCallbacks.push(sampleIdleCallbackId);
+    }
+  }
+  
+  /**
+   * Process batched sample contributions during idle time.
+   * Processes multiple tiles per callback to amortize callback overhead.
+   */
+  function processSampleBatch(deadline: IdleDeadline): void {
+    sampleIdleCallbackId = null;
+    
+    // Skip if we're interacting or already have params
+    if (isInteracting || tilesToSample.length === 0) {
+      tilesToSample = [];
+      return;
+    }
+    
+    // Process as many tiles as we can within the deadline (at least 1)
+    const minTimePerTile = 5; // ms estimate per tile
+    let processed = 0;
+    
+    while (tilesToSample.length > 0 && (deadline.timeRemaining() > minTimePerTile || processed === 0)) {
+      const { tile, normMode, slideId } = tilesToSample.shift()!;
+      contributeSamplesFromTileSync(tile, normMode, slideId);
+      processed++;
+      
+      // Check if we got params - if so, clear remaining queue
+      if (cachedNormParams && cachedNormSlideId === slideId && cachedNormMode === normMode) {
+        tilesToSample = [];
+        break;
+      }
+    }
+    
+    // If more tiles remain, schedule another idle callback
+    if (tilesToSample.length > 0) {
+      sampleIdleCallbackId = requestIdleCallback(processSampleBatch, { timeout: 500 });
+      pendingIdleCallbacks.push(sampleIdleCallbackId);
+    }
+  }
+  
+  /**
+   * Synchronously contribute samples from a tile (called during idle time).
+   */
+  function contributeSamplesFromTileSync(
     tile: CachedTile,
     normMode: StainNormalizationMode,
     slideId: string
@@ -244,6 +322,42 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
   }
   
   /**
+   * Signal that user interaction has started (pan/zoom).
+   * Throttles expensive operations to maintain UI responsiveness.
+   */
+  function notifyInteractionStart(): void {
+    isInteracting = true;
+    workerPool?.notifyZoomStart();
+    
+    // Clear any pending end timer
+    if (interactionEndTimer !== null) {
+      clearTimeout(interactionEndTimer);
+      interactionEndTimer = null;
+    }
+  }
+  
+  /**
+   * Signal that user interaction may have ended.
+   * Waits for debounce period before resuming heavy work.
+   */
+  function notifyInteractionEnd(): void {
+    // Clear existing timer
+    if (interactionEndTimer !== null) {
+      clearTimeout(interactionEndTimer);
+    }
+    
+    // Set timer to detect when interaction truly stops
+    interactionEndTimer = window.setTimeout(() => {
+      isInteracting = false;
+      workerPool?.notifyZoomEnd();
+      interactionEndTimer = null;
+      
+      // Resume processing after interaction ends
+      scheduleRender();
+    }, INTERACTION_DEBOUNCE_MS);
+  }
+  
+  /**
    * Calculate priority for a tile based on distance from viewport center.
    * Lower values = higher priority (processed first).
    */
@@ -270,6 +384,9 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
   ): void {
     if (!tile.bitmap) return;
     
+    // Skip during active interaction to keep UI responsive
+    if (isInteracting) return;
+    
     // Skip if no processing needed (no normalization, enhancement, or sharpening)
     const needsProcessing = normMode !== 'none' || enhanceMode !== 'none' || 
       (sharpeningEnabled && sharpeningIntensity > 0);
@@ -295,7 +412,30 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
     // Calculate priority (tiles closer to viewport center are processed first)
     const priority = calculateTilePriority(tile);
     
-    // Process bitmap using worker pool (off main thread)
+    // Use requestIdleCallback to defer ImageData extraction to idle time
+    const idleCallbackId = requestIdleCallback(() => {
+      // Re-check conditions after idle delay
+      if (isInteracting || !tile.bitmap) {
+        pendingProcessing.delete(key);
+        return;
+      }
+      
+      // Process bitmap using worker pool (off main thread)
+      processImageBitmapWithWorkerDeferred(tile, normMode, enhanceMode, slideId, key, priority);
+    }, { timeout: 100 });
+    
+    pendingIdleCallbacks.push(idleCallbackId);
+  }
+  
+  /** Deferred processing that runs during idle time */
+  function processImageBitmapWithWorkerDeferred(
+    tile: CachedTile,
+    normMode: StainNormalizationMode,
+    enhanceMode: StainEnhancementMode,
+    slideId: string,
+    key: string,
+    priority: number
+  ): void {
     processImageBitmapWithWorker(tile, normMode, enhanceMode, slideId, key, priority)
       .then((processedBitmap) => {
         pendingProcessing.delete(key);
@@ -536,6 +676,8 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
   let forcedMipLevel: number | null = $state(null);
   // Debug view mode key state
   let yKeyHeld = $state(false);
+  // Track if debug mode is active (for conditional mouse tracking)
+  let debugModeActive = $derived(yKeyHeld || forcedMipLevel !== null);
 
   function handleKeyDown(e: KeyboardEvent) {
     if (e.key === 'y' || e.key === 'Y') {
@@ -558,6 +700,10 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
   }
 
   function handleMouseMove(e: MouseEvent) {
+    // Only track mouse position when debug overlay is active
+    // This prevents expensive re-renders on every mouse move during normal panning
+    if (!debugModeActive) return;
+    
     const rect = canvas?.getBoundingClientRect();
     if (rect) {
       mouseX = e.clientX - rect.left;
@@ -614,6 +760,22 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
     if (zoomChangeTimer !== null) {
       clearTimeout(zoomChangeTimer);
     }
+    // Clear pan detection timer
+    if (panChangeTimer !== null) {
+      clearTimeout(panChangeTimer);
+    }
+    // Clear interaction end timer
+    if (interactionEndTimer !== null) {
+      clearTimeout(interactionEndTimer);
+    }
+    // Cancel pending idle callbacks
+    for (const id of pendingIdleCallbacks) {
+      cancelIdleCallback(id);
+    }
+    pendingIdleCallbacks = [];
+    if (sampleIdleCallbackId !== null) {
+      cancelIdleCallback(sampleIdleCallbackId);
+    }
     // Clear retry manager
     retryManager?.clear();
     // Clear enhanced bitmap cache
@@ -629,12 +791,19 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
     cache.setViewportContext(viewport, image);
   });
 
-  // Detect zoom changes and notify worker pool for throttling
+  // Detect zoom changes and notify for throttling
   $effect(() => {
     const currentZoom = viewport.zoom;
+    
+    // Initialize on first run
+    if (lastZoom === null) {
+      lastZoom = currentZoom;
+      return;
+    }
+    
     if (Math.abs(currentZoom - lastZoom) > 0.001) {
-      // Zoom is changing - notify pool to reduce processing load
-      workerPool?.notifyZoomStart();
+      // Zoom is changing - throttle expensive operations
+      notifyInteractionStart();
       lastZoom = currentZoom;
       
       // Clear existing timer
@@ -644,26 +813,77 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
       
       // Set timer to detect when zoom stops
       zoomChangeTimer = window.setTimeout(() => {
-        workerPool?.notifyZoomEnd();
+        notifyInteractionEnd();
         zoomChangeTimer = null;
       }, 100);
     }
   });
-
-  // Re-render when viewport, renderTrigger, stainNormalization, stainEnhancement, sharpening, or debug state changes
+  
+  // Detect pan changes (viewport x/y movement)
+  let lastViewportX: number | null = null;
+  let lastViewportY: number | null = null;
+  let panChangeTimer: number | null = null;
+  
   $effect(() => {
-    // Access reactive dependencies
+    const currentX = viewport.x;
+    const currentY = viewport.y;
+    
+    // Initialize on first run
+    if (lastViewportX === null || lastViewportY === null) {
+      lastViewportX = currentX;
+      lastViewportY = currentY;
+      return;
+    }
+    
+    const dx = Math.abs(currentX - lastViewportX);
+    const dy = Math.abs(currentY - lastViewportY);
+    
+    // Only trigger if meaningful pan occurred (more than 1 pixel)
+    if (dx > 1 || dy > 1) {
+      notifyInteractionStart();
+      lastViewportX = currentX;
+      lastViewportY = currentY;
+      
+      if (panChangeTimer !== null) {
+        clearTimeout(panChangeTimer);
+      }
+      
+      panChangeTimer = window.setTimeout(() => {
+        notifyInteractionEnd();
+        panChangeTimer = null;
+      }, 100);
+    }
+  });
+
+  // Re-render when viewport, renderTrigger, stainNormalization, stainEnhancement, or sharpening changes
+  // NOTE: Debug mode (mouseX/mouseY/yKeyHeld/forcedMipLevel) handled in separate effect below
+  $effect(() => {
+    // Access reactive dependencies for main rendering
     void viewport;
     void renderTrigger;
     void stainNormalization;
     void stainEnhancement;
     void sharpeningEnabled;
     void sharpeningIntensity;
+    scheduleRender();
+  });
+  
+  // Separate effect for debug mode changes - always re-render when debug state changes
+  // (to show/hide the debug overlay)
+  $effect(() => {
     void yKeyHeld;
-    void mouseX;
-    void mouseY;
     void forcedMipLevel;
     scheduleRender();
+  });
+  
+  // Effect for debug mouse tracking - only tracks mouse position when debug mode is active
+  // This prevents performance degradation during normal panning
+  $effect(() => {
+    if (yKeyHeld || forcedMipLevel !== null) {
+      void mouseX;
+      void mouseY;
+      scheduleRender();
+    }
   });
 
   function render() {
@@ -729,14 +949,14 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
     // Build set of all tiles we want to track (ideal + finer)
     const allTrackableTiles = [...idealTiles, ...finerTiles];
     
-    // Contribute samples from multiple tiles for normalization parameter estimation
-    // This runs before processing to ensure we have enough samples
-    if (stainNormalization !== 'none') {
+    // Queue sample contribution for normalization parameter estimation
+    // This is deferred to idle time to avoid blocking during pan/zoom
+    if (stainNormalization !== 'none' && !isInteracting) {
       const slideId = getSlideId();
       for (const coord of idealTiles) {
         const tile = cache.get(coord.x, coord.y, coord.level);
         if (tile?.bitmap) {
-          contributeSamplesFromTile(tile, stainNormalization, slideId);
+          queueSampleContribution(tile, stainNormalization, slideId);
         }
       }
     }
