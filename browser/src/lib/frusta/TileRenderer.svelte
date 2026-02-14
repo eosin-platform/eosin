@@ -59,7 +59,11 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
   let canvas: HTMLCanvasElement;
   let ctx: CanvasRenderingContext2D | null = null;
   let animationFrameId: number | null = null;
-  let renderScheduled = false;
+  let needsRender = false;
+  let keepRendering = false;
+  let lastPresentedFrameTime = 0;
+  const TARGET_RENDER_FPS = 60;
+  const TARGET_FRAME_MS = 1000 / TARGET_RENDER_FPS;
   
   // Double buffering: render to offscreen canvas, then copy to visible canvas
   // This eliminates visual tearing during smooth navigation
@@ -879,16 +883,35 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
   });
 
   let scheduleRenderTime: number = 0;
+
+  function ensureRenderLoop() {
+    if (animationFrameId !== null) return;
+    animationFrameId = requestAnimationFrame(renderLoopTick);
+  }
+
+  function renderLoopTick(now: number) {
+    animationFrameId = null;
+
+    const hasFrameBudget =
+      lastPresentedFrameTime === 0 ||
+      now - lastPresentedFrameTime >= TARGET_FRAME_MS - 0.25;
+
+    if ((needsRender || keepRendering) && hasFrameBudget) {
+      needsRender = false;
+      keepRendering = render();
+      lastPresentedFrameTime = now;
+    }
+
+    if (needsRender || keepRendering) {
+      ensureRenderLoop();
+    }
+  }
   
-  /** Schedule a render on the next animation frame, coalescing multiple requests. */
+  /** Schedule a render loop tick. */
   function scheduleRender() {
-    if (renderScheduled) return;
-    renderScheduled = true;
+    needsRender = true;
     scheduleRenderTime = performance.now();
-    animationFrameId = requestAnimationFrame(() => {
-      renderScheduled = false;
-      render();
-    });
+    ensureRenderLoop();
   }
 
   onMount(() => {
@@ -1038,8 +1061,8 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
   let lastRenderTimings: Record<string, number> | null = null;
   let lastRenderEndTime: number = 0;
   
-  function render() {
-    if (!ctx || !canvas) return;
+  function render(): boolean {
+    if (!ctx || !canvas) return false;
 
     const timings: Record<string, number> = {};
     const renderStart = performance.now();
@@ -1089,7 +1112,7 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
     
     // Use offscreen context for all rendering
     const renderCtx = offscreenCtx;
-    if (!renderCtx) return;
+    if (!renderCtx) return false;
     
     // Set active context for helper functions
     activeRenderCtx = renderCtx;
@@ -1228,6 +1251,13 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
     
     // Track when render ended for inter-frame timing
     lastRenderEndTime = performance.now();
+
+    // Continue 60fps loop only while interaction or pending visual work exists.
+    const pendingRetries = retryManager?.pendingCount ?? 0;
+    const pendingDecodes = cache.getPendingDecodeCount();
+    const pendingProcessingCount = pendingProcessing.size;
+
+    return isInteracting || pendingRetries > 0 || pendingDecodes > 0 || pendingProcessingCount > 0;
   }
   
   /**
