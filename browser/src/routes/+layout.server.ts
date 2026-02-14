@@ -53,12 +53,32 @@ interface DatasetsResponse {
 const PAGE_SIZE = 50;
 const DATASET_PAGE_SIZE = 1000;
 
-async function fetchAllDatasets(metaEndpoint: string): Promise<DatasetListItem[]> {
+function normalizeEndpoint(endpoint: string): string {
+  return endpoint.replace(/\/+$/, '');
+}
+
+function derivePublicMetaEndpoint(metaEndpoint: string): string {
+  try {
+    const url = new URL(metaEndpoint);
+    url.port = '3000';
+    return normalizeEndpoint(url.toString());
+  } catch {
+    return normalizeEndpoint(metaEndpoint);
+  }
+}
+
+async function fetchAllDatasets(metaEndpoint: string, accessToken?: string): Promise<DatasetListItem[]> {
   const items: DatasetListItem[] = [];
   let offset = 0;
 
   while (true) {
-    const response = await fetch(`${metaEndpoint}/dataset?offset=${offset}&limit=${DATASET_PAGE_SIZE}`);
+    const response = await fetch(`${metaEndpoint}/dataset?offset=${offset}&limit=${DATASET_PAGE_SIZE}`, {
+      headers: accessToken
+        ? {
+            Authorization: `Bearer ${accessToken}`
+          }
+        : undefined
+    });
 
     if (!response.ok) {
       throw new Error(`Failed to fetch datasets (${response.status})`);
@@ -138,6 +158,9 @@ export const load = async ({ cookies, request, url }) => {
   }
 
   const metaEndpoint = env.META_ENDPOINT;
+  const publicMetaEndpoint = env.PUBLIC_META_ENDPOINT
+    ? normalizeEndpoint(env.PUBLIC_META_ENDPOINT)
+    : (metaEndpoint ? derivePublicMetaEndpoint(metaEndpoint) : null);
   
   if (!metaEndpoint) {
     console.error('META_ENDPOINT environment variable is not set');
@@ -158,7 +181,10 @@ export const load = async ({ cookies, request, url }) => {
 
   let datasets: DatasetListItem[] = [];
   try {
-    datasets = await fetchAllDatasets(metaEndpoint);
+    if (!publicMetaEndpoint) {
+      throw new Error('PUBLIC_META_ENDPOINT environment variable is not set');
+    }
+    datasets = await fetchAllDatasets(publicMetaEndpoint, userCredentials?.jwt?.access_token);
   } catch (err) {
     console.error('Failed to fetch datasets from meta server:', err);
   }

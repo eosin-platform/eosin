@@ -229,6 +229,7 @@ impl MetaClient {
         name: &str,
         description: Option<&str>,
         credit: Option<&str>,
+        private: bool,
         metadata: Option<&serde_json::Value>,
     ) -> Result<Dataset> {
         let url = format!("{}/dataset", self.base_url);
@@ -237,6 +238,7 @@ impl MetaClient {
             name: name.to_string(),
             description: description.map(|v| v.to_string()),
             credit: credit.map(|v| v.to_string()),
+            private,
             metadata: metadata.cloned(),
         };
 
@@ -295,6 +297,7 @@ impl MetaClient {
         name: Option<&str>,
         description: Option<&str>,
         credit: Option<&str>,
+        private: Option<bool>,
         metadata: Option<&serde_json::Value>,
     ) -> Result<Option<Dataset>> {
         let url = format!("{}/dataset/{}", self.base_url, id);
@@ -302,6 +305,7 @@ impl MetaClient {
             name: name.map(|v| v.to_string()),
             description: description.map(|v| v.to_string()),
             credit: credit.map(|v| v.to_string()),
+            private,
             metadata: metadata.cloned(),
         };
 

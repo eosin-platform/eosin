@@ -169,6 +169,7 @@ pub async fn run_create_dataset(args: CreateDatasetArgs) -> Result<()> {
             &args.name,
             args.description.as_deref(),
             args.credit.as_deref(),
+            args.private,
             args.metadata.as_ref(),
         )
         .await?;
@@ -178,6 +179,7 @@ pub async fn run_create_dataset(args: CreateDatasetArgs) -> Result<()> {
     println!("  Name: {}", dataset.name);
     println!("  Description: {}", dataset.description.unwrap_or_default());
     println!("  Credit: {}", dataset.credit.unwrap_or_default());
+    println!("  Private: {}", dataset.private);
 
     Ok(())
 }
@@ -195,6 +197,7 @@ pub async fn run_get_dataset(args: GetDatasetArgs) -> Result<()> {
             println!("  Name: {}", dataset.name);
             println!("  Description: {}", dataset.description.unwrap_or_default());
             println!("  Credit: {}", dataset.credit.unwrap_or_default());
+            println!("  Private: {}", dataset.private);
         }
         None => {
             println!("Dataset {} not found", id);
@@ -216,6 +219,7 @@ pub async fn run_update_dataset(args: UpdateDatasetArgs) -> Result<()> {
             args.name.as_deref(),
             args.description.as_deref(),
             args.credit.as_deref(),
+            args.private,
             args.metadata.as_ref(),
         )
         .await?
@@ -226,6 +230,7 @@ pub async fn run_update_dataset(args: UpdateDatasetArgs) -> Result<()> {
             println!("  Name: {}", dataset.name);
             println!("  Description: {}", dataset.description.unwrap_or_default());
             println!("  Credit: {}", dataset.credit.unwrap_or_default());
+            println!("  Private: {}", dataset.private);
         }
         None => {
             println!("Dataset {} not found", id);
@@ -267,11 +272,12 @@ pub async fn run_list_datasets(args: ListDatasetsArgs) -> Result<()> {
     } else {
         for dataset in &response.items {
             println!(
-                "{},{},{},{}",
+                "{},{},{},{},{}",
                 dataset.id,
                 dataset.name,
                 dataset.description.clone().unwrap_or_default(),
-                dataset.credit.clone().unwrap_or_default()
+                dataset.credit.clone().unwrap_or_default(),
+                dataset.private
             );
         }
     }

@@ -243,6 +243,10 @@ pub struct CreateDatasetArgs {
     #[arg(long)]
     pub credit: Option<String>,
 
+    /// Whether the dataset is private
+    #[arg(long, default_value_t = false)]
+    pub private: bool,
+
     /// Arbitrary dataset metadata as JSON
     #[arg(long)]
     pub metadata: Option<serde_json::Value>,
@@ -280,6 +284,10 @@ pub struct UpdateDatasetArgs {
     /// Dataset credit
     #[arg(long)]
     pub credit: Option<String>,
+
+    /// Whether the dataset is private
+    #[arg(long)]
+    pub private: Option<bool>,
 
     /// Arbitrary dataset metadata as JSON
     #[arg(long)]

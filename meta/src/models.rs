@@ -8,6 +8,7 @@ pub struct Dataset {
     pub name: String,
     pub description: Option<String>,
     pub credit: Option<String>,
+    pub private: bool,
     /// Unix epoch timestamp in milliseconds.
     pub created_at: i64,
     /// Unix epoch timestamp in milliseconds.
@@ -25,6 +26,7 @@ pub struct DatasetListItem {
     pub name: String,
     pub description: Option<String>,
     pub credit: Option<String>,
+    pub private: bool,
     /// Unix epoch timestamp in milliseconds.
     pub created_at: i64,
     /// Unix epoch timestamp in milliseconds.
@@ -53,6 +55,7 @@ pub struct UpdateDatasetRequest {
     pub name: Option<String>,
     pub description: Option<String>,
     pub credit: Option<String>,
+    pub private: Option<bool>,
     pub metadata: Option<serde_json::Value>,
 }
 
@@ -63,6 +66,8 @@ pub struct CreateDatasetRequest {
     pub name: String,
     pub description: Option<String>,
     pub credit: Option<String>,
+    #[serde(default)]
+    pub private: bool,
     pub metadata: Option<serde_json::Value>,
 }
 

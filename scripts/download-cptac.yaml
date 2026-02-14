@@ -1,0 +1,40 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: download-cptac
+  namespace: eosin
+spec:
+  restartPolicy: Never
+  containers:
+  - name: dispatch
+    image: docker.io/thavlik/download-cptac:latest
+    imagePullPolicy: Always
+    command:
+      - python
+      - -u
+      - /app/download_cptac.py
+      - --outdir
+      - /data
+      - --collection
+      - CPTAC-CCRCC
+      - --n
+      - "50"
+    env:
+    - name: S3_BUCKET
+      value: cptac
+    - name: S3_PATH_PREFIX
+      value: "images/"
+    - name: S3_ENDPOINT
+      value: https://nyc3.digitaloceanspaces.com
+    - name: S3_REGION
+      value: nyc3
+    - name: AWS_ACCESS_KEY_ID
+      valueFrom:
+        secretKeyRef:
+          name: spaces-cred
+          key: access_key_id
+    - name: AWS_SECRET_ACCESS_KEY
+      valueFrom:
+        secretKeyRef:
+          name: spaces-cred
+          key: secret_access_key

@@ -5,14 +5,16 @@
 
 use anyhow::{Context, Result};
 use axum::{
-    Json, Router,
+    Extension, Json, Router,
     extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
     routing::{get, patch, post, put},
 };
 use axum_keycloak_auth::{
+    KeycloakAuthStatus,
     PassthroughMode,
+    decode::ProfileAndEmail,
     instance::{KeycloakAuthInstance, KeycloakConfig},
     layer::KeycloakAuthLayer,
 };
@@ -99,11 +101,18 @@ pub async fn run_server(
             .realm(kc.realm)
             .build(),
     );
-    let keycloak_layer = KeycloakAuthLayer::<String>::builder()
+    let keycloak_block_layer = KeycloakAuthLayer::<String>::builder()
         .instance(keycloak_auth_instance)
         .passthrough_mode(PassthroughMode::Block)
         .persist_raw_claims(true)
         .expected_audiences(vec![kc.client_id, "account".to_string()])
+        .build();
+
+    let keycloak_pass_layer = KeycloakAuthLayer::<String>::builder()
+        .instance(keycloak_block_layer.instance.clone())
+        .passthrough_mode(PassthroughMode::Pass)
+        .persist_raw_claims(true)
+        .expected_audiences(keycloak_block_layer.expected_audiences.clone())
         .build();
 
     let cors = CorsLayer::new()
@@ -131,6 +140,7 @@ pub async fn run_server(
             get(list_annotations),
         )
         .route("/annotations/{id}", get(get_annotation))
+        .layer(keycloak_pass_layer)
         .layer(cors.clone())
         .with_state(state.clone());
 
@@ -168,7 +178,7 @@ pub async fn run_server(
             "/annotations/{id}",
             patch(update_annotation).delete(delete_annotation),
         )
-        .layer(keycloak_layer)
+        .layer(keycloak_block_layer)
         .layer(cors)
         .with_state(state);
 
@@ -383,6 +393,7 @@ pub async fn create_dataset(
         &req.name,
         req.description.as_deref(),
         req.credit.as_deref(),
+        req.private,
         req.metadata.as_ref(),
     )
     .await
@@ -401,6 +412,7 @@ pub async fn create_dataset(
 /// List datasets with pagination.
 pub async fn list_datasets(
     State(state): State<AppState>,
+    auth_status: Option<Extension<KeycloakAuthStatus<String, ProfileAndEmail>>>,
     Query(req): Query<ListDatasetsRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     if req.limit <= 0 {
@@ -417,7 +429,12 @@ pub async fn list_datasets(
     }
 
     let limit = req.limit.min(1000);
-    let response = db::list_datasets(&state.pool, req.offset, limit)
+    let include_private = matches!(
+        auth_status,
+        Some(Extension(KeycloakAuthStatus::Success(_)))
+    );
+
+    let response = db::list_datasets(&state.pool, req.offset, limit, include_private)
         .await
         .map_err(|e| {
             tracing::error!("failed to list datasets: {:?}", e);
@@ -469,6 +486,7 @@ pub async fn update_dataset(
         req.name.as_deref(),
         req.description.as_deref(),
         req.credit.as_deref(),
+        req.private,
         req.metadata.as_ref(),
     )
     .await

@@ -34,6 +34,7 @@ pub async fn init_schema(pool: &Pool) -> Result<()> {
                 name TEXT NOT NULL,
                 description TEXT,
                 credit TEXT,
+                private BOOLEAN NOT NULL DEFAULT FALSE,
                 created_at BIGINT NOT NULL,
                 updated_at BIGINT NOT NULL,
                 deleted_at BIGINT,
@@ -129,6 +130,16 @@ pub async fn init_schema(pool: &Pool) -> Result<()> {
         )
         .await
         .context("failed to add datasets credit column")?;
+
+    client
+        .execute(
+            r#"
+            ALTER TABLE datasets ADD COLUMN IF NOT EXISTS private BOOLEAN NOT NULL DEFAULT FALSE
+            "#,
+            &[],
+        )
+        .await
+        .context("failed to add datasets private column")?;
 
     client
         .execute(
@@ -504,7 +515,12 @@ pub async fn update_slide_progress(
 
 /// List datasets with pagination.
 /// Filters out soft-deleted rows.
-pub async fn list_datasets(pool: &Pool, offset: i64, limit: i64) -> Result<ListDatasetsResponse> {
+pub async fn list_datasets(
+    pool: &Pool,
+    offset: i64,
+    limit: i64,
+    include_private: bool,
+) -> Result<ListDatasetsResponse> {
     let client = pool.get().await.context("failed to get db connection")?;
 
     let rows = client
@@ -516,12 +532,14 @@ pub async fn list_datasets(pool: &Pool, offset: i64, limit: i64) -> Result<ListD
                     name,
                     description,
                     credit,
+                                        private,
                     created_at,
                     updated_at,
                     metadata,
                     COUNT(*) OVER() AS full_count
                 FROM datasets
-                WHERE deleted_at IS NULL
+                                WHERE deleted_at IS NULL
+                                    AND ($3 OR private = FALSE)
                 ORDER BY name ASC, id ASC
                 LIMIT $1
                 OFFSET $2
@@ -540,6 +558,7 @@ pub async fn list_datasets(pool: &Pool, offset: i64, limit: i64) -> Result<ListD
                 p.name,
                 p.description,
                 p.credit,
+                p.private,
                 p.created_at,
                 p.updated_at,
                 p.metadata,
@@ -550,7 +569,7 @@ pub async fn list_datasets(pool: &Pool, offset: i64, limit: i64) -> Result<ListD
             LEFT JOIN slide_aggregates a ON a.dataset = p.id
             ORDER BY p.name ASC, p.id ASC
             "#,
-            &[&limit, &offset],
+            &[&limit, &offset, &include_private],
         )
         .await
         .context("failed to list datasets")?;
@@ -564,6 +583,7 @@ pub async fn list_datasets(pool: &Pool, offset: i64, limit: i64) -> Result<ListD
             name: r.get("name"),
             description: r.get("description"),
             credit: r.get("credit"),
+            private: r.get("private"),
             created_at: r.get("created_at"),
             updated_at: r.get("updated_at"),
             metadata: r.get("metadata"),
@@ -590,7 +610,7 @@ pub async fn get_dataset(pool: &Pool, id: Uuid) -> Result<Option<Dataset>> {
     let row = client
         .query_opt(
             r#"
-            SELECT id, name, description, credit, created_at, updated_at, deleted_at, metadata
+            SELECT id, name, description, credit, private, created_at, updated_at, deleted_at, metadata
             FROM datasets
             WHERE id = $1 AND deleted_at IS NULL
             "#,
@@ -604,6 +624,7 @@ pub async fn get_dataset(pool: &Pool, id: Uuid) -> Result<Option<Dataset>> {
         name: r.get("name"),
         description: r.get("description"),
         credit: r.get("credit"),
+        private: r.get("private"),
         created_at: r.get("created_at"),
         updated_at: r.get("updated_at"),
         deleted_at: r.get("deleted_at"),
@@ -619,6 +640,7 @@ pub async fn upsert_dataset(
     name: &str,
     description: Option<&str>,
     credit: Option<&str>,
+    private: bool,
     metadata: Option<&serde_json::Value>,
 ) -> Result<Dataset> {
     let client = pool.get().await.context("failed to get db connection")?;
@@ -627,19 +649,20 @@ pub async fn upsert_dataset(
     let row = client
         .query_one(
             r#"
-            INSERT INTO datasets (id, name, description, credit, created_at, updated_at, deleted_at, metadata)
-            VALUES ($1, $2, $3, $4, $5, $5, NULL, $6)
+            INSERT INTO datasets (id, name, description, credit, private, created_at, updated_at, deleted_at, metadata)
+            VALUES ($1, $2, $3, $4, $5, $6, $6, NULL, $7)
             ON CONFLICT (id) DO UPDATE
             SET
                 name = EXCLUDED.name,
                 description = EXCLUDED.description,
                 credit = EXCLUDED.credit,
+                private = EXCLUDED.private,
                 metadata = EXCLUDED.metadata,
                 deleted_at = NULL,
                 updated_at = EXCLUDED.updated_at
-            RETURNING id, name, description, credit, created_at, updated_at, deleted_at, metadata
+            RETURNING id, name, description, credit, private, created_at, updated_at, deleted_at, metadata
             "#,
-            &[&id, &name, &description, &credit, &now, &metadata],
+            &[&id, &name, &description, &credit, &private, &now, &metadata],
         )
         .await
         .context("failed to upsert dataset")?;
@@ -649,6 +672,7 @@ pub async fn upsert_dataset(
         name: row.get("name"),
         description: row.get("description"),
         credit: row.get("credit"),
+        private: row.get("private"),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
         deleted_at: row.get("deleted_at"),
@@ -664,6 +688,7 @@ pub async fn update_dataset(
     name: Option<&str>,
     description: Option<&str>,
     credit: Option<&str>,
+    private: Option<bool>,
     metadata: Option<&serde_json::Value>,
 ) -> Result<UpdateDatasetResult> {
     let client = pool.get().await.context("failed to get db connection")?;
@@ -711,6 +736,12 @@ pub async fn update_dataset(
         param_idx += 1;
     }
 
+    if let Some(ref p) = private {
+        set_clauses.push(format!("private = ${}", param_idx));
+        params.push(p);
+        param_idx += 1;
+    }
+
     if let Some(ref m) = metadata {
         set_clauses.push(format!("metadata = ${}", param_idx));
         params.push(m);
@@ -723,7 +754,7 @@ pub async fn update_dataset(
     param_idx += 1;
 
     let query = format!(
-        "UPDATE datasets SET {} WHERE id = ${} RETURNING id, name, description, credit, created_at, updated_at, deleted_at, metadata",
+        "UPDATE datasets SET {} WHERE id = ${} RETURNING id, name, description, credit, private, created_at, updated_at, deleted_at, metadata",
         set_clauses.join(", "),
         param_idx
     );
@@ -739,6 +770,7 @@ pub async fn update_dataset(
         name: row.get("name"),
         description: row.get("description"),
         credit: row.get("credit"),
+        private: row.get("private"),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
         deleted_at: row.get("deleted_at"),

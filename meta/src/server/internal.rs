@@ -354,6 +354,7 @@ pub async fn create_dataset(
         &req.name,
         req.description.as_deref(),
         req.credit.as_deref(),
+        req.private,
         req.metadata.as_ref(),
     )
     .await
@@ -388,7 +389,7 @@ pub async fn list_datasets(
     }
 
     let limit = req.limit.min(1000);
-    let response = db::list_datasets(&state.pool, req.offset, limit)
+    let response = db::list_datasets(&state.pool, req.offset, limit, true)
         .await
         .map_err(|e| {
             metrics::db_error("list_datasets");
@@ -439,6 +440,7 @@ pub async fn update_dataset(
         req.name.as_deref(),
         req.description.as_deref(),
         req.credit.as_deref(),
+        req.private,
         req.metadata.as_ref(),
     )
     .await
