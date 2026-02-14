@@ -61,6 +61,16 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
   let animationFrameId: number | null = null;
   let renderScheduled = false;
   
+  // Double buffering: render to offscreen canvas, then copy to visible canvas
+  // This eliminates visual tearing during smooth navigation
+  let offscreenCanvas: OffscreenCanvas | null = null;
+  let offscreenCtx: OffscreenCanvasRenderingContext2D | null = null;
+  let lastOffscreenWidth = 0;
+  let lastOffscreenHeight = 0;
+  
+  // Active render context - set to offscreenCtx during render(), used by helper functions
+  let activeRenderCtx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null = null;
+  
   // FPS tracking
   let lastFrameTime = 0;
   let frameTimesMs: number[] = [];
@@ -784,7 +794,7 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
   }
 
   /** Create a checkerboard transparency pattern (like Photoshop). */
-  function createCheckerboardPattern(context: CanvasRenderingContext2D): CanvasPattern | null {
+  function createCheckerboardPattern(context: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D): CanvasPattern | null {
     const size = 16; // size of each checker square in pixels
     const patternCanvas = document.createElement('canvas');
     patternCanvas.width = size * 2;
@@ -1053,31 +1063,50 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
     const dpr = window.devicePixelRatio || 1;
     const displayWidth = viewport.width;
     const displayHeight = viewport.height;
+    const pixelWidth = Math.round(displayWidth * dpr);
+    const pixelHeight = Math.round(displayHeight * dpr);
 
-    // Set canvas size if needed
-    if (canvas.width !== displayWidth * dpr || canvas.height !== displayHeight * dpr) {
-      canvas.width = displayWidth * dpr;
-      canvas.height = displayHeight * dpr;
+    // Set visible canvas size if needed
+    if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
+      canvas.width = pixelWidth;
+      canvas.height = pixelHeight;
       canvas.style.width = `${displayWidth}px`;
       canvas.style.height = `${displayHeight}px`;
-      ctx.scale(dpr, dpr);
-      // Invalidate pattern since context was reset
+    }
+    
+    // Set up offscreen canvas for double buffering (eliminates tearing)
+    if (!offscreenCanvas || lastOffscreenWidth !== pixelWidth || lastOffscreenHeight !== pixelHeight) {
+      offscreenCanvas = new OffscreenCanvas(pixelWidth, pixelHeight);
+      offscreenCtx = offscreenCanvas.getContext('2d');
+      if (offscreenCtx) {
+        offscreenCtx.scale(dpr, dpr);
+      }
+      lastOffscreenWidth = pixelWidth;
+      lastOffscreenHeight = pixelHeight;
+      // Invalidate pattern since we have a new context
       checkerboardPattern = null;
     }
+    
+    // Use offscreen context for all rendering
+    const renderCtx = offscreenCtx;
+    if (!renderCtx) return;
+    
+    // Set active context for helper functions
+    activeRenderCtx = renderCtx;
 
     timings.setupMs = performance.now() - renderStart;
 
-    // Clear canvas with a checkerboard transparency pattern
+    // Clear offscreen canvas with a checkerboard transparency pattern
     const clearStart = performance.now();
     if (!checkerboardPattern) {
-      checkerboardPattern = createCheckerboardPattern(ctx);
+      checkerboardPattern = createCheckerboardPattern(renderCtx);
     }
     if (checkerboardPattern) {
-      ctx.fillStyle = checkerboardPattern;
+      renderCtx.fillStyle = checkerboardPattern;
     } else {
-      ctx.fillStyle = '#ffffff';
+      renderCtx.fillStyle = '#ffffff';
     }
-    ctx.fillRect(0, 0, displayWidth, displayHeight);
+    renderCtx.fillRect(0, 0, displayWidth, displayHeight);
     timings.clearMs = performance.now() - clearStart;
 
     // Compute the ideal mip level for current zoom
@@ -1188,6 +1217,15 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
       prefetchProcessing(idealLevel, visibleMinTx, visibleMinTy, visibleMaxTx, visibleMaxTy, stainNormalization, stainEnhancement);
     }
     
+    // Double buffer blit: copy completed offscreen frame to visible canvas in one operation
+    // This eliminates visual tearing by ensuring the visible canvas is only updated atomically
+    if (ctx && offscreenCanvas) {
+      ctx.drawImage(offscreenCanvas, 0, 0);
+    }
+    
+    // Clear active context (rendering complete)
+    activeRenderCtx = null;
+    
     // Track when render ended for inter-frame timing
     lastRenderEndTime = performance.now();
   }
@@ -1234,7 +1272,7 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
   }
 
   function renderDebugOverlay(idealTiles: TileCoord[], idealLevel: number) {
-    if (!ctx) return;
+    if (!activeRenderCtx) return;
 
     // Find the tile under the cursor
     for (const coord of idealTiles) {
@@ -1270,23 +1308,23 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
         }
 
         // Draw debug frame around the tile
-        ctx.strokeStyle = '#00ff00';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(rect.x + 1, rect.y + 1, rect.width - 2, rect.height - 2);
+        activeRenderCtx.strokeStyle = '#00ff00';
+        activeRenderCtx.lineWidth = 2;
+        activeRenderCtx.strokeRect(rect.x + 1, rect.y + 1, rect.width - 2, rect.height - 2);
 
         // Prepare mip level label
         const label = displayedLevel === -1 ? 'N/A' : `L${displayedLevel}`;
         const fontSize = 14; // Constant size
-        ctx.font = `bold ${fontSize}px monospace`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
+        activeRenderCtx.font = `bold ${fontSize}px monospace`;
+        activeRenderCtx.textAlign = 'center';
+        activeRenderCtx.textBaseline = 'middle';
 
         // Calculate label position (center of tile)
         let labelX = rect.x + rect.width / 2;
         let labelY = rect.y + rect.height / 2;
 
         // Measure text for background
-        const textMetrics = ctx.measureText(label);
+        const textMetrics = activeRenderCtx.measureText(label);
         const textWidth = textMetrics.width + 8;
         const textHeight = fontSize + 6;
 
@@ -1295,8 +1333,8 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
         labelY = Math.max(textHeight / 2 + 4, Math.min(viewport.height - textHeight / 2 - 4, labelY));
 
         // Draw background for label
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
-        ctx.fillRect(
+        activeRenderCtx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+        activeRenderCtx.fillRect(
           labelX - textWidth / 2,
           labelY - textHeight / 2,
           textWidth,
@@ -1304,8 +1342,8 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
         );
 
         // Draw label text
-        ctx.fillStyle = displayedLevel === idealLevel ? '#00ff00' : '#ffff00';
-        ctx.fillText(label, labelX, labelY);
+        activeRenderCtx.fillStyle = displayedLevel === idealLevel ? '#00ff00' : '#ffff00';
+        activeRenderCtx.fillText(label, labelX, labelY);
 
         // Only highlight one tile (the one under cursor)
         break;
@@ -1442,7 +1480,7 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
    * decoded yet or processed version isn't ready (caller should fall back to a coarser tile).
    */
   function renderTile(tile: CachedTile, rect: { x: number; y: number; width: number; height: number }): boolean {
-    if (!ctx) return false;
+    if (!activeRenderCtx) return false;
 
     if (tile.bitmap) {
       // Apply stain normalization, enhancement, and/or sharpening if enabled
@@ -1454,7 +1492,7 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
         const cachedProcessed = getProcessedBitmap(tile, stainNormalization, stainEnhancement, getSlideId());
         if (cachedProcessed) {
           // Draw cached processed bitmap directly (fast!)
-          ctx.drawImage(cachedProcessed, rect.x, rect.y, rect.width, rect.height);
+          activeRenderCtx.drawImage(cachedProcessed, rect.x, rect.y, rect.width, rect.height);
           return true;
         }
         
@@ -1465,7 +1503,7 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
         return false;
       } else {
         // No processing — draw directly (fast path)
-        ctx.drawImage(tile.bitmap, rect.x, rect.y, rect.width, rect.height);
+        activeRenderCtx.drawImage(tile.bitmap, rect.x, rect.y, rect.width, rect.height);
       }
       return true;
     }
@@ -1485,7 +1523,7 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
     idealLevel: number,
     targetRect: { x: number; y: number; width: number; height: number }
   ): boolean {
-    if (!ctx) return false;
+    if (!activeRenderCtx) return false;
 
     if (!fallbackTile.bitmap) {
       return false;
@@ -1512,7 +1550,7 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
       const cachedProcessed = getProcessedBitmap(fallbackTile, stainNormalization, stainEnhancement, getSlideId());
       if (cachedProcessed) {
         // Draw sub-region from cached processed bitmap (fast!)
-        ctx.drawImage(
+        activeRenderCtx.drawImage(
           cachedProcessed,
           srcX,
           srcY,
@@ -1529,7 +1567,7 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
       // No cached version - schedule async processing
       // Draw unprocessed tile immediately for smooth panning (processing pops in when ready)
       scheduleProcessing(fallbackTile, stainNormalization, stainEnhancement, getSlideId());
-      ctx.drawImage(
+      activeRenderCtx.drawImage(
         fallbackTile.bitmap,
         srcX,
         srcY,
@@ -1541,7 +1579,7 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
         targetRect.height
       );
     } else {
-      ctx.drawImage(
+      activeRenderCtx.drawImage(
         fallbackTile.bitmap,
         srcX,
         srcY,
@@ -1558,22 +1596,19 @@ import { getProcessingPool, type ProcessingWorkerPool } from './processingPool';
   }
 
   function renderPlaceholder(rect: { x: number; y: number; width: number; height: number }) {
-    if (!ctx) return;
+    if (!activeRenderCtx) return;
 
     // Draw a checkerboard transparency pattern for missing tiles
-    if (!checkerboardPattern) {
-      checkerboardPattern = createCheckerboardPattern(ctx);
-    }
     if (checkerboardPattern) {
-      ctx.fillStyle = checkerboardPattern;
+      activeRenderCtx.fillStyle = checkerboardPattern;
     } else {
-      ctx.fillStyle = '#ffffff';
+      activeRenderCtx.fillStyle = '#ffffff';
     }
-    ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+    activeRenderCtx.fillRect(rect.x, rect.y, rect.width, rect.height);
 
-    ctx.strokeStyle = '#ccc';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(rect.x + 0.5, rect.y + 0.5, rect.width - 1, rect.height - 1);
+    activeRenderCtx.strokeStyle = '#ccc';
+    activeRenderCtx.lineWidth = 1;
+    activeRenderCtx.strokeRect(rect.x + 0.5, rect.y + 0.5, rect.width - 1, rect.height - 1);
   }
 
 
