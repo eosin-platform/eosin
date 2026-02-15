@@ -109,18 +109,6 @@ export const load = async ({ cookies, request, url }) => {
 
   // List all cookies for debugging
   const allCookies = cookies.getAll();
-  console.log('[SSR Auth] All cookies:', allCookies.map(c => ({ name: c.name, valueLen: c.value?.length })));
-  console.log('[SSR Auth] Request info:', { isSecure, forwardedProto, urlProtocol: url.protocol, host: url.host });
-
-  console.log('[SSR Auth] Checking cookies:', {
-    hasRefreshToken: !!refreshToken,
-    refreshTokenLength: refreshToken?.length,
-    refreshTokenPrefix: refreshToken?.substring(0, 20),
-    refreshExpiry,
-    refreshExpiryStr,
-    now: Date.now(),
-    isExpired: refreshExpiry ? Date.now() >= refreshExpiry : 'no expiry'
-  });
 
   let userCredentials: UserCredentials | null = null;
   let newRefreshExpiry: number | null = null;

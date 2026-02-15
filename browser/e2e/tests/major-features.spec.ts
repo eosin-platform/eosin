@@ -19,6 +19,33 @@ test('opens and closes help modal', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Help' })).not.toBeVisible();
 });
 
+test('toggles help modal with H keyboard shortcut', async ({ page }) => {
+  const firstSlide = page.locator('.slide-item').first();
+  await expect(firstSlide).toBeVisible({ timeout: 30_000 });
+  await firstSlide.click();
+
+  const helpHeading = page.getByRole('heading', { name: 'Help' });
+
+  await page.keyboard.press('h');
+  await expect(helpHeading).toBeVisible();
+
+  await page.keyboard.press('h');
+  await expect(helpHeading).not.toBeVisible();
+});
+
+test('closes help modal with Escape key', async ({ page }) => {
+  const firstSlide = page.locator('.slide-item').first();
+  await expect(firstSlide).toBeVisible({ timeout: 30_000 });
+  await firstSlide.click();
+
+  const helpHeading = page.getByRole('heading', { name: 'Help' });
+  await page.getByRole('button', { name: 'Open help' }).click();
+  await expect(helpHeading).toBeVisible();
+
+  await page.keyboard.press('Escape');
+  await expect(helpHeading).not.toBeVisible();
+});
+
 test('opens settings and toggles hardware acceleration', async ({ page }) => {
   const settingsButton = page.getByRole('button', { name: 'Open settings' });
   await settingsButton.click();
@@ -57,6 +84,27 @@ test('uses dataset picker modal and search', async ({ page }) => {
 
   await page.getByRole('button', { name: 'Close dataset picker' }).click();
   await expect(page.getByRole('heading', { name: 'Datasets' })).not.toBeVisible();
+});
+
+test('closes dataset picker modal with Escape key', async ({ page }) => {
+  const datasetsHeading = page.getByRole('heading', { name: 'Datasets' });
+  const datasetDialog = page.getByRole('dialog', { name: 'Select dataset' });
+
+  await page.locator('.dataset-picker-btn').click();
+  await expect(datasetsHeading).toBeVisible();
+
+  await datasetDialog.press('Escape');
+  await expect(datasetsHeading).not.toBeVisible();
+});
+
+test('shows empty state when dataset search has no matches', async ({ page }) => {
+  await page.locator('.dataset-picker-btn').click();
+  await expect(page.getByRole('heading', { name: 'Datasets' })).toBeVisible();
+
+  await page.getByRole('textbox', { name: 'Search datasets' }).fill('__playwright_no_dataset_matches__');
+  await expect(page.getByText('No datasets found')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Close dataset picker' }).click();
 });
 
 test('opens login modal and validates empty submit', async ({ page }) => {
