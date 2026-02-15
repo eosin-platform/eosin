@@ -187,7 +187,7 @@
 							loop
 							muted
 							playsinline
-							class="aspect-video w-full object-cover"
+							class="h-auto w-full"
 							poster="/logo_full.png"
 						>
 							<source src="/hero.webm" type="video/webm" />
