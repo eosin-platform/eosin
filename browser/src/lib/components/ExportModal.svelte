@@ -2227,6 +2227,7 @@
 		font-size: 12px;
 		font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', monospace;
 		text-align: center;
+		appearance: textfield;
 		-moz-appearance: textfield;
 	}
 
@@ -2331,6 +2332,7 @@
 	}
 
 	.alpha-input[type='number'] {
+		appearance: textfield;
 		-moz-appearance: textfield;
 	}
 
@@ -2378,6 +2380,7 @@
 	}
 
 	.thickness-input[type='number'] {
+		appearance: textfield;
 		-moz-appearance: textfield;
 	}
 

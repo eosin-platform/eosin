@@ -1768,10 +1768,6 @@
     flex-shrink: 0;
   }
 
-  .pull-indicator.visible {
-    /* height is set inline via style binding */
-  }
-
   .pull-indicator-content {
     display: flex;
     align-items: center;
