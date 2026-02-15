@@ -1,4 +1,15 @@
 import { defineConfig } from '@playwright/test';
+import fs from 'node:fs';
+import path from 'node:path';
+import dotenv from 'dotenv';
+
+const envFiles = ['.env.test.local', '.env.test', '.env.local', '.env'];
+for (const envFile of envFiles) {
+  const envPath = path.resolve(process.cwd(), envFile);
+  if (fs.existsSync(envPath)) {
+    dotenv.config({ path: envPath, override: false, quiet: true });
+  }
+}
 
 const appPort = Number(process.env.E2E_APP_PORT ?? 4173);
 

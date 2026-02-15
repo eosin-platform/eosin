@@ -33,13 +33,6 @@ export const POST: RequestHandler = async ({ request, cookies, url }) => {
 		const forwardedProto = request.headers.get('x-forwarded-proto');
 		const isSecure = forwardedProto === 'https' || url.protocol === 'https:';
 		
-		console.log('[SSR Auth] Cookie settings:', { 
-			isSecure, 
-			forwardedProto, 
-			urlProtocol: url.protocol,
-			host: url.host 
-		});
-
 		cookies.set(AUTH_COOKIE_NAME, credentials.jwt.refresh_token, {
 			path: '/',
 			httpOnly: false,

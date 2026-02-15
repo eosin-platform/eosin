@@ -20,6 +20,13 @@ On Playwright global setup (`e2e/global-setup.mjs`), the test harness:
 npm run e2e
 ```
 
+Playwright automatically loads environment variables from these files (first file has highest precedence):
+
+- `.env.test.local`
+- `.env.test`
+- `.env.local`
+- `.env`
+
 Optional:
 
 ```bash
