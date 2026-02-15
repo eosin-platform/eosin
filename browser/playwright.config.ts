@@ -5,6 +5,7 @@ const appPort = Number(process.env.E2E_APP_PORT ?? 4173);
 export default defineConfig({
   testDir: './e2e/tests',
   timeout: 90_000,
+  retries: 1,
   expect: {
     timeout: 15_000,
   },
@@ -15,8 +16,11 @@ export default defineConfig({
   use: {
     baseURL: `http://127.0.0.1:${appPort}`,
     viewport: { width: 1440, height: 900 },
-    trace: 'retain-on-failure',
+    launchOptions: {
+      args: ['--disable-dev-shm-usage'],
+    },
+    trace: 'on-first-retry',
     screenshot: 'only-on-failure',
-    video: 'retain-on-failure',
+    video: 'on-first-retry',
   },
 });
