@@ -460,18 +460,73 @@ function createAnnotationStore() {
         throw new Error('No annotation set selected');
       }
 
-      const created = await apiCreateAnnotation(activeSetId, data);
-      
-      update((s) => {
-        const annotationsBySlide = new Map(s.annotationsBySlide);
-        const slideAnnotations = new Map(annotationsBySlide.get(slideId) ?? new Map());
-        const existing = slideAnnotations.get(activeSetId) ?? [];
-        slideAnnotations.set(activeSetId, [...existing, created]);
-        annotationsBySlide.set(slideId, slideAnnotations);
-        return { ...s, annotationsBySlide };
-      });
+      const isOptimisticPoint = data.kind === 'point';
+      const optimisticId = `temp-point-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const now = new Date().toISOString();
 
-      return created;
+      if (isOptimisticPoint) {
+        const optimisticAnnotation: Annotation = {
+          id: optimisticId,
+          annotation_set_id: activeSetId,
+          kind: 'point',
+          geometry: data.geometry,
+          label: data.label,
+          label_id: data.label_id,
+          description: data.description,
+          properties: data.properties,
+          created_at: now,
+          updated_at: now,
+        };
+
+        update((s) => {
+          const annotationsBySlide = new Map(s.annotationsBySlide);
+          const slideAnnotations = new Map(annotationsBySlide.get(slideId) ?? new Map());
+          const existing = slideAnnotations.get(activeSetId) ?? [];
+          slideAnnotations.set(activeSetId, [...existing, optimisticAnnotation]);
+          annotationsBySlide.set(slideId, slideAnnotations);
+          return { ...s, annotationsBySlide };
+        });
+      }
+
+      try {
+        const created = await apiCreateAnnotation(activeSetId, data);
+
+        update((s) => {
+          const annotationsBySlide = new Map(s.annotationsBySlide);
+          const slideAnnotations = new Map(annotationsBySlide.get(slideId) ?? new Map());
+          const existing = slideAnnotations.get(activeSetId) ?? [];
+
+          if (isOptimisticPoint) {
+            const replaced = existing.map((annotation: Annotation) =>
+              annotation.id === optimisticId ? created : annotation
+            );
+            slideAnnotations.set(activeSetId, replaced);
+          } else {
+            slideAnnotations.set(activeSetId, [...existing, created]);
+          }
+
+          annotationsBySlide.set(slideId, slideAnnotations);
+          return { ...s, annotationsBySlide };
+        });
+
+        return created;
+      } catch (error) {
+        if (isOptimisticPoint) {
+          update((s) => {
+            const annotationsBySlide = new Map(s.annotationsBySlide);
+            const slideAnnotations = new Map(annotationsBySlide.get(slideId) ?? new Map());
+            const existing = slideAnnotations.get(activeSetId) ?? [];
+            slideAnnotations.set(
+              activeSetId,
+              existing.filter((annotation: Annotation) => annotation.id !== optimisticId)
+            );
+            annotationsBySlide.set(slideId, slideAnnotations);
+            return { ...s, annotationsBySlide };
+          });
+        }
+
+        throw error;
+      }
     },
 
     /**

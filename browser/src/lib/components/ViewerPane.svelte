@@ -3351,6 +3351,7 @@
       } catch (err) {
         console.error('Failed to save point:', err);
         showHudNotification('Failed to save point');
+        toastStore.error('Failed to save point annotation');
       }
       cancelModifyMode();
     } else if (modifyMode.phase === 'multi-point') {
@@ -3369,6 +3370,7 @@
       } catch (err) {
         console.error('Failed to save point:', err);
         showHudNotification('Failed to save point');
+        toastStore.error('Failed to save point annotation');
       }
       // Stay in multi-point mode, don't call cancelModifyMode()
     } else if (modifyMode.phase === 'ellipse-center') {
