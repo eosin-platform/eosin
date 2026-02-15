@@ -65,17 +65,29 @@
     onToggle,
   }: Props = $props();
 
-  let slides = $state<SlideListItem[]>(initialSlides);
-  let datasets = $state<DatasetListItem[]>(initialDatasets);
-  let selectedDatasetId = $state<string>(initialSelectedDatasetId ?? '');
-  let loadedDatasetId = $state<string>(initialSelectedDatasetId ?? '');
+  let slides = $state<SlideListItem[]>([]);
+  let datasets = $state<DatasetListItem[]>([]);
+  let selectedDatasetId = $state<string>('');
+  let loadedDatasetId = $state<string>('');
   let loading = $state(false);
-  let canLoadMore = $state(hasMore);
-  let currentOffset = $state(initialSlides.length);
+  let canLoadMore = $state(false);
+  let currentOffset = $state(0);
   let error = $state<string | null>(null);
   let datasetModalOpen = $state(false);
   let datasetSearch = $state('');
   let datasetLongPressTriggered = $state(false);
+  let initializedFromProps = $state(false);
+
+  $effect(() => {
+    if (initializedFromProps) return;
+    slides = initialSlides;
+    datasets = initialDatasets;
+    selectedDatasetId = initialSelectedDatasetId ?? '';
+    loadedDatasetId = initialSelectedDatasetId ?? '';
+    canLoadMore = hasMore;
+    currentOffset = initialSlides.length;
+    initializedFromProps = true;
+  });
 
   const selectedDataset = $derived(
     datasets.find((dataset) => dataset.id === selectedDatasetId) ?? null
@@ -94,8 +106,8 @@
     });
   });
 
-  let scrollContainer: HTMLElement;
-  let sentinel: HTMLDivElement;
+  let scrollContainer = $state<HTMLElement | undefined>();
+  let sentinel = $state<HTMLDivElement | undefined>();
 
   /** Slide IDs that just arrived via WebSocket and should play the entrance animation */
   let animatingSlideIds = $state<Set<string>>(new Set());
@@ -990,6 +1002,7 @@
   bind:this={sidebarElement}
 >
   <!-- Top header with logo and collapse button -->
+  <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
   <div class="sidebar-header" class:collapsed onclick={collapsed ? handleToggle : undefined} role={collapsed ? 'button' : undefined} tabindex={collapsed ? 0 : -1} aria-label={collapsed ? 'Expand sidebar' : undefined}>
     <div class="logo-container">
       <img src="/logo_half.png" alt="App logo" class="app-logo" />
@@ -1530,19 +1543,6 @@
     flex-shrink: 0;
   }
 
-  .sidebar-header h2 {
-    margin: 0;
-    font-size: 1rem;
-    font-weight: 600;
-    color: #eee;
-  }
-
-  .slide-count {
-    color: #777;
-    font-size: 0.75rem;
-    font-weight: 400;
-  }
-
   .slide-list {
     flex: 1;
     display: flex;
@@ -1593,22 +1593,6 @@
     padding: 0.5rem;
     align-items: center;
     justify-content: center;
-  }
-
-  .slide-icon {
-    font-size: 0.75rem;
-    font-weight: 600;
-    width: 28px;
-    height: 28px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: #222;
-    border-radius: 4px;
-  }
-
-  .sidebar.collapsed .slide-item.active .slide-icon {
-    background: rgba(255, 255, 255, 0.2);
   }
 
   /* New-slide entrance animation */
@@ -1865,12 +1849,6 @@
     .slide-progress {
       font-size: 0.8125rem;
       line-height: 1.25;
-    }
-
-    .slide-icon {
-      width: 36px;
-      height: 36px;
-      font-size: 0.875rem;
     }
 
     /* Larger error button */
@@ -2542,15 +2520,13 @@
     background: #555;
   }
 
-  .properties-dataset-credit .credit-link,
-  .properties-value .credit-link {
+  .properties-dataset-credit .credit-link {
     color: var(--secondary-hex);
     text-decoration: none;
     text-underline-offset: 2px;
   }
 
-  .properties-dataset-credit .credit-link:hover,
-  .properties-value .credit-link:hover {
+  .properties-dataset-credit .credit-link:hover {
     color: var(--secondary-hex);
     text-decoration: underline;
   }

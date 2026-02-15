@@ -958,12 +958,6 @@
 		flex-shrink: 0;
 	}
 
-	.header-title {
-		font-size: 1rem;
-		font-weight: 600;
-		color: #eee;
-	}
-
 	.header-right {
 		display: flex;
 		align-items: center;
@@ -1268,13 +1262,6 @@
 		text-decoration: underline;
 	}
 
-	/* Hide header title on very small screens if menu button is present */
-	@media (max-width: 360px) {
-		.header-title {
-			display: none;
-		}
-	}
-
 	/* Mobile: full-screen modal */
 	@media (max-width: 600px) {
 		.help-overlay {
@@ -1298,11 +1285,6 @@
 		.help-card {
 			padding: 14px 16px;
 		}
-	}
-
-	.dim {
-		font-size: 0.75rem;
-		color: rgba(255, 255, 255, 0.35);
 	}
 
 	/* Touch device adaptations - larger touch targets (1.5x size) */
@@ -1330,7 +1312,6 @@
 			height: 54px;
 		}
 
-		.menu-btn .icon,
 		.settings-btn .icon,
 		.help-btn .icon,
 		.auth-btn .icon {

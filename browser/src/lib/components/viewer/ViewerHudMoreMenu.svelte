@@ -616,10 +616,6 @@
     color: white;
   }
 
-  .theme-control .segment {
-    font-size: 0.875rem;
-  }
-
   /* Stain enhancement control - 4 buttons need slightly smaller padding */
   .stain-enhancement-control .segment {
     padding: 0.375rem 0.25rem;
