@@ -2239,6 +2239,22 @@
     text-align: center;
   }
 
+  @media (max-width: 640px) {
+    .dataset-modal-overlay {
+      align-items: stretch;
+      justify-content: stretch;
+      padding: 0;
+    }
+
+    .dataset-modal {
+      width: 100%;
+      height: calc(var(--vh, 1vh) * 100);
+      height: 100dvh;
+      border-radius: 0;
+      border: none;
+    }
+  }
+
   .chevron {
     color: #666;
     transition: transform 0.15s ease;
