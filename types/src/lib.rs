@@ -39,10 +39,10 @@ pub struct Placement {
 #[kube(
     group = "storage.eosin.io",
     version = "v1",
-    kind = "Storage",
-    plural = "storages",
+    kind = "Cluster",
+    plural = "clusters",
     derive = "PartialEq",
-    status = "StorageStatus",
+    status = "ClusterStatus",
     namespaced
 )]
 #[kube(derive = "Default")]
@@ -52,7 +52,7 @@ pub struct Placement {
 #[kube(
     printcolumn = "{\"jsonPath\": \".status.lastUpdated\", \"name\": \"AGE\", \"type\": \"date\" }"
 )]
-pub struct StorageSpec {
+pub struct ClusterSpec {
     /// Shard + replica layout.
     pub topology: ClusterTopology,
 
@@ -63,7 +63,7 @@ pub struct StorageSpec {
     #[serde(default = "default_grpc_port")]
     pub grpc_port: u16,
 
-    /// StorageClass for the underlying volumes (if using StatefulSets/PVCs).
+    /// ClusterClass for the underlying volumes (if using StatefulSets/PVCs).
     pub storage_class_name: Option<String>,
 
     /// Default resources per replica.
@@ -90,6 +90,12 @@ pub enum ReplicaRole {
     ReadReplica,
 }
 
+impl Default for ReplicaRole {
+    fn default() -> Self {
+        ReplicaRole::Master
+    }
+}
+
 /// Per-replica status: what the gRPC cluster is telling you.
 #[derive(Deserialize, Serialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct ReplicaStatus {
@@ -103,44 +109,29 @@ pub struct ReplicaStatus {
     pub last_heartbeat: Option<Time>,
 }
 
-/// Status for a single shard.
-#[derive(Deserialize, Serialize, Clone, Debug, Default, PartialEq, JsonSchema)]
-pub struct ShardStatus {
-    pub shard_id: u32,
-    /// Name of the master replica (pod name).
-    pub master: Option<String>,
-    /// Expected replica count = 1 (master) + `spec.topology.read_replicas`.
-    pub expected_replicas: u32,
-    pub ready_replicas: u32,
-    pub replicas: Vec<ReplicaStatus>,
-}
 
-/// Status object for the [`Storage`] resource.
+/// Status object for the [`Cluster`] resource.
 #[derive(Deserialize, Serialize, Clone, Debug, PartialEq, Default, JsonSchema)]
-pub struct StorageStatus {
-    /// A short description of the [`Storage`] resource's current state.
-    pub phase: StoragePhase,
+pub struct ClusterStatus {
+    /// A short description of the [`Cluster`] resource's current state.
+    pub phase: ClusterPhase,
 
     /// A human-readable message indicating details about why the
-    /// [`Storage`] is in this phase.
+    /// [`Cluster`] is in this phase.
     pub message: Option<String>,
 
-    /// Timestamp of when the [`StorageStatus`] object was last updated.
+    /// Timestamp of when the [`ClusterStatus`] object was last updated.
     #[serde(rename = "lastUpdated")]
     pub last_updated: Option<Time>,
-
-    /// Per-shard state so you can see how the cluster is doing.
-    #[serde(default)]
-    pub shards: Vec<ShardStatus>,
 
     /// Standard Kubernetes conditions (Available, Progressing, Degraded…)
     #[serde(default)]
     pub conditions: Vec<Condition>,
 }
 
-/// A short description of the [`Storage`] resource's current state.
+/// A short description of the [`Cluster`] resource's current state.
 #[derive(Deserialize, Serialize, Clone, Copy, Debug, PartialEq, JsonSchema, Default)]
-pub enum StoragePhase {
+pub enum ClusterPhase {
     #[default]
     Pending,
     Reconciling,
@@ -149,29 +140,156 @@ pub enum StoragePhase {
     Error,
 }
 
-impl FromStr for StoragePhase {
+impl FromStr for ClusterPhase {
     type Err = ();
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "Pending" => Ok(StoragePhase::Pending),
-            "Reconciling" => Ok(StoragePhase::Reconciling),
-            "Ready" => Ok(StoragePhase::Ready),
-            "Degraded" => Ok(StoragePhase::Degraded),
-            "Error" => Ok(StoragePhase::Error),
+            "Pending" => Ok(ClusterPhase::Pending),
+            "Reconciling" => Ok(ClusterPhase::Reconciling),
+            "Ready" => Ok(ClusterPhase::Ready),
+            "Degraded" => Ok(ClusterPhase::Degraded),
+            "Error" => Ok(ClusterPhase::Error),
             _ => Err(()),
         }
     }
 }
 
-impl fmt::Display for StoragePhase {
+impl fmt::Display for ClusterPhase {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            StoragePhase::Pending => write!(f, "Pending"),
-            StoragePhase::Reconciling => write!(f, "Reconciling"),
-            StoragePhase::Ready => write!(f, "Ready"),
-            StoragePhase::Degraded => write!(f, "Degraded"),
-            StoragePhase::Error => write!(f, "Error"),
+            ClusterPhase::Pending => write!(f, "Pending"),
+            ClusterPhase::Reconciling => write!(f, "Reconciling"),
+            ClusterPhase::Ready => write!(f, "Ready"),
+            ClusterPhase::Degraded => write!(f, "Degraded"),
+            ClusterPhase::Error => write!(f, "Error"),
         }
     }
+}
+
+#[derive(
+    CustomResource,
+    Serialize,
+    Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+    JsonSchema,
+    Default,
+)]
+#[kube(
+    group = "storage.eosin.io",
+    version = "v1",
+    kind = "Shard",
+    plural = "shards",
+    status = "ShardStatus",
+    namespaced
+)]
+#[kube(derive = "Default")]
+#[kube(
+    printcolumn = "{\"jsonPath\": \".spec.shardId\", \"name\": \"SHARD\", \"type\": \"integer\" }"
+)]
+#[kube(
+    printcolumn = "{\"jsonPath\": \".spec.replicas\", \"name\": \"REPLICAS\", \"type\": \"integer\" }"
+)]
+#[kube(
+    printcolumn = "{\"jsonPath\": \".status.phase\", \"name\": \"PHASE\", \"type\": \"string\" }"
+)]
+#[kube(
+    printcolumn = "{\"jsonPath\": \".status.lastUpdated\", \"name\": \"AGE\", \"type\": \"date\" }"
+)]
+pub struct ShardSpec {
+    /// Parent Cluster name.
+    pub cluster: String,
+
+    /// Shard index within the Cluster (0..shards-1).
+    #[serde(rename = "shardId")]
+    pub shard_id: u32,
+
+    /// Total replicas in this shard (1 master + N read replicas).
+    pub replicas: u32,
+
+    /// Optional image override (defaults to Cluster.spec.image).
+    pub image: Option<String>,
+
+    /// Optional gRPC port override (defaults to Cluster.spec.grpc_port).
+    pub grpc_port: Option<u16>,
+
+    /// Optional per-replica resource override (defaults to Cluster.spec.resources).
+    #[serde(default)]
+    pub resources: Option<ReplicaResources>,
+
+    /// Optional per-shard placement override.
+    #[serde(default)]
+    pub placement: Option<Placement>,
+
+    /// Which replica index is *intended* to be master for this shard (e.g. 0, 1, 2…).
+    #[serde(rename = "desiredMaster")]
+    pub desired_master: Option<u32>,
+}
+
+/// Phase of a Shard's lifecycle.
+#[derive(Deserialize, Serialize, Clone, Copy, Debug, PartialEq, JsonSchema, Default)]
+pub enum ShardPhase {
+    #[default]
+    Pending,
+    Reconciling,
+    Ready,
+    Degraded,
+    Error,
+}
+
+impl FromStr for ShardPhase {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "Pending" => Ok(ShardPhase::Pending),
+            "Reconciling" => Ok(ShardPhase::Reconciling),
+            "Ready" => Ok(ShardPhase::Ready),
+            "Degraded" => Ok(ShardPhase::Degraded),
+            "Error" => Ok(ShardPhase::Error),
+            _ => Err(()),
+        }
+    }
+}
+
+impl fmt::Display for ShardPhase {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ShardPhase::Pending => write!(f, "Pending"),
+            ShardPhase::Reconciling => write!(f, "Reconciling"),
+            ShardPhase::Ready => write!(f, "Ready"),
+            ShardPhase::Degraded => write!(f, "Degraded"),
+            ShardPhase::Error => write!(f, "Error"),
+        }
+    }
+}
+
+/// Status for a single Shard.
+#[derive(Deserialize, Serialize, Clone, Debug, PartialEq, Default, JsonSchema)]
+pub struct ShardStatus {
+    /// High-level lifecycle phase for this shard.
+    pub phase: ShardPhase,
+
+    /// Name of the current master replica (e.g. "cluster-s0-r1").
+    pub master: Option<String>,
+
+    /// Summary of all replicas in this shard.
+    #[serde(default)]
+    pub replicas: Vec<ReplicaStatus>,
+
+    /// Number of replicas that are currently Ready.
+    pub ready_replicas: u32,
+
+    /// Expected replica count (e.g. 1 + read_replicas).
+    pub expected_replicas: u32,
+
+    /// Timestamp of the last status update for this shard.
+    #[serde(rename = "lastUpdated")]
+    pub last_updated: Option<Time>,
+
+    /// Standard Kubernetes conditions.
+    #[serde(default)]
+    pub conditions: Vec<Condition>,
 }

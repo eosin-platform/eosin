@@ -1,6 +1,15 @@
 [workspace]
-members = ["common", "compiler", "frusta", "intake", "meta", "storage", "iam", "types"]
-exclude = ["iam-client"]
+members = [
+    "common",
+    "compiler",
+    "frusta",
+    "intake",
+    "meta",
+    "storage",
+    "iam",
+    "storage-operator",
+]
+exclude = ["iam-client", "types"]
 resolver = "3"
 
 [workspace.dependencies]
@@ -20,12 +29,7 @@ tonic = { version = "0.14.3" }
 # Used by EDA services and storage
 # apt-get install -y --no-install-recommends libopenslide-dev
 openslide-rs = "2.4.0"
-axum = { version = "0.8.8", features = [
-    "query",
-    "json",
-    "macros",
-    "tokio",
-] }
+axum = { version = "0.8.8", features = ["query", "json", "macros", "tokio"] }
 base64 = "0.22.1"
 async-trait = "0.1.89"
 keycloak = "26.3.202"

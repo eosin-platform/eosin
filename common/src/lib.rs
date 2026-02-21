@@ -24,6 +24,11 @@ pub mod wait_registry;
 
 pub use request_context::*;
 
+pub mod annotations {
+    pub const CREATED_BY: &str = "storage.eosin.io/created-by";
+    pub const SPEC_HASH: &str = "storage.eosin.io/spec-hash";
+}
+
 pub fn signal_ready() {
     std::fs::write("/etc/ready", "ready").expect("Failed to write readiness file");
 }
