@@ -1,5 +1,5 @@
 [workspace]
-members = ["common", "compiler", "frusta", "intake", "meta", "storage", "iam"]
+members = ["common", "compiler", "frusta", "intake", "meta", "storage", "iam", "types"]
 exclude = ["iam-client"]
 resolver = "3"
 
