@@ -558,11 +558,20 @@ fn on_error(_instance: Arc<Cluster>, _error: &Error, _context: Arc<ContextData>)
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::proto::cluster::control_service_server::{ControlService, ControlServiceServer};
+    use crate::proto::cluster::{
+        BecomeMasterResponse, BecomeReplicaResponse, GetShardStatusResponse,
+        UpdateRoutingConfigResponse,
+    };
     use eosin_types::{
         ClusterSpec, ClusterStatus, ClusterTopology, FailoverPolicy, Placement, ReplicaResources,
     };
+    use std::net::TcpListener;
+    use std::sync::Arc;
     use std::collections::{HashMap, HashSet};
     use std::sync::Mutex;
+    use tokio::sync::oneshot;
+    use tonic::{Request, Response, Status};
 
     #[derive(Default)]
     struct MockControlPlane {
@@ -688,6 +697,106 @@ mod tests {
             applied_shards: shards,
             ..Default::default()
         }
+    }
+
+    #[derive(Default)]
+    struct WireState {
+        become_master_requests: Mutex<Vec<BecomeMasterRequest>>,
+        become_replica_requests: Mutex<Vec<BecomeReplicaRequest>>,
+        update_requests: Mutex<Vec<UpdateRoutingConfigRequest>>,
+        status_requests: Mutex<Vec<GetShardStatusRequest>>,
+        become_master_accept: bool,
+        become_replica_accept: bool,
+        update_accept: bool,
+        status_response: GetShardStatusResponse,
+    }
+
+    #[derive(Clone)]
+    struct WireControlService {
+        inner: Arc<WireState>,
+    }
+
+    #[tonic::async_trait]
+    impl ControlService for WireControlService {
+        async fn become_master(
+            &self,
+            request: Request<BecomeMasterRequest>,
+        ) -> Result<Response<BecomeMasterResponse>, Status> {
+            self.inner
+                .become_master_requests
+                .lock()
+                .expect("lock")
+                .push(request.into_inner());
+            Ok(Response::new(BecomeMasterResponse {
+                accepted: self.inner.become_master_accept,
+                message: String::new(),
+            }))
+        }
+
+        async fn become_replica(
+            &self,
+            request: Request<BecomeReplicaRequest>,
+        ) -> Result<Response<BecomeReplicaResponse>, Status> {
+            self.inner
+                .become_replica_requests
+                .lock()
+                .expect("lock")
+                .push(request.into_inner());
+            Ok(Response::new(BecomeReplicaResponse {
+                accepted: self.inner.become_replica_accept,
+                message: String::new(),
+            }))
+        }
+
+        async fn update_routing_config(
+            &self,
+            request: Request<UpdateRoutingConfigRequest>,
+        ) -> Result<Response<UpdateRoutingConfigResponse>, Status> {
+            self.inner
+                .update_requests
+                .lock()
+                .expect("lock")
+                .push(request.into_inner());
+            Ok(Response::new(UpdateRoutingConfigResponse {
+                accepted: self.inner.update_accept,
+                message: String::new(),
+            }))
+        }
+
+        async fn get_shard_status(
+            &self,
+            request: Request<GetShardStatusRequest>,
+        ) -> Result<Response<GetShardStatusResponse>, Status> {
+            self.inner
+                .status_requests
+                .lock()
+                .expect("lock")
+                .push(request.into_inner());
+            Ok(Response::new(self.inner.status_response.clone()))
+        }
+    }
+
+    async fn start_wire_server(
+        state: Arc<WireState>,
+    ) -> (String, oneshot::Sender<()>, tokio::task::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let addr = listener.local_addr().expect("local_addr");
+        drop(listener);
+
+        let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
+        let svc = WireControlService { inner: state };
+        let handle = tokio::spawn(async move {
+            tonic::transport::Server::builder()
+                .add_service(ControlServiceServer::new(svc))
+                .serve_with_shutdown(addr, async {
+                    let _ = shutdown_rx.await;
+                })
+                .await
+                .expect("server should run");
+        });
+
+        tokio::time::sleep(Duration::from_millis(25)).await;
+        (addr.to_string(), shutdown_tx, handle)
     }
 
     #[tokio::test]
@@ -1100,5 +1209,129 @@ mod tests {
         assert_eq!(result.applied_shards, 0);
         assert!(result.shards.is_empty());
         assert_eq!(result.phase, eosin_types::ClusterPhase::Ready);
+    }
+
+    #[tokio::test]
+    async fn grpc_get_status_round_trip_uses_expected_request() {
+        let state = Arc::new(WireState {
+            status_response: GetShardStatusResponse {
+                shard_id: 9,
+                role: Role::Master as i32,
+                epoch: 77,
+                applied_offset: 11,
+                current_offset: 12,
+                last_heartbeat_unix_ms: 123,
+                replication_lag: 1,
+                ready: true,
+                master_addr: "10.1.1.1:4500".to_string(),
+                config_epoch: 8,
+                migration_queue_len: 0,
+                misplaced_tiles: 0,
+            },
+            ..Default::default()
+        });
+        let (addr, shutdown, handle) = start_wire_server(state.clone()).await;
+
+        let result = get_status(&addr, 9).await.expect("get_status ok");
+        assert_eq!(result.epoch, 77);
+        assert_eq!(result.config_epoch, 8);
+        assert_eq!(result.role, Role::Master as i32);
+        let requests = state.status_requests.lock().expect("lock");
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].shard_id, 9);
+
+        let _ = shutdown.send(());
+        let _ = handle.await;
+    }
+
+    #[tokio::test]
+    async fn grpc_become_master_forwards_epoch_and_shard() {
+        let state = Arc::new(WireState {
+            become_master_accept: true,
+            ..Default::default()
+        });
+        let (addr, shutdown, handle) = start_wire_server(state.clone()).await;
+
+        let accepted = become_master(&addr, 4, 21).await;
+        assert!(accepted);
+        let requests = state.become_master_requests.lock().expect("lock");
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].shard_id, 4);
+        assert_eq!(requests[0].epoch, 21);
+
+        let _ = shutdown.send(());
+        let _ = handle.await;
+    }
+
+    #[tokio::test]
+    async fn grpc_become_replica_forwards_master_address() {
+        let state = Arc::new(WireState {
+            become_replica_accept: true,
+            ..Default::default()
+        });
+        let (addr, shutdown, handle) = start_wire_server(state.clone()).await;
+
+        let accepted = become_replica(&addr, 3, 19, "10.2.2.2:4500").await;
+        assert!(accepted);
+        let requests = state.become_replica_requests.lock().expect("lock");
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].shard_id, 3);
+        assert_eq!(requests[0].epoch, 19);
+        assert_eq!(requests[0].master_addr, "10.2.2.2:4500");
+
+        let _ = shutdown.send(());
+        let _ = handle.await;
+    }
+
+    #[tokio::test]
+    async fn grpc_update_routing_config_forwards_slots_and_masters() {
+        let state = Arc::new(WireState {
+            update_accept: true,
+            ..Default::default()
+        });
+        let (addr, shutdown, handle) = start_wire_server(state.clone()).await;
+
+        let mut shard_masters = HashMap::new();
+        shard_masters.insert(0, "10.0.0.1:4500".to_string());
+        shard_masters.insert(1, "10.0.0.2:4500".to_string());
+        let accepted = update_routing_config(
+            &addr,
+            ClusterRoutingConfig {
+                config_epoch: 42,
+                slot_to_shard: vec![0, 0, 1, 1],
+                shard_masters,
+            },
+        )
+        .await;
+        assert!(accepted);
+
+        let requests = state.update_requests.lock().expect("lock");
+        assert_eq!(requests.len(), 1);
+        let cfg = requests[0].config.as_ref().expect("config");
+        assert_eq!(cfg.config_epoch, 42);
+        assert_eq!(cfg.slot_to_shard, vec![0, 0, 1, 1]);
+        assert_eq!(cfg.shard_masters.get(&1).map(String::as_str), Some("10.0.0.2:4500"));
+
+        let _ = shutdown.send(());
+        let _ = handle.await;
+    }
+
+    #[tokio::test]
+    async fn grpc_helpers_handle_unavailable_endpoints() {
+        let unreachable = "127.0.0.1:1";
+        assert!(get_status(unreachable, 0).await.is_err());
+        assert!(!become_master(unreachable, 0, 1).await);
+        assert!(!become_replica(unreachable, 0, 1, "127.0.0.1:2").await);
+        assert!(
+            !update_routing_config(
+                unreachable,
+                ClusterRoutingConfig {
+                    config_epoch: 1,
+                    slot_to_shard: vec![0],
+                    shard_masters: HashMap::new(),
+                },
+            )
+            .await
+        );
     }
 }

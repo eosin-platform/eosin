@@ -7,7 +7,7 @@ fn main() {
         std::env::set_var("PROTOC", protobuf_src::protoc());
     }
     tonic_prost_build::configure()
-        .build_server(false)
+        .build_server(true)
         .build_client(true)
         .compile_protos(&["../storage/proto/cluster.proto"], &["../storage/proto"])
         .unwrap();
