@@ -1,47 +1,25 @@
-use crate::util::{self, Error, patch::*};
-use eosin_common::annotations;
-use eosin_types::*;
+use eosin_types::{Cluster, ClusterPhase, ClusterStatus, ShardStatus};
+use kube::Client;
 
-use kube::{
-    Api, Client,
-    api::{ObjectMeta, Resource},
-};
+use crate::util::{Error, patch::patch_status};
 
-fn instance_name(instance: &Cluster) -> Result<&str, Error> {
-    instance
-        .meta()
-        .name
-        .as_deref()
-        .ok_or_else(|| Error::UserInput("Cluster is missing metadata.name".to_string()))
-}
-
-fn instance_namespace(instance: &Cluster) -> Result<&str, Error> {
-    instance
-        .meta()
-        .namespace
-        .as_deref()
-        .ok_or_else(|| Error::UserInput("Cluster is missing metadata.namespace".to_string()))
-}
-
-/// Updates the `Cluster`'s phase to Active.
-pub async fn active(client: Client, instance: &Cluster, peggy_pod_name: &str) -> Result<(), Error> {
-    Ok(())
-}
-
-pub async fn pending(client: Client, instance: &Cluster, reason: String) -> Result<(), Error> {
-    patch_status(client, instance, |status| {
-        status.phase = ClusterPhase::Pending;
-        status.message = Some(reason);
+pub async fn patch_cluster_status(
+    client: Client,
+    instance: &Cluster,
+    phase: ClusterPhase,
+    config_epoch: u64,
+    applied_shards: u32,
+    message: Option<String>,
+    shards: Vec<ShardStatus>,
+) -> Result<(), Error> {
+    patch_status::<ClusterStatus, Cluster>(client, instance, |status| {
+        status.phase = phase;
+        status.config_epoch = config_epoch;
+        status.applied_shards = applied_shards;
+        status.message = message;
+        status.shards = shards;
     })
-    .await?;
-    Ok(())
-}
-
-pub async fn error(client: Client, instance: &Cluster, message: String) -> Result<(), Error> {
-    patch_status(client.clone(), instance, |status| {
-        status.phase = ClusterPhase::Error;
-        status.message = Some(message);
-    })
-    .await?;
+    .await
+    .map_err(Error::from)?;
     Ok(())
 }

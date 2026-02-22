@@ -2,57 +2,142 @@ syntax = "proto3";
 
 package cluster;
 
-// Cluster service for bidirectional inter-node communication
-service ClusterService {
-    // Bidirectional streaming for cluster synchronization
-    rpc Sync(stream ClusterMessage) returns (stream ClusterMessage);
-    
-    // Join the cluster
-    rpc Join(JoinRequest) returns (JoinResponse);
-    
-    // Leave the cluster
-    rpc Leave(LeaveRequest) returns (LeaveResponse);
+enum Role {
+  ROLE_UNSPECIFIED = 0;
+  MASTER = 1;
+  READ_REPLICA = 2;
 }
 
-message ClusterMessage {
-    oneof payload {
-        HeartbeatMessage heartbeat = 1;
-        ReplicationMessage replication = 2;
-        ShardAssignmentMessage shard_assignment = 3;
-    }
+service ReplicationService {
+  rpc Sync(SyncRequest) returns (stream SyncEvent);
+  rpc MigrateTile(MigrateTileRequest) returns (MigrateTileResponse);
 }
 
-message HeartbeatMessage {
-    string node_id = 1;
-    uint64 timestamp = 2;
+service ControlService {
+  rpc BecomeMaster(BecomeMasterRequest) returns (BecomeMasterResponse);
+  rpc BecomeReplica(BecomeReplicaRequest) returns (BecomeReplicaResponse);
+  rpc UpdateRoutingConfig(UpdateRoutingConfigRequest) returns (UpdateRoutingConfigResponse);
+  rpc GetShardStatus(GetShardStatusRequest) returns (GetShardStatusResponse);
 }
 
-message ReplicationMessage {
-    bytes id = 1;  // 16-byte UUID
-    uint32 shard = 2;
-    bytes data = 3;
-    uint64 version = 4;
+message ClusterRoutingConfig {
+  uint64 config_epoch = 1;
+  repeated uint32 slot_to_shard = 2;
+  map<uint32, string> shard_masters = 3;
 }
 
-message ShardAssignmentMessage {
-    string node_id = 1;
-    repeated uint32 shards = 2;
+message TileMutation {
+  bytes id = 1;
+  uint32 x = 2;
+  uint32 y = 3;
+  uint32 level = 4;
+  bytes data = 5;
+  uint64 offset = 6;
 }
 
-message JoinRequest {
-    string node_id = 1;
-    string address = 2;
+message SnapshotEntry {
+  bytes id = 1;
+  uint32 x = 2;
+  uint32 y = 3;
+  uint32 level = 4;
+  bytes data = 5;
 }
 
-message JoinResponse {
-    bool accepted = 1;
-    repeated string peer_addresses = 2;
+message SyncRequest {
+  uint32 shard_id = 1;
+  uint64 epoch = 2;
+  uint64 last_offset = 3;
 }
 
-message LeaveRequest {
-    string node_id = 1;
+message SyncReject {
+  string reason = 1;
 }
 
-message LeaveResponse {
-    bool acknowledged = 1;
+message FullSnapshot {
+  uint64 snapshot_offset = 1;
+  repeated SnapshotEntry entries = 2;
+}
+
+message LogBatch {
+  repeated TileMutation entries = 1;
+  uint64 current_offset = 2;
+}
+
+message Heartbeat {
+  uint64 current_offset = 1;
+  uint64 epoch = 2;
+}
+
+message SyncEvent {
+  oneof payload {
+    SyncReject reject = 1;
+    FullSnapshot full_snapshot = 2;
+    LogBatch log_batch = 3;
+    Heartbeat heartbeat = 4;
+  }
+}
+
+message BecomeMasterRequest {
+  uint32 shard_id = 1;
+  uint64 epoch = 2;
+}
+
+message BecomeMasterResponse {
+  bool accepted = 1;
+  string message = 2;
+}
+
+message BecomeReplicaRequest {
+  uint32 shard_id = 1;
+  uint64 epoch = 2;
+  string master_addr = 3;
+}
+
+message BecomeReplicaResponse {
+  bool accepted = 1;
+  string message = 2;
+}
+
+message UpdateRoutingConfigRequest {
+  ClusterRoutingConfig config = 1;
+}
+
+message UpdateRoutingConfigResponse {
+  bool accepted = 1;
+  string message = 2;
+}
+
+message MigrateTileRequest {
+  uint32 source_shard_id = 1;
+  uint32 target_shard_id = 2;
+  uint64 config_epoch = 3;
+  bytes id = 4;
+  uint32 x = 5;
+  uint32 y = 6;
+  uint32 level = 7;
+  bytes data = 8;
+}
+
+message MigrateTileResponse {
+  bool accepted = 1;
+  string message = 2;
+}
+
+message GetShardStatusRequest {
+  uint32 shard_id = 1;
+}
+
+message GetShardStatusResponse {
+  uint32 shard_id = 1;
+  Role role = 2;
+  uint64 epoch = 3;
+  uint64 applied_offset = 4;
+  uint64 current_offset = 5;
+  uint64 last_heartbeat_unix_ms = 6;
+  uint64 replication_lag = 7;
+  bool ready = 8;
+  string master_addr = 9;
+  uint64 config_epoch = 10;
+  uint64 migration_queue_len = 11;
+  uint64 misplaced_tiles = 12;
 }

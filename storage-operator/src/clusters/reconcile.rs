@@ -1,392 +1,439 @@
-use eosin_types::*;
+use std::collections::{BTreeMap, HashMap};
+use std::sync::Arc;
+use std::time::Duration;
+
+use eosin_types::{Cluster, ReplicaRole, ReplicaSummary, ShardStatus};
 use futures::stream::StreamExt;
-use k8s_openapi::jiff::Timestamp;
-use kube::{
-    Api, ResourceExt,
-    client::Client,
-    runtime::{Controller, controller::Action},
+use k8s_openapi::api::core::v1::{Container, ContainerPort, EnvVar, Pod, PodSpec};
+use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
+use kube::api::{DeleteParams, PostParams};
+use kube::client::Client;
+use kube::runtime::controller::Action;
+use kube::runtime::Controller;
+use kube::{Api, Resource, ResourceExt};
+
+use crate::clusters::planner::{
+    DEFAULT_NUM_SLOTS, ReplicaHealth, build_promotion_decision, compute_slot_to_shard,
+    determine_cluster_phase, next_config_epoch, now_unix_ms,
 };
-use kube_leader_election::{LeaseLock, LeaseLockParams, LeaseLockResult};
-use owo_colors::OwoColorize;
-use std::{collections::HashMap, sync::Arc, time::Instant};
-use tokio::{sync::Mutex, time::Duration};
-use tokio_util::sync::CancellationToken;
+use crate::proto::cluster::{
+    BecomeMasterRequest, BecomeReplicaRequest, ClusterRoutingConfig, GetShardStatusRequest, Role,
+    UpdateRoutingConfigRequest, control_service_client::ControlServiceClient,
+};
+use crate::util::{Error, PROBE_INTERVAL};
 
 use super::actions;
-use crate::util::{
-    Error, PROBE_INTERVAL,
-    colors::{FG1, FG2},
-};
 
-#[cfg(feature = "metrics")]
-use crate::util::metrics::ControllerMetrics;
-
-/// Entrypoint for the `Cluster` controller.
 pub async fn run(client: Client) -> Result<(), Error> {
-    println!("{}", "⚙️ Starting Cluster controller...".green());
+    let namespace = std::env::var("NAMESPACE").unwrap_or_else(|_| "default".to_string());
+    let clusters: Api<Cluster> = Api::namespaced(client.clone(), &namespace);
+    let context = Arc::new(ContextData { client });
 
-    // Preparation of resources used by the `kube_runtime::Controller`
-    let context: Arc<ContextData> = Arc::new(ContextData::new(client.clone()));
-
-    // The controller comes from the `kube_runtime` crate and manages the reconciliation process.
-    // It requires the following information:
-    // - `kube::Api<T>` this controller "owns". In this case, `T = Cluster`, as this controller owns the `Cluster` resource,
-    // - `kube::api::ListParams` to select the `Cluster` resources with. Can be used for Cluster filtering `Cluster` resources before reconciliation,
-    // - `reconcile` function with reconciliation logic to be called each time a resource of `Cluster` kind is created/updated/deleted,
-    // - `on_error` function to call whenever reconciliation fails.
-    //Controller::new(crd_api, Default::default())
-    //    .owns(Api::<Pod>::all(client), Default::default())
-    //    .run(reconcile, on_error, context)
-    //    .for_each(|_reconciliation_result| async move {})
-    //    .await;
-    //Ok(())
-
-    // Namespace where we run both leader election and the controller.
-    // This lets us keep RBAC namespaced rather than cluster-scoped.
-    let lease_namespace = std::env::var("NAMESPACE").unwrap_or_else(|_| "default".to_string());
-    // Unique identity per replica (Downward API POD_NAME is ideal).
-    // Fallback to hostname if not present.
-    let holder_id = std::env::var("POD_NAME")
-        .or_else(|_| std::env::var("HOSTNAME"))
-        .unwrap_or_else(|_| format!("eosin-cluster-controller-{}", uuid::Uuid::new_v4()));
-    // The shared lock name across all replicas
-    let lease_name = "eosin-cluster-controller-lock".to_string();
-    // TTL: how long leadership is considered valid without renewal.
-    // Renew should happen well before TTL expires.
-    let lease_ttl = Duration::from_secs(15);
-    let renew_every = Duration::from_secs(5);
-    let leadership = LeaseLock::new(
-        client.clone(),
-        &lease_namespace,
-        LeaseLockParams {
-            holder_id,
-            lease_name,
-            lease_ttl,
-        },
-    );
-
-    let shutdown = CancellationToken::new();
-    let shutdown_signal = shutdown.clone();
-    tokio::spawn(async move {
-        eosin_common::shutdown::shutdown_signal().await;
-        shutdown_signal.cancel();
-    });
-    eosin_common::signal_ready();
-    println!("{}", "🌱 Starting Cluster controller...".green());
-    // We run indefinitely; only the leader runs the controller.
-    // On leadership loss, we abort the controller and go back to standby.
-    let mut controller_task: Option<tokio::task::JoinHandle<()>> = None;
-    let mut tick = tokio::time::interval(renew_every);
-    loop {
-        tokio::select! {
-            _ = shutdown.cancelled() => {
-                if let Some(task) = controller_task.take() {
-                    task.abort();
-                    task.await.ok();
-                }
-                break Ok(())
-            },
-            _ = tick.tick() => {}
-        }
-        let lease = match leadership.try_acquire_or_renew().await {
-            Ok(l) => l,
-            Err(e) => {
-                // If we can't talk to the apiserver / update Lease, assume we are not safe to lead.
-                eprintln!("leader election renew/acquire failed: {e}");
-                if let Some(task) = controller_task.take() {
-                    task.abort();
-                    eprintln!("aborted controller due to leader election error");
-                }
-                continue;
-            }
-        };
-        if matches!(lease, LeaseLockResult::Acquired(_)) {
-            // We are leader; ensure controller is running
-            if controller_task.is_none() {
-                println!("{}", "👑 Acquired leadership; starting controller".green());
-                let client_for_controller = client.clone();
-                let context_for_controller = context.clone();
-                let controller_namespace = lease_namespace.clone();
-                let crd_api_for_controller: Api<Cluster> =
-                    Api::namespaced(client_for_controller.clone(), &controller_namespace);
-                controller_task = Some(tokio::spawn(async move {
-                    println!("{}", "🚀 Cluster controller started.".green());
-                    Controller::new(crd_api_for_controller, Default::default())
-                        .owns(
-                            Api::<Shard>::namespaced(client_for_controller, &controller_namespace),
-                            Default::default(),
-                        )
-                        .run(reconcile, on_error, context_for_controller)
-                        .for_each(|_res| async move {})
-                        .await;
-                }));
-            }
-        } else if let Some(task) = controller_task.take() {
-            // We are NOT leader; ensure controller is stopped
-            eprintln!("lost leadership; stopping controller");
-            task.abort();
-        }
-    }
+    Controller::new(clusters, Default::default())
+        .run(reconcile, on_error, context)
+        .for_each(|_| async {})
+        .await;
+    Ok(())
 }
 
-/// Context injected with each `reconcile` and `on_error` method invocation.
 struct ContextData {
-    /// Kubernetes client to make Kubernetes API requests with. Required for K8S resource management.
     client: Client,
-
-    #[cfg(feature = "metrics")]
-    metrics: ControllerMetrics,
-
-    last_action: Mutex<HashMap<(String, String), (ClusterAction, Instant)>>,
 }
 
-impl ContextData {
-    /// Constructs a new instance of ContextData.
-    ///
-    /// # Arguments:
-    /// - `client`: A Kubernetes client to make Kubernetes REST API requests with. Resources
-    ///   will be created and deleted with this client.
-    pub fn new(client: Client) -> Self {
-        #[cfg(feature = "metrics")]
-        {
-            ContextData {
-                client,
-                metrics: ControllerMetrics::new("consumers"),
-                last_action: Mutex::new(HashMap::new()),
-            }
-        }
-        #[cfg(not(feature = "metrics"))]
-        {
-            ContextData {
-                client,
-                last_action: Mutex::new(HashMap::new()),
-            }
-        }
-    }
+#[derive(Clone, Default)]
+struct ReplicaEndpoint {
+    control_addr: Option<String>,
+    cluster_addr: Option<String>,
 }
 
-/// Action to be taken upon an `Cluster` resource during reconciliation
-#[derive(Debug, PartialEq, Clone)]
-enum ClusterAction {
-    Pending {
-        reason: String,
-    },
-
-    Terminating {
-        reason: String,
-    },
-
-    Starting {
-        reason: String,
-    },
-
-    /// Signals that the [`Cluster`] is fully reconciled.
-    Active {
-        pod_name: String,
-    },
-
-    /// An error occurred during reconciliation.
-    Error(String),
-
-    /// The [`Cluster`] resource is in desired state and requires no actions to be taken.
-    NoOp,
-
-    Requeue(Duration),
-}
-
-impl ClusterAction {
-    fn to_str(&self) -> &str {
-        match self {
-            ClusterAction::Terminating { .. } => "Terminating",
-            ClusterAction::Starting { .. } => "Starting",
-            ClusterAction::Active { .. } => "Active",
-            ClusterAction::NoOp => "NoOp",
-            ClusterAction::Error(_) => "Error",
-            ClusterAction::Requeue(_) => "Requeue",
-            ClusterAction::Pending { .. } => "Pending",
-        }
-    }
-}
-
-/// Reconciliation function for the `Cluster` resource.
 async fn reconcile(instance: Arc<Cluster>, context: Arc<ContextData>) -> Result<Action, Error> {
-    // The `Client` is shared -> a clone from the reference is obtained
-    let client: Client = context.client.clone();
-
-    // The resource of `Cluster` kind is required to have a namespace set. However, it is not guaranteed
-    // the resource will have a `namespace` set. Therefore, the `namespace` field on object's metadata
-    // is optional and Rust forces the programmer to check for it's existence first.
-    let namespace: String = match instance.namespace() {
-        None => {
-            // If there is no namespace to deploy to defined, reconciliation ends with an error immediately.
-            return Err(Error::UserInput(
-                "Expected Cluster resource to be namespaced. Can't deploy to an unknown namespace."
-                    .to_owned(),
-            ));
-        }
-        // If namespace is known, proceed. In a more advanced version of the operator, perhaps
-        // the namespace could be checked for existence first.
-        Some(namespace) => namespace,
-    };
-
-    // Name of the Cluster resource is used to name the subresources as well.
+    let client = context.client.clone();
+    let namespace = instance
+        .namespace()
+        .ok_or_else(|| Error::UserInput("Cluster must be namespaced".to_string()))?;
     let name = instance.name_any();
+    let pods: Api<Pod> = Api::namespaced(client.clone(), &namespace);
 
-    // Increment total number of reconciles for the Cluster resource.
-    #[cfg(feature = "metrics")]
-    context
-        .metrics
-        .reconcile_counter
-        .with_label_values(&[&name, &namespace])
-        .inc();
+    reconcile_pod_topology(&pods, &instance).await?;
 
-    // Benchmark the read phase of reconciliation.
-    #[cfg(feature = "metrics")]
-    let start = std::time::Instant::now();
+    let shard_count = instance.spec.topology.shards;
+    let replicas_per_shard = 1 + instance.spec.topology.read_replicas;
+    let existing_status = instance.status.clone().unwrap_or_default();
+    let previous_shards = existing_status.applied_shards;
+    let target_config_epoch = next_config_epoch(existing_status.config_epoch, previous_shards, shard_count);
+    let heartbeat_timeout = Duration::from_secs(instance.spec.failover.heartbeat_timeout_seconds);
 
-    // Read phase of reconciliation determines goal during the write phase.
-    let action = determine_action(client.clone(), &name, &namespace, &instance).await?;
+    let mut new_shards = Vec::new();
+    let mut all_shards_healthy = true;
+    let mut all_control_targets = Vec::new();
+    let mut shard_master_cluster_addr: HashMap<u32, String> = HashMap::new();
 
-    if action != ClusterAction::NoOp {
-        let value = {
-            let mut la = context.last_action.lock().await;
-            la.insert(
-                (namespace.clone(), name.clone()),
-                (action.clone(), Instant::now()),
-            )
-        };
-        if let Some((last_action, last_instant)) = value
-            && (Some(&action) != Some(&last_action)
-                || last_instant.elapsed() > Duration::from_secs(300))
-        {
-            println!(
-                "🔧 {}{}{}{}{}",
-                namespace.color(FG2),
-                "/".color(FG1),
-                name.color(FG2),
-                " ACTION: ".color(FG1),
-                format!("{:?}", action).color(FG2),
-            );
+    for shard_id in 0..shard_count {
+        let mut replica_summaries = Vec::new();
+        let mut endpoints: HashMap<String, ReplicaEndpoint> = HashMap::new();
+        let mut health_replicas = Vec::new();
+
+        for replica_id in 0..replicas_per_shard {
+            let replica_name = pod_name(&name, shard_id, replica_id);
+            let pod = pods.get_opt(&replica_name).await?;
+            let ready = pod.as_ref().is_some_and(pod_ready);
+
+            let endpoint = pod
+                .as_ref()
+                .and_then(|p| p.status.as_ref())
+                .and_then(|s| s.pod_ip.clone())
+                .map(|ip| ReplicaEndpoint {
+                    control_addr: Some(format!("{}:{}", ip, instance.spec.control_port)),
+                    cluster_addr: Some(format!("{}:{}", ip, instance.spec.cluster_port)),
+                })
+                .unwrap_or_default();
+
+            let mut summary = ReplicaSummary {
+                name: replica_name.clone(),
+                role: ReplicaRole::ReadReplica,
+                ready,
+                node: pod
+                    .as_ref()
+                    .and_then(|p| p.spec.as_ref())
+                    .and_then(|s| s.node_name.clone()),
+                ..Default::default()
+            };
+
+            if let Some(control_addr) = endpoint.control_addr.clone() {
+                all_control_targets.push(control_addr.clone());
+                if let Ok(status) = get_status(&control_addr, shard_id).await {
+                    summary.role = if status.role == Role::Master as i32 {
+                        ReplicaRole::Master
+                    } else {
+                        ReplicaRole::ReadReplica
+                    };
+                    summary.epoch = Some(status.epoch);
+                    summary.applied_offset = Some(status.applied_offset);
+                    summary.current_offset = Some(status.current_offset);
+                    summary.replication_lag = Some(status.replication_lag);
+                    summary.master_addr = if status.master_addr.is_empty() {
+                        None
+                    } else {
+                        Some(status.master_addr)
+                    };
+                    summary.ready = summary.ready && status.ready;
+                    summary.config_epoch = Some(status.config_epoch);
+                    health_replicas.push(ReplicaHealth {
+                        name: replica_name.clone(),
+                        role: summary.role,
+                        ready: summary.ready,
+                        last_heartbeat_unix_ms: status.last_heartbeat_unix_ms,
+                        replication_lag: summary.replication_lag,
+                    });
+
+                    if summary.role == ReplicaRole::Master
+                        && let Some(cluster_addr) = endpoint.cluster_addr.clone()
+                    {
+                        shard_master_cluster_addr.insert(shard_id, cluster_addr);
+                    }
+                }
+            }
+
+            endpoints.insert(replica_name.clone(), endpoint);
+            replica_summaries.push(summary);
+        }
+
+        let now_ms = now_unix_ms();
+        let mut shard_status = existing_status
+            .shards
+            .iter()
+            .find(|s| s.shard_id == shard_id)
+            .cloned()
+            .unwrap_or(ShardStatus {
+                shard_id,
+                epoch: 0,
+                master: None,
+                replicas: vec![],
+                ready_replicas: 0,
+                expected_replicas: replicas_per_shard,
+                current_offset: None,
+                config_epoch: 0,
+                migration_queue_len: 0,
+                misplaced_tiles: 0,
+                message: None,
+                last_failover: None,
+                cooldown_until: None,
+            });
+
+        if let Some(decision) = build_promotion_decision(
+            &shard_status,
+            &health_replicas,
+            now_ms,
+            heartbeat_timeout,
+            false,
+        ) {
+            if let Some(promote_ep) = endpoints.get(&decision.promote)
+                && let Some(control_addr) = promote_ep.control_addr.clone()
+                && become_master(&control_addr, shard_id, decision.new_epoch).await
+            {
+                if let Some(cluster_addr) = promote_ep.cluster_addr.clone() {
+                    shard_master_cluster_addr.insert(shard_id, cluster_addr.clone());
+                    for replica in &replica_summaries {
+                        if replica.name == decision.promote {
+                            continue;
+                        }
+                        if let Some(rep_ep) = endpoints.get(&replica.name)
+                            && let Some(control) = rep_ep.control_addr.clone()
+                        {
+                            let _ = become_replica(
+                                &control,
+                                shard_id,
+                                decision.new_epoch,
+                                &cluster_addr,
+                            )
+                            .await;
+                        }
+                    }
+                }
+                shard_status.epoch = decision.new_epoch;
+                shard_status.master = Some(decision.promote.clone());
+            }
+        }
+
+        let ready_replicas = replica_summaries.iter().filter(|r| r.ready).count() as u32;
+        let current_master = replica_summaries
+            .iter()
+            .find(|r| r.role == ReplicaRole::Master)
+            .map(|r| r.name.clone())
+            .or(shard_status.master.clone());
+        if current_master.is_none() {
+            all_shards_healthy = false;
+        }
+        if ready_replicas == 0 {
+            all_shards_healthy = false;
+        }
+
+        let current_offset = replica_summaries
+            .iter()
+            .filter_map(|r| r.current_offset)
+            .max();
+
+        let highest_config_epoch = replica_summaries
+            .iter()
+            .filter_map(|r| r.config_epoch)
+            .max()
+            .unwrap_or(0);
+
+        shard_status.master = current_master;
+        shard_status.replicas = replica_summaries;
+        shard_status.ready_replicas = ready_replicas;
+        shard_status.expected_replicas = replicas_per_shard;
+        shard_status.current_offset = current_offset;
+        shard_status.config_epoch = highest_config_epoch;
+        new_shards.push(shard_status);
+    }
+
+    let num_slots = (instance.spec.num_slots as usize).max(DEFAULT_NUM_SLOTS);
+    let slot_to_shard = compute_slot_to_shard(shard_count, num_slots);
+    let routing = ClusterRoutingConfig {
+        config_epoch: target_config_epoch,
+        slot_to_shard,
+        shard_masters: shard_master_cluster_addr,
+    };
+
+    let mut pushed = 0_u32;
+    for target in all_control_targets {
+        if update_routing_config(&target, routing.clone()).await {
+            pushed = pushed.saturating_add(1);
         }
     }
 
-    // Report the read phase performance.
-    #[cfg(feature = "metrics")]
-    context
-        .metrics
-        .read_histogram
-        .with_label_values(&[&name, &namespace, action.to_str()])
-        .observe(start.elapsed().as_secs_f64());
+    let phase = determine_cluster_phase(&new_shards, target_config_epoch, all_shards_healthy);
+    let msg = Some(format!(
+        "routing_epoch={} pushed_to={} targets",
+        target_config_epoch, pushed
+    ));
 
-    // Increment the counter for the action.
-    #[cfg(feature = "metrics")]
-    context
-        .metrics
-        .action_counter
-        .with_label_values(&[&name, &namespace, action.to_str()])
-        .inc();
+    actions::patch_cluster_status(
+        client,
+        &instance,
+        phase,
+        target_config_epoch,
+        shard_count,
+        msg,
+        new_shards,
+    )
+    .await?;
 
-    // Benchmark the write phase of reconciliation.
-    #[cfg(feature = "metrics")]
-    let timer = match action {
-        // Don't measure performance for NoOp actions.
-        ClusterAction::NoOp => None,
-        // Start a performance timer for the write phase.
-        _ => Some(
-            context
-                .metrics
-                .write_histogram
-                .with_label_values(&[&name, &namespace, action.to_str()])
-                .start_timer(),
-        ),
-    };
+    Ok(Action::requeue(PROBE_INTERVAL))
+}
 
-    // Performs action as decided by the `determine_action` function.
-    // This is the write phase of reconciliation.
-    let result = match action {
-        ClusterAction::Requeue(duration) => Action::requeue(duration),
-        ClusterAction::Terminating { reason } => {
-            //actions::terminating(client, &instance, reason).await?;
-            Action::await_change()
+async fn reconcile_pod_topology(pods: &Api<Pod>, cluster: &Cluster) -> Result<(), Error> {
+    let cluster_name = cluster.name_any();
+    let replicas_per_shard = 1 + cluster.spec.topology.read_replicas;
+    let mut desired = BTreeMap::new();
+    for shard in 0..cluster.spec.topology.shards {
+        for replica in 0..replicas_per_shard {
+            let name = pod_name(&cluster_name, shard, replica);
+            desired.insert(name.clone(), pod_resource(cluster, shard, replica));
         }
-        ClusterAction::Pending { reason } => {
-            actions::pending(client, &instance, reason).await?;
-            Action::await_change()
-        }
-        ClusterAction::Starting { reason } => {
-            //actions::starting(client, &instance, reason).await?;
-            Action::await_change()
-        }
-        ClusterAction::Error(message) => {
-            actions::error(client.clone(), &instance, message).await?;
-            Action::await_change()
-        }
-        ClusterAction::Active { pod_name } => {
-            actions::active(client, &instance, &pod_name).await?;
-            Action::requeue(PROBE_INTERVAL)
-        }
-        ClusterAction::NoOp => Action::requeue(PROBE_INTERVAL),
-    };
-
-    #[cfg(feature = "metrics")]
-    if let Some(timer) = timer {
-        timer.observe_duration();
     }
 
-    Ok(result)
-}
-
-/// Resources arrives into reconciliation queue in a certain state. This function looks at
-/// the state of given `Cluster` resource and decides which actions needs to be performed.
-/// The finite set of possible actions is represented by the `ClusterAction` enum.
-///
-/// # Arguments
-/// - `instance`: A reference to `Cluster` being reconciled to decide next action upon.
-async fn determine_action(
-    client: Client,
-    _name: &str,
-    namespace: &str,
-    instance: &Cluster,
-) -> Result<ClusterAction, Error> {
-    // Don't do anything while being deleted.
-    if instance.metadata.deletion_timestamp.is_some() {
-        return Ok(ClusterAction::Requeue(Duration::from_secs(2)));
+    let existing = pods
+        .list(&kube::api::ListParams::default().labels(&format!("eosin.io/cluster={cluster_name}")))
+        .await?;
+    for pod in existing.items {
+        let pod_name = pod.name_any();
+        if !desired.contains_key(&pod_name) {
+            let _ = pods.delete(&pod_name, &DeleteParams::default()).await;
+        }
     }
 
-    unimplemented!()
+    for (name, pod) in desired {
+        if pods.get_opt(&name).await?.is_none() {
+            let _ = pods.create(&PostParams::default(), &pod).await;
+        }
+    }
+
+    Ok(())
 }
 
-/// Returns the phase of the Cluster.
-pub fn get_phase(instance: &Cluster) -> Option<ClusterPhase> {
-    instance.status.as_ref().map(|status| status.phase)
+fn pod_name(cluster: &str, shard: u32, replica: u32) -> String {
+    format!("{cluster}-s{shard}-r{replica}")
 }
 
-pub fn get_last_updated(instance: &Cluster) -> Option<Duration> {
-    let Some(status) = instance.status.as_ref() else {
-        return None;
-    };
-    let Some(last_updated) = status.last_updated.as_ref() else {
-        return None;
-    };
-    let age = Timestamp::now().duration_since(last_updated.0);
-    let Ok(age) = age.try_into() else {
-        return None;
-    };
-    Some(age)
+fn pod_resource(cluster: &Cluster, shard_id: u32, replica_id: u32) -> Pod {
+    let name = pod_name(&cluster.name_any(), shard_id, replica_id);
+    let mut labels = BTreeMap::new();
+    labels.insert("app".to_string(), "eosin-storage".to_string());
+    labels.insert("eosin.io/cluster".to_string(), cluster.name_any());
+    labels.insert("eosin.io/shard".to_string(), shard_id.to_string());
+    labels.insert("eosin.io/replica".to_string(), replica_id.to_string());
+    for (k, v) in &cluster.spec.extra_labels {
+        labels.insert(k.clone(), v.clone());
+    }
+
+    Pod {
+        metadata: ObjectMeta {
+            name: Some(name.clone()),
+            namespace: cluster.namespace(),
+            owner_references: Some(vec![cluster.controller_owner_ref(&()).unwrap()]),
+            labels: Some(labels),
+            ..Default::default()
+        },
+        spec: Some(PodSpec {
+            containers: vec![Container {
+                name: "storage".to_string(),
+                image: Some(cluster.spec.image.clone()),
+                env: Some(vec![
+                    EnvVar {
+                        name: "API_PORT".to_string(),
+                        value: Some(cluster.spec.api_port.to_string()),
+                        ..Default::default()
+                    },
+                    EnvVar {
+                        name: "CLUSTER_PORT".to_string(),
+                        value: Some(cluster.spec.cluster_port.to_string()),
+                        ..Default::default()
+                    },
+                    EnvVar {
+                        name: "CONTROL_PORT".to_string(),
+                        value: Some(cluster.spec.control_port.to_string()),
+                        ..Default::default()
+                    },
+                    EnvVar {
+                        name: "SHARD".to_string(),
+                        value: Some(shard_id.to_string()),
+                        ..Default::default()
+                    },
+                    EnvVar {
+                        name: "BACKLOG_CAPACITY".to_string(),
+                        value: Some(cluster.spec.backlog_capacity.to_string()),
+                        ..Default::default()
+                    },
+                ]),
+                ports: Some(vec![
+                    ContainerPort {
+                        container_port: cluster.spec.api_port as i32,
+                        ..Default::default()
+                    },
+                    ContainerPort {
+                        container_port: cluster.spec.cluster_port as i32,
+                        ..Default::default()
+                    },
+                    ContainerPort {
+                        container_port: cluster.spec.control_port as i32,
+                        ..Default::default()
+                    },
+                ]),
+                ..Default::default()
+            }],
+            restart_policy: Some("Always".to_string()),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
 }
 
-/// Actions to be taken when a reconciliation fails - for whatever reason.
-/// Prints out the error to `stderr` and requeues the resource for another reconciliation after
-/// five seconds.
-///
-/// # Arguments
-/// - `instance`: The erroneous resource.
-/// - `error`: A reference to the `kube::Error` that occurred during reconciliation.
-/// - `_context`: Unused argument. Context Data "injected" automatically by kube-rs.
-fn on_error(instance: Arc<Cluster>, error: &Error, _context: Arc<ContextData>) -> Action {
-    eprintln!(
-        "{}",
-        format!("Reconciliation error: {:?} {:?}", error, instance).red()
-    );
+fn pod_ready(pod: &Pod) -> bool {
+    pod.status
+        .as_ref()
+        .and_then(|s| s.conditions.as_ref())
+        .is_some_and(|conditions| {
+            conditions
+                .iter()
+                .any(|c| c.type_ == "Ready" && c.status == "True")
+        })
+}
+
+async fn get_status(
+    control_addr: &str,
+    shard_id: u32,
+) -> Result<crate::proto::cluster::GetShardStatusResponse, tonic::Status> {
+    let mut client = ControlServiceClient::connect(format!("http://{control_addr}"))
+        .await
+        .map_err(|e| tonic::Status::unavailable(e.to_string()))?;
+    client
+        .get_shard_status(GetShardStatusRequest { shard_id })
+        .await
+        .map(|r| r.into_inner())
+}
+
+async fn become_master(control_addr: &str, shard_id: u32, epoch: u64) -> bool {
+    let mut client = match ControlServiceClient::connect(format!("http://{control_addr}")).await {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    client
+        .become_master(BecomeMasterRequest { shard_id, epoch })
+        .await
+        .map(|r| r.into_inner().accepted)
+        .unwrap_or(false)
+}
+
+async fn become_replica(control_addr: &str, shard_id: u32, epoch: u64, master_addr: &str) -> bool {
+    let mut client = match ControlServiceClient::connect(format!("http://{control_addr}")).await {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    client
+        .become_replica(BecomeReplicaRequest {
+            shard_id,
+            epoch,
+            master_addr: master_addr.to_string(),
+        })
+        .await
+        .map(|r| r.into_inner().accepted)
+        .unwrap_or(false)
+}
+
+async fn update_routing_config(control_addr: &str, config: ClusterRoutingConfig) -> bool {
+    let mut client = match ControlServiceClient::connect(format!("http://{control_addr}")).await {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    client
+        .update_routing_config(UpdateRoutingConfigRequest { config: Some(config) })
+        .await
+        .map(|r| r.into_inner().accepted)
+        .unwrap_or(false)
+}
+
+fn on_error(_instance: Arc<Cluster>, _error: &Error, _context: Arc<ContextData>) -> Action {
     Action::requeue(Duration::from_secs(5))
 }

@@ -2,8 +2,13 @@ use clap::{Parser, Subcommand};
 use kube::client::Client;
 
 mod clusters;
-mod shards;
 mod util;
+
+pub mod proto {
+    pub mod cluster {
+        tonic::include_proto!("cluster");
+    }
+}
 
 #[cfg(feature = "metrics")]
 mod metrics;
@@ -29,7 +34,6 @@ struct Cli {
 #[derive(Subcommand)]
 enum Command {
     ManageClusters,
-    ManageReplicas,
 }
 
 /// Secondary entrypoint that runs the appropriate subcommand.
@@ -43,7 +47,6 @@ async fn run(client: Client) {
 
     match cli.command {
         Command::ManageClusters => clusters::run(client).await,
-        Command::ManageReplicas => shards::run(client).await,
     }
     .unwrap();
 

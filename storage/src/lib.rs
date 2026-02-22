@@ -1,9 +1,9 @@
 pub mod api;
 pub mod args;
 pub mod client;
-pub mod cluster;
 pub mod health;
 pub mod metrics;
+pub mod replication;
 pub mod server;
 pub mod shard;
 

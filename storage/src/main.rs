@@ -3,9 +3,9 @@ use clap::Parser;
 
 mod api;
 mod args;
-mod cluster;
 mod health;
 pub mod metrics;
+mod replication;
 mod server;
 
 pub mod proto {

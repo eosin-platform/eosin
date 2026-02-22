@@ -26,43 +26,74 @@ spec:
         properties:
           spec:
             properties:
-              extra_labels:
-                additionalProperties:
-                  type: string
-                default: {}
-                description: Optional additional labels applied to all child resources.
-                type: object
-              grpc_port:
-                default: 50051
-                description: gRPC port exposed by shard replicas.
+              api_port:
+                default: 3500
                 format: uint16
                 maximum: 65535.0
                 minimum: 0.0
                 type: integer
+              backlog_capacity:
+                default: 4096
+                format: uint32
+                minimum: 0.0
+                type: integer
+              cluster_port:
+                default: 4500
+                format: uint16
+                maximum: 65535.0
+                minimum: 0.0
+                type: integer
+              control_port:
+                default: 4600
+                format: uint16
+                maximum: 65535.0
+                minimum: 0.0
+                type: integer
+              extra_labels:
+                additionalProperties:
+                  type: string
+                default: {}
+                type: object
+              failover:
+                default:
+                  cooldown_seconds: 15
+                  heartbeat_timeout_seconds: 10
+                properties:
+                  cooldown_seconds:
+                    default: 15
+                    format: uint64
+                    minimum: 0.0
+                    type: integer
+                  heartbeat_timeout_seconds:
+                    default: 10
+                    format: uint64
+                    minimum: 0.0
+                    type: integer
+                type: object
               image:
-                description: Container image for shard replicas.
                 type: string
+              num_slots:
+                default: 16384
+                format: uint32
+                minimum: 0.0
+                type: integer
               placement:
                 default:
                   node_selector: null
                   tolerations: null
                   topology_key: null
-                description: Placement hints (anti-affinity, zones, etc.)
                 properties:
                   node_selector:
                     additionalProperties:
                       type: string
-                    description: 'Hard requirement: node selector.'
                     nullable: true
                     type: object
                   tolerations:
                     additionalProperties:
                       type: string
-                    description: Node taint tolerations.
                     nullable: true
                     type: object
                   topology_key:
-                    description: 'Soft preference: topology spread key, etc.'
                     nullable: true
                     type: string
                 type: object
@@ -71,35 +102,27 @@ spec:
                   cpu: null
                   memory: null
                   storage: null
-                description: Default resources per replica.
                 properties:
                   cpu:
-                    description: e.g. "500m"
                     nullable: true
                     type: string
                   memory:
-                    description: e.g. "1Gi"
                     nullable: true
                     type: string
                   storage:
-                    description: e.g. "10Gi"
                     nullable: true
                     type: string
                 type: object
               storage_class_name:
-                description: ClusterClass for the underlying volumes (if using StatefulSets/PVCs).
                 nullable: true
                 type: string
               topology:
-                description: Shard + replica layout.
                 properties:
                   read_replicas:
-                    description: Number of read replicas per shard.
                     format: uint32
                     minimum: 0.0
                     type: integer
                   shards:
-                    description: Number of logical shards.
                     format: uint32
                     minimum: 0.0
                     type: integer
@@ -112,12 +135,14 @@ spec:
             - topology
             type: object
           status:
-            description: Status object for the [`Cluster`] resource.
             nullable: true
             properties:
+              applied_shards:
+                format: uint32
+                minimum: 0.0
+                type: integer
               conditions:
                 default: []
-                description: Standard Kubernetes conditions (Available, Progressing, Degraded…)
                 items:
                   description: Condition contains details for one aspect of the current state of this API Resource.
                   properties:
@@ -149,19 +174,19 @@ spec:
                   - type
                   type: object
                 type: array
+              config_epoch:
+                format: uint64
+                minimum: 0.0
+                type: integer
               lastUpdated:
-                description: Timestamp of when the [`ClusterStatus`] object was last updated.
+                description: Time is a wrapper around time.Time which supports correct marshaling to YAML and JSON.  Wrappers are provided for many of the factory methods that the time package offers.
                 format: date-time
                 nullable: true
                 type: string
               message:
-                description: |-
-                  A human-readable message indicating details about why the
-                  [`Cluster`] is in this phase.
                 nullable: true
                 type: string
               phase:
-                description: A short description of the [`Cluster`] resource's current state.
                 enum:
                 - Pending
                 - Reconciling
@@ -169,7 +194,127 @@ spec:
                 - Degraded
                 - Error
                 type: string
+              shards:
+                default: []
+                items:
+                  properties:
+                    config_epoch:
+                      format: uint64
+                      minimum: 0.0
+                      type: integer
+                    cooldown_until:
+                      description: Time is a wrapper around time.Time which supports correct marshaling to YAML and JSON.  Wrappers are provided for many of the factory methods that the time package offers.
+                      format: date-time
+                      nullable: true
+                      type: string
+                    current_offset:
+                      format: uint64
+                      minimum: 0.0
+                      nullable: true
+                      type: integer
+                    epoch:
+                      format: uint64
+                      minimum: 0.0
+                      type: integer
+                    expected_replicas:
+                      format: uint32
+                      minimum: 0.0
+                      type: integer
+                    last_failover:
+                      description: Time is a wrapper around time.Time which supports correct marshaling to YAML and JSON.  Wrappers are provided for many of the factory methods that the time package offers.
+                      format: date-time
+                      nullable: true
+                      type: string
+                    master:
+                      nullable: true
+                      type: string
+                    message:
+                      nullable: true
+                      type: string
+                    migration_queue_len:
+                      format: uint64
+                      minimum: 0.0
+                      type: integer
+                    misplaced_tiles:
+                      format: uint64
+                      minimum: 0.0
+                      type: integer
+                    ready_replicas:
+                      format: uint32
+                      minimum: 0.0
+                      type: integer
+                    replicas:
+                      items:
+                        properties:
+                          applied_offset:
+                            format: uint64
+                            minimum: 0.0
+                            nullable: true
+                            type: integer
+                          config_epoch:
+                            format: uint64
+                            minimum: 0.0
+                            nullable: true
+                            type: integer
+                          current_offset:
+                            format: uint64
+                            minimum: 0.0
+                            nullable: true
+                            type: integer
+                          epoch:
+                            format: uint64
+                            minimum: 0.0
+                            nullable: true
+                            type: integer
+                          last_heartbeat:
+                            description: Time is a wrapper around time.Time which supports correct marshaling to YAML and JSON.  Wrappers are provided for many of the factory methods that the time package offers.
+                            format: date-time
+                            nullable: true
+                            type: string
+                          master_addr:
+                            nullable: true
+                            type: string
+                          name:
+                            type: string
+                          node:
+                            nullable: true
+                            type: string
+                          ready:
+                            type: boolean
+                          replication_lag:
+                            format: uint64
+                            minimum: 0.0
+                            nullable: true
+                            type: integer
+                          role:
+                            enum:
+                            - Master
+                            - ReadReplica
+                            type: string
+                        required:
+                        - name
+                        - ready
+                        - role
+                        type: object
+                      type: array
+                    shard_id:
+                      format: uint32
+                      minimum: 0.0
+                      type: integer
+                  required:
+                  - config_epoch
+                  - epoch
+                  - expected_replicas
+                  - migration_queue_len
+                  - misplaced_tiles
+                  - ready_replicas
+                  - replicas
+                  - shard_id
+                  type: object
+                type: array
             required:
+            - applied_shards
+            - config_epoch
             - phase
             type: object
         required:

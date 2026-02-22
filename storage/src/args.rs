@@ -26,12 +26,12 @@ pub struct ServerArgs {
     pub data_root: String,
 
     /// Port for replica sync communication (between nodes)
-    #[arg(long, env = "CLUSTER_PORT")]
-    pub cluster_port: Option<u16>,
+    #[arg(long, env = "CLUSTER_PORT", default_value_t = 4500)]
+    pub cluster_port: u16,
 
     /// Port for control plane communication (from the operator, e.g. topology changes)
-    #[arg(long, env = "CONTROL_PORT")]
-    pub control_port: Option<u16>,
+    #[arg(long, env = "CONTROL_PORT", default_value_t = 4600)]
+    pub control_port: u16,
 
     /// Address of the master node to connect to (for replicas)
     #[arg(long, env = "MASTER")]
@@ -40,6 +40,14 @@ pub struct ServerArgs {
     /// Shard ID for this node (if using sharding)
     #[arg(long, env = "SHARD")]
     pub shard: Option<u32>,
+
+    /// Current epoch assigned by the operator.
+    #[arg(long, env = "EPOCH", default_value_t = 0)]
+    pub epoch: u64,
+
+    /// Backlog capacity for replication ring buffer entries.
+    #[arg(long, env = "BACKLOG_CAPACITY", default_value_t = 4096)]
+    pub backlog_capacity: u32,
 
     #[command(flatten)]
     pub nats: NatsArgs,
