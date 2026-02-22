@@ -13,7 +13,9 @@
 Eosin is an open-source, high-performance whole-slide imaging (WSI) platform built for the web.
 It is the foundation of a broader computational pathology ecosystem: interactive viewing and annotation, cloud-native storage and serving, and real-time processing pipelines.
 
-![demo](https://github.com/eosin-platform/eosin/raw/refs/heads/master/landing/static/hero.webm)
+<p align="center">
+  <img src="./hero.gif" alt="Eosin demo" width="720">
+</p>
 
 Demo available at https://app.eosin.ai/.
 
