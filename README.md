@@ -1,6 +1,6 @@
 <img src="./landing/static/logo_full.png" width="150" />
 
-![demo](./landing/static/hero.webm)
+![demo](https://github.com/eosin-platform/eosin/raw/refs/heads/master/landing/static/hero.webm)
 
 # Eosin
 
