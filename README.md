@@ -64,7 +64,7 @@ Implemented in this codebase today:
 - **Event-driven processing**: NATS JetStream is used for durable messaging (e.g., compiler dispatch/processing, storage cache-miss events).
 - **Kubernetes-native packaging**: Helm chart for deploying the core services and frontends.
 
-Planned / in-progress (referenced here without deep detail):
+Planned / in-progress features:
 
 - Continued work on the storage operator and tile-serving workflows
 - Real-time nuclei embedding (VAE-based) and ROI similarity search
