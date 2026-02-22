@@ -38,7 +38,7 @@ flowchart LR
   Meta -->|JWT validation| KC
   Compiler["compiler (JetStream worker)"] -->|NATS JetStream| NATS["NATS"]
   Storage -->|cache-miss events| NATS
-  Compiler -->|S3-compatible| S3["Object Storage (S3-compatible)"]
+  Compiler -->|S3-compatible| S3["Cold Storage (S3-compatible)"]
 ```
 
 ## Feature highlights
