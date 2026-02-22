@@ -26,14 +26,14 @@ The platform is built around a few non-negotiables:
 - Kubernetes-first deployment via Helm
 - Event-driven pipelines (NATS JetStream) for real-time and batch workloads
 
-This repository contains the “platform core”: services, operator, and frontends required to run Eosin.
+This repository contains the "platform core": services, operator, and frontends required to run Eosin.
 
 ## High-level architecture
 
 Conceptually:
 
 - **Storage** holds multi-resolution slide tiles and supports sharding/replication.
-- **Meta** stores the “database side” of WSI: slides, datasets, and annotations.
+- **Meta** stores the "database side" of WSI: slides, datasets, and annotations.
 - **Frusta** provides a real-time WebSocket path optimized for interactive viewing.
 - **IAM** provides user/auth-related endpoints and integrates with Keycloak.
 - **Compiler / intake** provide ingestion and background processing (import, tiling, staging/GC).
