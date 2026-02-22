@@ -17,3 +17,4 @@ build.sh
 secrets
 target
 __pycache__
+toy/output
