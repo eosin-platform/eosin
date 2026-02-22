@@ -110,11 +110,11 @@ This Quickstart is intentionally minimal; for service-specific notes, see the RE
 This repo uses Docker Buildx Bake. The helper script pushes images by default and expects a Buildx builder named `bk`. You can create it with:
 
 ```bash
-# If using a custom registry, be sure to add it to this network.
+# If using a local registry, be sure to add it to this network.
 # Otherwise you can skip this command.
 docker network create buildnet 2>/dev/null || true
 
-# Create the builder
+# Now create the builder
 docker buildx create --name bk --driver docker-container --use \
   --config buildkitd.toml \
   --driver-opt network=buildnet # for optional local registry
