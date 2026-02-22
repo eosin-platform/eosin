@@ -873,7 +873,7 @@
 							</p>
 							<p class="setting-hint">
 								This project is open source under MIT / Apache 2.0 dual license. Source code, documentation, and issue tracker
-								are available on GitHub: <a href="https://github.com/eosin-platform/eosin" target="_blank" rel="noopener noreferrer">GitHub</a>
+								are available on GitHub: <a href="https://github.com/eosin-platform/eosin" target="_blank" rel="noopener noreferrer">github.com/eosin-platform/eosin</a>
 							</p>
 							<p class="setting-hint">
 								© <a
