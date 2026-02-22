@@ -3,13 +3,12 @@
 </p>
 
 <p align="center">
-  <a href="https://app.eosin.ai/">
-    <img alt="Demo" src="https://img.shields.io/badge/Demo-app.eosin.ai-blue" />
-  </a>
-  <a href="LICENSE-APACHE-2.0">
-    <img alt="License: Apache-2.0 / MIT" src="https://img.shields.io/badge/License-Apache--2.0%20%2F%20MIT-green" />
-  </a>
+  <a href="https://app.eosin.ai/"><img alt="Demo" src="https://img.shields.io/badge/Demo-app.eosin.ai-blue" /></a>
+  &nbsp;
+  <a href="LICENSE-APACHE-2.0"><img alt="License: Apache-2.0 / MIT" src="https://img.shields.io/badge/License-Apache--2.0%20%2F%20MIT-green" /></a>
+  &nbsp;
   <img alt="Rust" src="https://img.shields.io/badge/Rust-workspace-orange" />
+  &nbsp;
   <img alt="Kubernetes" src="https://img.shields.io/badge/Kubernetes-Helm-blueviolet" />
 </p>
 
