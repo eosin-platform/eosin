@@ -109,7 +109,15 @@ This Quickstart is intentionally minimal; for service-specific notes, see the RE
 
 ### Build images
 
-This repo uses Docker Buildx Bake. The helper script pushes images by default and expects a Buildx builder named `bk`:
+This repo uses Docker Buildx Bake. The helper script pushes images by default and expects a Buildx builder named `bk`. You can create it with:
+
+```bash
+docker buildx create --name bk --driver docker-container --use \
+  --config buildkitd.toml \
+  --driver-opt network=buildnet
+```
+
+Then build with:
 
 ```bash
 ./build.sh
