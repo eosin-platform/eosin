@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./landing/static/logo_full.png" width="300" />
+  <img src="./landing/static/logo_full.png" width="150" />
 </p>
 
 # Eosin
