@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use std::time::Duration;
 
+use async_trait::async_trait;
 use eosin_types::{Cluster, ReplicaRole, ReplicaSummary, ShardStatus};
 use futures::stream::StreamExt;
 use k8s_openapi::api::core::v1::{Container, ContainerPort, EnvVar, Pod, PodSpec};
@@ -46,6 +47,60 @@ struct ReplicaEndpoint {
     cluster_addr: Option<String>,
 }
 
+#[derive(Clone, Debug)]
+struct ReplicaObservation {
+    name: String,
+    node: Option<String>,
+    pod_ready: bool,
+    control_addr: Option<String>,
+    cluster_addr: Option<String>,
+    status: Option<crate::proto::cluster::GetShardStatusResponse>,
+}
+
+struct ReconcileComputation {
+    phase: eosin_types::ClusterPhase,
+    target_config_epoch: u64,
+    applied_shards: u32,
+    message: Option<String>,
+    shards: Vec<ShardStatus>,
+}
+
+#[async_trait]
+trait ControlPlane {
+    async fn become_master(&self, control_addr: &str, shard_id: u32, epoch: u64) -> bool;
+    async fn become_replica(
+        &self,
+        control_addr: &str,
+        shard_id: u32,
+        epoch: u64,
+        master_addr: &str,
+    ) -> bool;
+    async fn update_routing_config(&self, control_addr: &str, config: ClusterRoutingConfig) -> bool;
+}
+
+struct GrpcControlPlane;
+
+#[async_trait]
+impl ControlPlane for GrpcControlPlane {
+    async fn become_master(&self, control_addr: &str, shard_id: u32, epoch: u64) -> bool {
+        become_master(control_addr, shard_id, epoch).await
+    }
+
+    async fn become_replica(
+        &self,
+        control_addr: &str,
+        shard_id: u32,
+        epoch: u64,
+        master_addr: &str,
+    ) -> bool {
+        become_replica(control_addr, shard_id, epoch, master_addr).await
+    }
+
+    async fn update_routing_config(&self, control_addr: &str, config: ClusterRoutingConfig) -> bool {
+        update_routing_config(control_addr, config).await
+    }
+}
+
 async fn reconcile(instance: Arc<Cluster>, context: Arc<ContextData>) -> Result<Action, Error> {
     let client = context.client.clone();
     let namespace = instance
@@ -56,11 +111,86 @@ async fn reconcile(instance: Arc<Cluster>, context: Arc<ContextData>) -> Result<
 
     reconcile_pod_topology(&pods, &instance).await?;
 
+    let observations = collect_observations(&pods, &instance, &name).await?;
+    let control = GrpcControlPlane;
+    let computation =
+        reconcile_from_observations(&instance, &observations, instance.status.clone().unwrap_or_default(), &control)
+            .await;
+
+    actions::patch_cluster_status(
+        client,
+        &instance,
+        computation.phase,
+        computation.target_config_epoch,
+        computation.applied_shards,
+        computation.message,
+        computation.shards,
+    )
+    .await?;
+
+    Ok(Action::requeue(PROBE_INTERVAL))
+}
+
+async fn collect_observations(
+    pods: &Api<Pod>,
+    instance: &Cluster,
+    cluster_name: &str,
+) -> Result<HashMap<u32, Vec<ReplicaObservation>>, Error> {
     let shard_count = instance.spec.topology.shards;
     let replicas_per_shard = 1 + instance.spec.topology.read_replicas;
-    let existing_status = instance.status.clone().unwrap_or_default();
+    let mut result: HashMap<u32, Vec<ReplicaObservation>> = HashMap::new();
+
+    for shard_id in 0..shard_count {
+        let mut shard_replicas = Vec::new();
+        for replica_id in 0..replicas_per_shard {
+            let replica_name = pod_name(cluster_name, shard_id, replica_id);
+            let pod = pods.get_opt(&replica_name).await?;
+            let pod_ready = pod.as_ref().is_some_and(pod_ready);
+
+            let endpoint = pod
+                .as_ref()
+                .and_then(|p| p.status.as_ref())
+                .and_then(|s| s.pod_ip.clone())
+                .map(|ip| ReplicaEndpoint {
+                    control_addr: Some(format!("{}:{}", ip, instance.spec.control_port)),
+                    cluster_addr: Some(format!("{}:{}", ip, instance.spec.cluster_port)),
+                })
+                .unwrap_or_default();
+
+            let status = if let Some(control_addr) = endpoint.control_addr.clone() {
+                get_status(&control_addr, shard_id).await.ok()
+            } else {
+                None
+            };
+
+            shard_replicas.push(ReplicaObservation {
+                name: replica_name,
+                node: pod
+                    .as_ref()
+                    .and_then(|p| p.spec.as_ref())
+                    .and_then(|s| s.node_name.clone()),
+                pod_ready,
+                control_addr: endpoint.control_addr,
+                cluster_addr: endpoint.cluster_addr,
+                status,
+            });
+        }
+        result.insert(shard_id, shard_replicas);
+    }
+    Ok(result)
+}
+
+async fn reconcile_from_observations(
+    instance: &Cluster,
+    observations: &HashMap<u32, Vec<ReplicaObservation>>,
+    existing_status: eosin_types::ClusterStatus,
+    control: &impl ControlPlane,
+) -> ReconcileComputation {
+    let shard_count = instance.spec.topology.shards;
+    let replicas_per_shard = 1 + instance.spec.topology.read_replicas;
     let previous_shards = existing_status.applied_shards;
-    let target_config_epoch = next_config_epoch(existing_status.config_epoch, previous_shards, shard_count);
+    let target_config_epoch =
+        next_config_epoch(existing_status.config_epoch, previous_shards, shard_count);
     let heartbeat_timeout = Duration::from_secs(instance.spec.failover.heartbeat_timeout_seconds);
 
     let mut new_shards = Vec::new();
@@ -73,35 +203,24 @@ async fn reconcile(instance: Arc<Cluster>, context: Arc<ContextData>) -> Result<
         let mut endpoints: HashMap<String, ReplicaEndpoint> = HashMap::new();
         let mut health_replicas = Vec::new();
 
-        for replica_id in 0..replicas_per_shard {
-            let replica_name = pod_name(&name, shard_id, replica_id);
-            let pod = pods.get_opt(&replica_name).await?;
-            let ready = pod.as_ref().is_some_and(pod_ready);
-
-            let endpoint = pod
-                .as_ref()
-                .and_then(|p| p.status.as_ref())
-                .and_then(|s| s.pod_ip.clone())
-                .map(|ip| ReplicaEndpoint {
-                    control_addr: Some(format!("{}:{}", ip, instance.spec.control_port)),
-                    cluster_addr: Some(format!("{}:{}", ip, instance.spec.cluster_port)),
-                })
-                .unwrap_or_default();
+        let shard_observations = observations.get(&shard_id).cloned().unwrap_or_default();
+        for obs in shard_observations {
+            let endpoint = ReplicaEndpoint {
+                control_addr: obs.control_addr.clone(),
+                cluster_addr: obs.cluster_addr.clone(),
+            };
 
             let mut summary = ReplicaSummary {
-                name: replica_name.clone(),
+                name: obs.name.clone(),
                 role: ReplicaRole::ReadReplica,
-                ready,
-                node: pod
-                    .as_ref()
-                    .and_then(|p| p.spec.as_ref())
-                    .and_then(|s| s.node_name.clone()),
+                ready: obs.pod_ready,
+                node: obs.node,
                 ..Default::default()
             };
 
-            if let Some(control_addr) = endpoint.control_addr.clone() {
+            if let Some(control_addr) = obs.control_addr.clone() {
                 all_control_targets.push(control_addr.clone());
-                if let Ok(status) = get_status(&control_addr, shard_id).await {
+                if let Some(status) = obs.status {
                     summary.role = if status.role == Role::Master as i32 {
                         ReplicaRole::Master
                     } else {
@@ -119,7 +238,7 @@ async fn reconcile(instance: Arc<Cluster>, context: Arc<ContextData>) -> Result<
                     summary.ready = summary.ready && status.ready;
                     summary.config_epoch = Some(status.config_epoch);
                     health_replicas.push(ReplicaHealth {
-                        name: replica_name.clone(),
+                        name: obs.name.clone(),
                         role: summary.role,
                         ready: summary.ready,
                         last_heartbeat_unix_ms: status.last_heartbeat_unix_ms,
@@ -134,7 +253,7 @@ async fn reconcile(instance: Arc<Cluster>, context: Arc<ContextData>) -> Result<
                 }
             }
 
-            endpoints.insert(replica_name.clone(), endpoint);
+            endpoints.insert(obs.name.clone(), endpoint);
             replica_summaries.push(summary);
         }
 
@@ -169,7 +288,9 @@ async fn reconcile(instance: Arc<Cluster>, context: Arc<ContextData>) -> Result<
         ) {
             if let Some(promote_ep) = endpoints.get(&decision.promote)
                 && let Some(control_addr) = promote_ep.control_addr.clone()
-                && become_master(&control_addr, shard_id, decision.new_epoch).await
+                && control
+                    .become_master(&control_addr, shard_id, decision.new_epoch)
+                    .await
             {
                 if let Some(cluster_addr) = promote_ep.cluster_addr.clone() {
                     shard_master_cluster_addr.insert(shard_id, cluster_addr.clone());
@@ -178,15 +299,16 @@ async fn reconcile(instance: Arc<Cluster>, context: Arc<ContextData>) -> Result<
                             continue;
                         }
                         if let Some(rep_ep) = endpoints.get(&replica.name)
-                            && let Some(control) = rep_ep.control_addr.clone()
+                            && let Some(replica_control_addr) = rep_ep.control_addr.clone()
                         {
-                            let _ = become_replica(
-                                &control,
-                                shard_id,
-                                decision.new_epoch,
-                                &cluster_addr,
-                            )
-                            .await;
+                            let _ = control
+                                .become_replica(
+                                    &replica_control_addr,
+                                    shard_id,
+                                    decision.new_epoch,
+                                    &cluster_addr,
+                                )
+                                .await;
                         }
                     }
                 }
@@ -196,11 +318,11 @@ async fn reconcile(instance: Arc<Cluster>, context: Arc<ContextData>) -> Result<
         }
 
         let ready_replicas = replica_summaries.iter().filter(|r| r.ready).count() as u32;
-        let current_master = replica_summaries
+        let observed_master = replica_summaries
             .iter()
             .find(|r| r.role == ReplicaRole::Master)
-            .map(|r| r.name.clone())
-            .or(shard_status.master.clone());
+            .map(|r| r.name.clone());
+        let current_master = shard_status.master.clone().or(observed_master);
         if current_master.is_none() {
             all_shards_healthy = false;
         }
@@ -238,7 +360,7 @@ async fn reconcile(instance: Arc<Cluster>, context: Arc<ContextData>) -> Result<
 
     let mut pushed = 0_u32;
     for target in all_control_targets {
-        if update_routing_config(&target, routing.clone()).await {
+        if control.update_routing_config(&target, routing.clone()).await {
             pushed = pushed.saturating_add(1);
         }
     }
@@ -249,18 +371,13 @@ async fn reconcile(instance: Arc<Cluster>, context: Arc<ContextData>) -> Result<
         target_config_epoch, pushed
     ));
 
-    actions::patch_cluster_status(
-        client,
-        &instance,
+    ReconcileComputation {
         phase,
         target_config_epoch,
-        shard_count,
-        msg,
-        new_shards,
-    )
-    .await?;
-
-    Ok(Action::requeue(PROBE_INTERVAL))
+        applied_shards: shard_count,
+        message: msg,
+        shards: new_shards,
+    }
 }
 
 async fn reconcile_pod_topology(pods: &Api<Pod>, cluster: &Cluster) -> Result<(), Error> {
@@ -436,4 +553,552 @@ async fn update_routing_config(control_addr: &str, config: ClusterRoutingConfig)
 
 fn on_error(_instance: Arc<Cluster>, _error: &Error, _context: Arc<ContextData>) -> Action {
     Action::requeue(Duration::from_secs(5))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use eosin_types::{
+        ClusterSpec, ClusterStatus, ClusterTopology, FailoverPolicy, Placement, ReplicaResources,
+    };
+    use std::collections::{HashMap, HashSet};
+    use std::sync::Mutex;
+
+    #[derive(Default)]
+    struct MockControlPlane {
+        accept_become_master: bool,
+        accept_become_replica: bool,
+        update_accept: HashSet<String>,
+        become_master_calls: Mutex<Vec<(String, u32, u64)>>,
+        become_replica_calls: Mutex<Vec<(String, u32, u64, String)>>,
+        update_calls: Mutex<Vec<(String, u64)>>,
+    }
+
+    #[async_trait]
+    impl ControlPlane for MockControlPlane {
+        async fn become_master(&self, control_addr: &str, shard_id: u32, epoch: u64) -> bool {
+            self.become_master_calls
+                .lock()
+                .expect("lock")
+                .push((control_addr.to_string(), shard_id, epoch));
+            self.accept_become_master
+        }
+
+        async fn become_replica(
+            &self,
+            control_addr: &str,
+            shard_id: u32,
+            epoch: u64,
+            master_addr: &str,
+        ) -> bool {
+            self.become_replica_calls
+                .lock()
+                .expect("lock")
+                .push((
+                    control_addr.to_string(),
+                    shard_id,
+                    epoch,
+                    master_addr.to_string(),
+                ));
+            self.accept_become_replica
+        }
+
+        async fn update_routing_config(&self, control_addr: &str, config: ClusterRoutingConfig) -> bool {
+            self.update_calls
+                .lock()
+                .expect("lock")
+                .push((control_addr.to_string(), config.config_epoch));
+            self.update_accept.contains(control_addr)
+        }
+    }
+
+    fn cluster(shards: u32, read_replicas: u32, num_slots: u32) -> Cluster {
+        let mut cluster = Cluster::new(
+            "test-cluster",
+            ClusterSpec {
+                topology: ClusterTopology {
+                    shards,
+                    read_replicas,
+                },
+                image: "eosin/storage:test".to_string(),
+                api_port: 3500,
+                cluster_port: 4500,
+                control_port: 4600,
+                backlog_capacity: 4096,
+                num_slots,
+                storage_class_name: None,
+                resources: ReplicaResources::default(),
+                placement: Placement::default(),
+                extra_labels: Default::default(),
+                failover: FailoverPolicy {
+                    heartbeat_timeout_seconds: 10,
+                    cooldown_seconds: 15,
+                },
+            },
+        );
+        cluster.metadata.namespace = Some("default".to_string());
+        cluster
+    }
+
+    fn status(
+        role: Role,
+        ready: bool,
+        heartbeat_ms: u64,
+        lag: u64,
+        epoch: u64,
+        config_epoch: u64,
+        current_offset: u64,
+        master_addr: &str,
+    ) -> crate::proto::cluster::GetShardStatusResponse {
+        crate::proto::cluster::GetShardStatusResponse {
+            shard_id: 0,
+            role: role as i32,
+            epoch,
+            applied_offset: current_offset,
+            current_offset,
+            last_heartbeat_unix_ms: heartbeat_ms,
+            replication_lag: lag,
+            ready,
+            master_addr: master_addr.to_string(),
+            config_epoch,
+            migration_queue_len: 0,
+            misplaced_tiles: 0,
+        }
+    }
+
+    fn obs(
+        name: &str,
+        pod_ready: bool,
+        control_addr: &str,
+        cluster_addr: &str,
+        status: Option<crate::proto::cluster::GetShardStatusResponse>,
+    ) -> ReplicaObservation {
+        ReplicaObservation {
+            name: name.to_string(),
+            node: Some("node-a".to_string()),
+            pod_ready,
+            control_addr: Some(control_addr.to_string()),
+            cluster_addr: Some(cluster_addr.to_string()),
+            status,
+        }
+    }
+
+    fn default_existing_status(shards: u32) -> ClusterStatus {
+        ClusterStatus {
+            applied_shards: shards,
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn promotes_replica_and_demotes_others_on_failover() {
+        let cluster = cluster(1, 1, 16_384);
+        let now = now_unix_ms();
+        let mut observations: HashMap<u32, Vec<ReplicaObservation>> = HashMap::new();
+        observations.insert(
+            0,
+            vec![
+                obs(
+                    "test-cluster-s0-r0",
+                    false,
+                    "10.0.0.1:4600",
+                    "10.0.0.1:4500",
+                    Some(status(
+                        Role::Master,
+                        false,
+                        now.saturating_sub(30_000),
+                        0,
+                        7,
+                        1,
+                        100,
+                        "",
+                    )),
+                ),
+                obs(
+                    "test-cluster-s0-r1",
+                    true,
+                    "10.0.0.2:4600",
+                    "10.0.0.2:4500",
+                    Some(status(
+                        Role::ReadReplica,
+                        true,
+                        now.saturating_sub(100),
+                        5,
+                        7,
+                        1,
+                        99,
+                        "10.0.0.1:4500",
+                    )),
+                ),
+            ],
+        );
+
+        let mut existing = default_existing_status(1);
+        existing.shards.push(ShardStatus {
+            shard_id: 0,
+            epoch: 7,
+            ..Default::default()
+        });
+
+        let control = MockControlPlane {
+            accept_become_master: true,
+            accept_become_replica: true,
+            update_accept: ["10.0.0.1:4600".to_string(), "10.0.0.2:4600".to_string()]
+                .into_iter()
+                .collect(),
+            ..Default::default()
+        };
+
+        let result = reconcile_from_observations(&cluster, &observations, existing, &control).await;
+
+        let shard = result.shards.first().expect("shard");
+        assert_eq!(shard.epoch, 8);
+        assert_eq!(shard.master.as_deref(), Some("test-cluster-s0-r1"));
+        assert_eq!(
+            control.become_master_calls.lock().expect("lock").len(),
+            1,
+            "promotion should be attempted once"
+        );
+        assert_eq!(
+            control.become_replica_calls.lock().expect("lock").len(),
+            1,
+            "old master should be demoted"
+        );
+    }
+
+    #[tokio::test]
+    async fn rejected_promotion_keeps_previous_epoch_and_master() {
+        let cluster = cluster(1, 1, 16_384);
+        let now = now_unix_ms();
+        let mut observations: HashMap<u32, Vec<ReplicaObservation>> = HashMap::new();
+        observations.insert(
+            0,
+            vec![
+                obs(
+                    "test-cluster-s0-r0",
+                    false,
+                    "10.0.0.1:4600",
+                    "10.0.0.1:4500",
+                    Some(status(
+                        Role::Master,
+                        false,
+                        now.saturating_sub(25_000),
+                        0,
+                        3,
+                        1,
+                        100,
+                        "",
+                    )),
+                ),
+                obs(
+                    "test-cluster-s0-r1",
+                    true,
+                    "10.0.0.2:4600",
+                    "10.0.0.2:4500",
+                    Some(status(
+                        Role::ReadReplica,
+                        true,
+                        now.saturating_sub(200),
+                        1,
+                        3,
+                        1,
+                        99,
+                        "10.0.0.1:4500",
+                    )),
+                ),
+            ],
+        );
+
+        let mut existing = default_existing_status(1);
+        existing.shards.push(ShardStatus {
+            shard_id: 0,
+            epoch: 3,
+            master: Some("test-cluster-s0-r0".to_string()),
+            ..Default::default()
+        });
+
+        let control = MockControlPlane {
+            accept_become_master: false,
+            accept_become_replica: true,
+            update_accept: ["10.0.0.1:4600".to_string(), "10.0.0.2:4600".to_string()]
+                .into_iter()
+                .collect(),
+            ..Default::default()
+        };
+
+        let result = reconcile_from_observations(&cluster, &observations, existing, &control).await;
+        let shard = result.shards.first().expect("shard");
+        assert_eq!(shard.epoch, 3);
+        assert_eq!(shard.master.as_deref(), Some("test-cluster-s0-r0"));
+        assert_eq!(control.become_replica_calls.lock().expect("lock").len(), 0);
+    }
+
+    #[tokio::test]
+    async fn routing_push_count_reflects_acceptances() {
+        let cluster = cluster(1, 2, 16_384);
+        let now = now_unix_ms();
+        let mut observations: HashMap<u32, Vec<ReplicaObservation>> = HashMap::new();
+        observations.insert(
+            0,
+            vec![
+                obs(
+                    "test-cluster-s0-r0",
+                    true,
+                    "10.0.0.1:4600",
+                    "10.0.0.1:4500",
+                    Some(status(Role::Master, true, now, 0, 1, 1, 50, "")),
+                ),
+                obs(
+                    "test-cluster-s0-r1",
+                    true,
+                    "10.0.0.2:4600",
+                    "10.0.0.2:4500",
+                    Some(status(
+                        Role::ReadReplica,
+                        true,
+                        now,
+                        0,
+                        1,
+                        1,
+                        50,
+                        "10.0.0.1:4500",
+                    )),
+                ),
+                obs(
+                    "test-cluster-s0-r2",
+                    true,
+                    "10.0.0.3:4600",
+                    "10.0.0.3:4500",
+                    Some(status(
+                        Role::ReadReplica,
+                        true,
+                        now,
+                        0,
+                        1,
+                        1,
+                        50,
+                        "10.0.0.1:4500",
+                    )),
+                ),
+            ],
+        );
+
+        let control = MockControlPlane {
+            update_accept: ["10.0.0.1:4600".to_string(), "10.0.0.3:4600".to_string()]
+                .into_iter()
+                .collect(),
+            ..Default::default()
+        };
+
+        let result = reconcile_from_observations(
+            &cluster,
+            &observations,
+            default_existing_status(1),
+            &control,
+        )
+        .await;
+
+        let msg = result.message.expect("message");
+        assert!(msg.contains("pushed_to=2"));
+        assert_eq!(control.update_calls.lock().expect("lock").len(), 3);
+    }
+
+    #[tokio::test]
+    async fn marks_reconciling_when_migrations_or_epoch_lag_exist() {
+        let cluster = cluster(1, 0, 16_384);
+        let now = now_unix_ms();
+        let mut observations: HashMap<u32, Vec<ReplicaObservation>> = HashMap::new();
+        observations.insert(
+            0,
+            vec![obs(
+                "test-cluster-s0-r0",
+                true,
+                "10.0.0.1:4600",
+                "10.0.0.1:4500",
+                Some(status(Role::Master, true, now, 0, 1, 0, 50, "")),
+            )],
+        );
+        let mut existing = default_existing_status(1);
+        existing.config_epoch = 4;
+
+        let control = MockControlPlane {
+            update_accept: ["10.0.0.1:4600".to_string()].into_iter().collect(),
+            ..Default::default()
+        };
+
+        let result = reconcile_from_observations(&cluster, &observations, existing, &control).await;
+        assert_eq!(result.phase, eosin_types::ClusterPhase::Reconciling);
+    }
+
+    #[tokio::test]
+    async fn marks_degraded_without_master_or_ready_replicas() {
+        let cluster = cluster(1, 0, 16_384);
+        let now = now_unix_ms();
+        let mut observations: HashMap<u32, Vec<ReplicaObservation>> = HashMap::new();
+        observations.insert(
+            0,
+            vec![obs(
+                "test-cluster-s0-r0",
+                false,
+                "10.0.0.1:4600",
+                "10.0.0.1:4500",
+                Some(status(
+                    Role::ReadReplica,
+                    false,
+                    now.saturating_sub(20_000),
+                    0,
+                    0,
+                    1,
+                    0,
+                    "",
+                )),
+            )],
+        );
+
+        let control = MockControlPlane::default();
+        let result = reconcile_from_observations(
+            &cluster,
+            &observations,
+            default_existing_status(1),
+            &control,
+        )
+        .await;
+
+        assert_eq!(result.phase, eosin_types::ClusterPhase::Degraded);
+    }
+
+    #[tokio::test]
+    async fn topology_change_bumps_target_config_epoch() {
+        let cluster = cluster(2, 0, 16_384);
+        let now = now_unix_ms();
+        let mut observations: HashMap<u32, Vec<ReplicaObservation>> = HashMap::new();
+        observations.insert(
+            0,
+            vec![obs(
+                "test-cluster-s0-r0",
+                true,
+                "10.0.0.1:4600",
+                "10.0.0.1:4500",
+                Some(status(Role::Master, true, now, 0, 2, 2, 12, "")),
+            )],
+        );
+        observations.insert(
+            1,
+            vec![obs(
+                "test-cluster-s1-r0",
+                true,
+                "10.0.0.2:4600",
+                "10.0.0.2:4500",
+                Some(status(Role::Master, true, now, 0, 2, 2, 12, "")),
+            )],
+        );
+
+        let mut existing = default_existing_status(1);
+        existing.config_epoch = 9;
+        let control = MockControlPlane {
+            update_accept: ["10.0.0.1:4600".to_string(), "10.0.0.2:4600".to_string()]
+                .into_iter()
+                .collect(),
+            ..Default::default()
+        };
+
+        let result = reconcile_from_observations(&cluster, &observations, existing, &control).await;
+        assert_eq!(result.target_config_epoch, 10);
+        let updates = control.update_calls.lock().expect("lock");
+        assert!(updates.iter().all(|(_, epoch)| *epoch == 10));
+    }
+
+    #[tokio::test]
+    async fn enforces_minimum_slot_table_size_when_spec_is_smaller() {
+        let cluster = cluster(2, 0, 64);
+        let now = now_unix_ms();
+        let mut observations: HashMap<u32, Vec<ReplicaObservation>> = HashMap::new();
+        observations.insert(
+            0,
+            vec![obs(
+                "test-cluster-s0-r0",
+                true,
+                "10.0.0.1:4600",
+                "10.0.0.1:4500",
+                Some(status(Role::Master, true, now, 0, 1, 1, 10, "")),
+            )],
+        );
+        observations.insert(
+            1,
+            vec![obs(
+                "test-cluster-s1-r0",
+                true,
+                "10.0.0.2:4600",
+                "10.0.0.2:4500",
+                Some(status(Role::Master, true, now, 0, 1, 1, 10, "")),
+            )],
+        );
+
+        let control = MockControlPlane {
+            update_accept: ["10.0.0.1:4600".to_string(), "10.0.0.2:4600".to_string()]
+                .into_iter()
+                .collect(),
+            ..Default::default()
+        };
+
+        let _ = reconcile_from_observations(
+            &cluster,
+            &observations,
+            default_existing_status(2),
+            &control,
+        )
+        .await;
+        let updates = control.update_calls.lock().expect("lock");
+        assert_eq!(updates.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn missing_telemetry_is_tolerated_and_cluster_is_degraded() {
+        let cluster = cluster(1, 0, 16_384);
+        let mut observations: HashMap<u32, Vec<ReplicaObservation>> = HashMap::new();
+        observations.insert(
+            0,
+            vec![obs(
+                "test-cluster-s0-r0",
+                true,
+                "10.0.0.1:4600",
+                "10.0.0.1:4500",
+                None,
+            )],
+        );
+
+        let control = MockControlPlane {
+            update_accept: ["10.0.0.1:4600".to_string()].into_iter().collect(),
+            ..Default::default()
+        };
+        let result = reconcile_from_observations(
+            &cluster,
+            &observations,
+            default_existing_status(1),
+            &control,
+        )
+        .await;
+
+        assert_eq!(result.phase, eosin_types::ClusterPhase::Degraded);
+        assert_eq!(control.update_calls.lock().expect("lock").len(), 1);
+    }
+
+    #[tokio::test]
+    async fn zero_shards_results_in_empty_ready_state() {
+        let cluster = cluster(0, 0, 16_384);
+        let observations: HashMap<u32, Vec<ReplicaObservation>> = HashMap::new();
+        let control = MockControlPlane::default();
+
+        let result = reconcile_from_observations(
+            &cluster,
+            &observations,
+            default_existing_status(0),
+            &control,
+        )
+        .await;
+
+        assert_eq!(result.applied_shards, 0);
+        assert!(result.shards.is_empty());
+        assert_eq!(result.phase, eosin_types::ClusterPhase::Ready);
+    }
 }
