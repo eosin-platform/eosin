@@ -2,6 +2,8 @@
   <img src="./landing/static/logo_full.png" width="300" />
 </p>
 
+# Eosin
+
 <p align="center">
   <a href="https://app.eosin.ai/"><img alt="Demo" src="https://img.shields.io/badge/Demo-app.eosin.ai-blue" /></a>
   &nbsp;
@@ -11,8 +13,6 @@
   &nbsp;
   <img alt="Kubernetes" src="https://img.shields.io/badge/Kubernetes-Helm-blueviolet" />
 </p>
-
-# Eosin
 
 Eosin is an open-source, high-performance whole-slide imaging (WSI) platform built for the web.
 It is the foundation of a broader computational pathology ecosystem: interactive viewing and annotation, cloud-native storage and serving, and real-time processing pipelines.
