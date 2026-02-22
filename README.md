@@ -1,6 +1,6 @@
-<p align="center">
-  <img src="./landing/static/logo_full.png" width="150" />
-</p>
+<img src="./landing/static/logo_full.png" width="150" />
+
+![demo](./landing/static/hero.webm)
 
 # Eosin
 
