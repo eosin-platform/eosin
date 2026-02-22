@@ -58,6 +58,14 @@
 				For Students
 			</button>
 			<a
+				href="https://github.com/eosin-platform/eosin"
+				target="_blank"
+				rel="noopener noreferrer"
+				class="text-sm text-gray-600 transition-colors hover:text-gray-900"
+			>
+				GitHub
+			</a>
+			<a
 				href="https://app.eosin.ai"
 				target="_blank"
 				rel="noopener noreferrer"
@@ -117,6 +125,14 @@
 				>
 					For Students
 				</button>
+				<a
+					href="https://github.com/eosin-platform/eosin"
+					target="_blank"
+					rel="noopener noreferrer"
+					class="rounded-md px-3 py-2 text-left text-gray-600 transition-colors hover:bg-gray-50 hover:text-gray-900"
+				>
+					GitHub
+				</a>
 				<a
 					href="https://app.eosin.ai"
 					target="_blank"
@@ -478,6 +494,14 @@
 					class="transition-colors hover:text-gray-900"
 				>
 					Viewer
+				</a>
+				<a
+					href="https://github.com/eosin-platform/eosin"
+					target="_blank"
+					rel="noopener noreferrer"
+					class="transition-colors hover:text-gray-900"
+				>
+					GitHub
 				</a>
 				<a href="mailto:sablecrestlabs@protonmail.com" class="transition-colors hover:text-gray-900"
 					>Contact</a
