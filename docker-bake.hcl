@@ -5,6 +5,7 @@ variable "REGISTRY" {
 group "default" {
   targets = [
     "storage",
+    "storage-operator",
     "frusta",
     "meta",
     "landing",
@@ -44,6 +45,17 @@ target "storage" {
   push       = true
   cache-from = ["type=local,src=.buildx-cache/eosin-storage"]
   cache-to   = ["type=local,dest=.buildx-cache/eosin-storage,mode=min"]
+}
+
+target "storage-operator" {
+  contexts   = { base_context = "target:base" }
+  context    = "./"
+  dockerfile = "storage-operator/Dockerfile"
+  args       = { BASE_IMAGE = "base_context" }
+  tags       = ["${REGISTRY}thavlik/eosin-storage-operator:latest"]
+  push       = true
+  cache-from = ["type=local,src=.buildx-cache/eosin-storage-operator"]
+  cache-to   = ["type=local,dest=.buildx-cache/eosin-storage-operator,mode=min"]
 }
 
 target "iam" {

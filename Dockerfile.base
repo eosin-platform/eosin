@@ -34,7 +34,9 @@ COPY common/Cargo.toml common/Cargo.toml
 COPY storage/Cargo.toml storage/Cargo.toml
 COPY meta/Cargo.toml meta/Cargo.toml
 COPY frusta/Cargo.toml frusta/Cargo.toml
+COPY storage-operator/Cargo.toml storage-operator/Cargo.toml
 COPY iam/Cargo.toml iam/Cargo.toml
 COPY iam-client iam-client
+COPY types types
 COPY --from=chef /app/recipe.json recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json

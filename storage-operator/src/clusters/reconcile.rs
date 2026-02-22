@@ -5,7 +5,12 @@ use std::time::Duration;
 use async_trait::async_trait;
 use eosin_types::{Cluster, ReplicaRole, ReplicaSummary, ShardStatus};
 use futures::stream::StreamExt;
-use k8s_openapi::api::core::v1::{Container, ContainerPort, EnvVar, Pod, PodSpec};
+use k8s_openapi::api::core::v1::{
+    Container, ContainerPort, EnvVar, PersistentVolumeClaim, PersistentVolumeClaimSpec, Pod,
+    PodSpec, Volume, VolumeMount, VolumeResourceRequirements,
+};
+use k8s_openapi::jiff::Timestamp;
+use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use kube::api::{DeleteParams, PostParams};
 use kube::client::Client;
@@ -108,8 +113,12 @@ async fn reconcile(instance: Arc<Cluster>, context: Arc<ContextData>) -> Result<
         .ok_or_else(|| Error::UserInput("Cluster must be namespaced".to_string()))?;
     let name = instance.name_any();
     let pods: Api<Pod> = Api::namespaced(client.clone(), &namespace);
+    let pvcs: Api<PersistentVolumeClaim> = Api::namespaced(client.clone(), &namespace);
 
-    reconcile_pod_topology(&pods, &instance).await?;
+    let waiting_on_pvcs = reconcile_pod_topology(&pods, &pvcs, &instance).await?;
+    if waiting_on_pvcs {
+        return Ok(Action::requeue(Duration::from_secs(5)));
+    }
 
     let observations = collect_observations(&pods, &instance, &name).await?;
     let control = GrpcControlPlane;
@@ -380,14 +389,21 @@ async fn reconcile_from_observations(
     }
 }
 
-async fn reconcile_pod_topology(pods: &Api<Pod>, cluster: &Cluster) -> Result<(), Error> {
+async fn reconcile_pod_topology(
+    pods: &Api<Pod>,
+    pvcs: &Api<PersistentVolumeClaim>,
+    cluster: &Cluster,
+) -> Result<bool, Error> {
     let cluster_name = cluster.name_any();
     let replicas_per_shard = 1 + cluster.spec.topology.read_replicas;
     let mut desired = BTreeMap::new();
+    let mut desired_pvcs = BTreeMap::new();
     for shard in 0..cluster.spec.topology.shards {
         for replica in 0..replicas_per_shard {
             let name = pod_name(&cluster_name, shard, replica);
             desired.insert(name.clone(), pod_resource(cluster, shard, replica));
+            let claim = pvc_name(&cluster_name, shard, replica);
+            desired_pvcs.insert(claim, pvc_resource(cluster, shard, replica));
         }
     }
 
@@ -401,17 +417,121 @@ async fn reconcile_pod_topology(pods: &Api<Pod>, cluster: &Cluster) -> Result<()
         }
     }
 
+    if cluster.spec.gc_orphan_pvcs {
+        let existing_pvcs = pvcs
+            .list(&kube::api::ListParams::default().labels(&format!("eosin.io/cluster={cluster_name}")))
+            .await?;
+        for pvc in existing_pvcs.items {
+            let pvc_name = pvc.name_any();
+            if desired_pvcs.contains_key(&pvc_name) {
+                continue;
+            }
+            let Some((shard_id, replica_id)) = parse_pvc_name(&cluster_name, &pvc_name) else {
+                continue;
+            };
+            if !pvc_old_enough_for_gc(&pvc, cluster.spec.pvc_gc_grace_seconds) {
+                continue;
+            }
+            let pod_name = pod_name(&cluster_name, shard_id, replica_id);
+            if pods.get_opt(&pod_name).await?.is_none() {
+                let _ = pvcs.delete(&pvc_name, &DeleteParams::default()).await;
+            }
+        }
+    }
+
+    for (name, pvc) in desired_pvcs {
+        if pvcs.get_opt(&name).await?.is_none() {
+            let _ = pvcs.create(&PostParams::default(), &pvc).await;
+        }
+    }
+
+    let mut waiting_on_pvcs = false;
+
     for (name, pod) in desired {
+        let Some((shard_id, replica_id)) = parse_pod_name(&cluster_name, &name) else {
+            continue;
+        };
+        let claim_name = pvc_name(&cluster_name, shard_id, replica_id);
+        let pvc_is_bound = pvcs
+            .get_opt(&claim_name)
+            .await?
+            .is_some_and(|pvc| pvc_bound(&pvc));
+        if !pvc_is_bound {
+            waiting_on_pvcs = true;
+            continue;
+        }
+
         if pods.get_opt(&name).await?.is_none() {
             let _ = pods.create(&PostParams::default(), &pod).await;
         }
     }
 
-    Ok(())
+    Ok(waiting_on_pvcs)
 }
 
 fn pod_name(cluster: &str, shard: u32, replica: u32) -> String {
     format!("{cluster}-s{shard}-r{replica}")
+}
+
+fn pvc_name(cluster: &str, shard: u32, replica: u32) -> String {
+    format!("{cluster}-s{shard}-r{replica}-data")
+}
+
+fn parse_pvc_name(cluster: &str, pvc: &str) -> Option<(u32, u32)> {
+    let stem = pvc.strip_suffix("-data")?;
+    parse_pod_name(cluster, stem)
+}
+
+fn parse_pod_name(cluster: &str, pod: &str) -> Option<(u32, u32)> {
+    let prefix = format!("{cluster}-s");
+    let rest = pod.strip_prefix(&prefix)?;
+    let (shard_str, replica_str) = rest.split_once("-r")?;
+    Some((shard_str.parse().ok()?, replica_str.parse().ok()?))
+}
+
+fn pvc_resource(cluster: &Cluster, shard_id: u32, replica_id: u32) -> PersistentVolumeClaim {
+    let name = pvc_name(&cluster.name_any(), shard_id, replica_id);
+    let mut labels = BTreeMap::new();
+    labels.insert("app".to_string(), "eosin-storage".to_string());
+    labels.insert("eosin.io/cluster".to_string(), cluster.name_any());
+    labels.insert("eosin.io/shard".to_string(), shard_id.to_string());
+    labels.insert("eosin.io/replica".to_string(), replica_id.to_string());
+    for (k, v) in &cluster.spec.extra_labels {
+        labels.insert(k.clone(), v.clone());
+    }
+
+    let mut requests = BTreeMap::new();
+    requests.insert(
+        "storage".to_string(),
+        Quantity(
+            cluster
+                .spec
+                .resources
+                .storage
+                .clone()
+                .unwrap_or_else(|| "10Gi".to_string()),
+        ),
+    );
+
+    PersistentVolumeClaim {
+        metadata: ObjectMeta {
+            name: Some(name),
+            namespace: cluster.namespace(),
+            owner_references: cluster.controller_owner_ref(&()).map(|r| vec![r]),
+            labels: Some(labels),
+            ..Default::default()
+        },
+        spec: Some(PersistentVolumeClaimSpec {
+            access_modes: Some(vec!["ReadWriteOnce".to_string()]),
+            resources: Some(VolumeResourceRequirements {
+                requests: Some(requests),
+                ..Default::default()
+            }),
+            storage_class_name: cluster.spec.storage_class_name.clone(),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
 }
 
 fn pod_resource(cluster: &Cluster, shard_id: u32, replica_id: u32) -> Pod {
@@ -429,11 +549,21 @@ fn pod_resource(cluster: &Cluster, shard_id: u32, replica_id: u32) -> Pod {
         metadata: ObjectMeta {
             name: Some(name.clone()),
             namespace: cluster.namespace(),
-            owner_references: Some(vec![cluster.controller_owner_ref(&()).unwrap()]),
+            owner_references: cluster.controller_owner_ref(&()).map(|r| vec![r]),
             labels: Some(labels),
             ..Default::default()
         },
         spec: Some(PodSpec {
+            volumes: Some(vec![Volume {
+                name: "data".to_string(),
+                persistent_volume_claim: Some(
+                    k8s_openapi::api::core::v1::PersistentVolumeClaimVolumeSource {
+                        claim_name: pvc_name(&cluster.name_any(), shard_id, replica_id),
+                        read_only: None,
+                    },
+                ),
+                ..Default::default()
+            }]),
             containers: vec![Container {
                 name: "storage".to_string(),
                 image: Some(cluster.spec.image.clone()),
@@ -463,7 +593,17 @@ fn pod_resource(cluster: &Cluster, shard_id: u32, replica_id: u32) -> Pod {
                         value: Some(cluster.spec.backlog_capacity.to_string()),
                         ..Default::default()
                     },
+                    EnvVar {
+                        name: "DATA_ROOT".to_string(),
+                        value: Some("/var/eosin".to_string()),
+                        ..Default::default()
+                    },
                 ]),
+                volume_mounts: Some(vec![VolumeMount {
+                    name: "data".to_string(),
+                    mount_path: "/var/eosin".to_string(),
+                    ..Default::default()
+                }]),
                 ports: Some(vec![
                     ContainerPort {
                         container_port: cluster.spec.api_port as i32,
@@ -496,6 +636,28 @@ fn pod_ready(pod: &Pod) -> bool {
                 .iter()
                 .any(|c| c.type_ == "Ready" && c.status == "True")
         })
+}
+
+fn pvc_bound(pvc: &PersistentVolumeClaim) -> bool {
+    pvc.status
+        .as_ref()
+        .and_then(|s| s.phase.as_ref())
+        .is_some_and(|phase| phase == "Bound")
+}
+
+fn pvc_old_enough_for_gc(pvc: &PersistentVolumeClaim, grace_seconds: u64) -> bool {
+    if grace_seconds == 0 {
+        return true;
+    }
+    let Some(created) = pvc.metadata.creation_timestamp.as_ref() else {
+        return false;
+    };
+    let now = Timestamp::now().as_second();
+    let created = created.0.as_second();
+    if now < created {
+        return false;
+    }
+    (now - created) as u64 >= grace_seconds
 }
 
 async fn get_status(
@@ -566,6 +728,8 @@ mod tests {
     use eosin_types::{
         ClusterSpec, ClusterStatus, ClusterTopology, FailoverPolicy, Placement, ReplicaResources,
     };
+    use k8s_openapi::jiff::Timestamp;
+    use k8s_openapi::apimachinery::pkg::apis::meta::v1::Time;
     use std::net::TcpListener;
     use std::sync::Arc;
     use std::collections::{HashMap, HashSet};
@@ -634,6 +798,8 @@ mod tests {
                 cluster_port: 4500,
                 control_port: 4600,
                 backlog_capacity: 4096,
+                gc_orphan_pvcs: false,
+                pvc_gc_grace_seconds: 600,
                 num_slots,
                 storage_class_name: None,
                 resources: ReplicaResources::default(),
@@ -697,6 +863,62 @@ mod tests {
             applied_shards: shards,
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn pvc_and_pod_name_helpers_round_trip() {
+        let name = pod_name("test-cluster", 3, 7);
+        assert_eq!(name, "test-cluster-s3-r7");
+        assert_eq!(pvc_name("test-cluster", 3, 7), "test-cluster-s3-r7-data");
+        assert_eq!(parse_pod_name("test-cluster", &name), Some((3, 7)));
+        assert_eq!(
+            parse_pvc_name("test-cluster", "test-cluster-s3-r7-data"),
+            Some((3, 7))
+        );
+        assert_eq!(parse_pod_name("test-cluster", "other-s3-r7"), None);
+        assert_eq!(parse_pvc_name("test-cluster", "other-s3-r7-data"), None);
+    }
+
+    #[test]
+    fn pod_resource_mounts_persistent_data_volume() {
+        let cluster = cluster(1, 0, 16_384);
+        let pod = pod_resource(&cluster, 0, 0);
+        let spec = pod.spec.expect("pod spec");
+        let volumes = spec.volumes.expect("volumes");
+        assert_eq!(volumes.len(), 1);
+        assert_eq!(volumes[0].name, "data");
+        let claim = volumes[0]
+            .persistent_volume_claim
+            .as_ref()
+            .expect("pvc claim");
+        assert_eq!(claim.claim_name, "test-cluster-s0-r0-data");
+
+        let container = &spec.containers[0];
+        let mounts = container.volume_mounts.as_ref().expect("mounts");
+        assert_eq!(mounts[0].name, "data");
+        assert_eq!(mounts[0].mount_path, "/var/eosin");
+
+        let env = container.env.as_ref().expect("env");
+        assert!(env
+            .iter()
+            .any(|e| e.name == "DATA_ROOT" && e.value.as_deref() == Some("/var/eosin")));
+    }
+
+    #[test]
+    fn pvc_gc_grace_gate_respects_creation_age() {
+        let mut pvc = PersistentVolumeClaim::default();
+        let now = Timestamp::now().as_second();
+        pvc.metadata.creation_timestamp =
+            Some(Time::from(Timestamp::new(now - 3600, 0).expect("timestamp")));
+        assert!(pvc_old_enough_for_gc(&pvc, 600));
+
+        pvc.metadata.creation_timestamp =
+            Some(Time::from(Timestamp::new(now - 60, 0).expect("timestamp")));
+        assert!(!pvc_old_enough_for_gc(&pvc, 600));
+
+        pvc.metadata.creation_timestamp = None;
+        assert!(!pvc_old_enough_for_gc(&pvc, 600));
+        assert!(pvc_old_enough_for_gc(&pvc, 0));
     }
 
     #[derive(Default)]
@@ -1333,5 +1555,124 @@ mod tests {
             )
             .await
         );
+    }
+
+    #[tokio::test]
+    async fn chaos_mixed_multi_shard_scenarios_preserve_reconcile_invariants() {
+        fn next_u32(state: &mut u64) -> u32 {
+            *state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+            (*state >> 32) as u32
+        }
+
+        let mut seed = 0xC0FFEE_u64;
+        for case_idx in 0..64_u32 {
+            let shard_count = (next_u32(&mut seed) % 4) + 1;
+            let read_replicas = next_u32(&mut seed) % 3;
+            let replicas_per_shard = 1 + read_replicas;
+            let cluster = cluster(shard_count, read_replicas, 16_384);
+
+            let mut observations: HashMap<u32, Vec<ReplicaObservation>> = HashMap::new();
+            let mut accepted = HashSet::new();
+            let mut expected_targets = 0_u32;
+            let mut expected_accepts = 0_u32;
+
+            let now = now_unix_ms();
+            for shard_id in 0..shard_count {
+                let mut shard_obs = Vec::new();
+                let designated_master = (next_u32(&mut seed) % replicas_per_shard) as u32;
+                for replica_id in 0..replicas_per_shard {
+                    let control_addr = format!("10.{}.{}.{}:4600", case_idx % 200 + 1, shard_id + 1, replica_id + 1);
+                    let cluster_addr = format!("10.{}.{}.{}:4500", case_idx % 200 + 1, shard_id + 1, replica_id + 1);
+                    expected_targets = expected_targets.saturating_add(1);
+
+                    let route_ack = (next_u32(&mut seed) % 100) < 70;
+                    if route_ack {
+                        accepted.insert(control_addr.clone());
+                        expected_accepts = expected_accepts.saturating_add(1);
+                    }
+
+                    let telemetry_missing = (next_u32(&mut seed) % 100) < 15;
+                    let pod_ready = (next_u32(&mut seed) % 100) < 80;
+                    let role = if replica_id == designated_master {
+                        Role::Master
+                    } else {
+                        Role::ReadReplica
+                    };
+                    let hb_age = (next_u32(&mut seed) % 20_000) as u64;
+                    let hb = now.saturating_sub(hb_age);
+                    let status_ready = (next_u32(&mut seed) % 100) < 85;
+                    let lag = (next_u32(&mut seed) % 200) as u64;
+                    let config_epoch = 3 + (next_u32(&mut seed) % 3) as u64;
+                    let status = if telemetry_missing {
+                        None
+                    } else {
+                        Some(crate::proto::cluster::GetShardStatusResponse {
+                            shard_id,
+                            role: role as i32,
+                            epoch: 5,
+                            applied_offset: 100,
+                            current_offset: 100,
+                            last_heartbeat_unix_ms: hb,
+                            replication_lag: lag,
+                            ready: status_ready,
+                            master_addr: if role == Role::Master {
+                                "".to_string()
+                            } else {
+                                format!("10.{}.{}.{}:4500", case_idx % 200 + 1, shard_id + 1, designated_master + 1)
+                            },
+                            config_epoch,
+                            migration_queue_len: 0,
+                            misplaced_tiles: 0,
+                        })
+                    };
+
+                    shard_obs.push(ReplicaObservation {
+                        name: format!("test-cluster-s{shard_id}-r{replica_id}"),
+                        node: Some(format!("node-{}", replica_id % 3)),
+                        pod_ready,
+                        control_addr: Some(control_addr),
+                        cluster_addr: Some(cluster_addr),
+                        status,
+                    });
+                }
+                observations.insert(shard_id, shard_obs);
+            }
+
+            let mut existing = default_existing_status(shard_count);
+            existing.config_epoch = 3;
+            let control = MockControlPlane {
+                accept_become_master: true,
+                accept_become_replica: true,
+                update_accept: accepted,
+                ..Default::default()
+            };
+
+            let result =
+                reconcile_from_observations(&cluster, &observations, existing, &control).await;
+
+            assert_eq!(result.applied_shards, shard_count);
+            assert_eq!(result.shards.len() as u32, shard_count);
+            assert_eq!(control.update_calls.lock().expect("lock").len() as u32, expected_targets);
+            let message = result.message.clone().expect("message");
+            assert!(message.contains(&format!("pushed_to={expected_accepts}")));
+
+            let mut has_unhealthy = false;
+            for shard in &result.shards {
+                assert_eq!(shard.expected_replicas, replicas_per_shard);
+                assert!(shard.ready_replicas <= replicas_per_shard);
+                if shard.master.is_none() || shard.ready_replicas == 0 {
+                    has_unhealthy = true;
+                }
+                if result.phase == eosin_types::ClusterPhase::Ready {
+                    assert!(shard.config_epoch >= result.target_config_epoch);
+                    assert_eq!(shard.migration_queue_len, 0);
+                    assert_eq!(shard.misplaced_tiles, 0);
+                }
+            }
+
+            if has_unhealthy {
+                assert_eq!(result.phase, eosin_types::ClusterPhase::Degraded);
+            }
+        }
     }
 }

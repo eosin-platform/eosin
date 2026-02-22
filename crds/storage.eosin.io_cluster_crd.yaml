@@ -70,6 +70,9 @@ spec:
                     minimum: 0.0
                     type: integer
                 type: object
+              gc_orphan_pvcs:
+                default: false
+                type: boolean
               image:
                 type: string
               num_slots:
@@ -97,6 +100,11 @@ spec:
                     nullable: true
                     type: string
                 type: object
+              pvc_gc_grace_seconds:
+                default: 600
+                format: uint64
+                minimum: 0.0
+                type: integer
               resources:
                 default:
                   cpu: null

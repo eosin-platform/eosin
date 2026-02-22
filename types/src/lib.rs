@@ -57,6 +57,14 @@ fn default_backlog_capacity() -> u32 {
     4096
 }
 
+fn default_gc_orphan_pvcs() -> bool {
+    false
+}
+
+fn default_pvc_gc_grace_seconds() -> u64 {
+    600
+}
+
 fn default_num_slots() -> u32 {
     16384
 }
@@ -97,6 +105,10 @@ pub struct ClusterSpec {
     pub control_port: u16,
     #[serde(default = "default_backlog_capacity")]
     pub backlog_capacity: u32,
+    #[serde(default = "default_gc_orphan_pvcs")]
+    pub gc_orphan_pvcs: bool,
+    #[serde(default = "default_pvc_gc_grace_seconds")]
+    pub pvc_gc_grace_seconds: u64,
     #[serde(default = "default_num_slots")]
     pub num_slots: u32,
     pub storage_class_name: Option<String>,
