@@ -725,11 +725,11 @@
 					<h3>Creator</h3>
 					<p class="citation-text">
 						© 2026 <a
-							href="https://sablecrestlabs.com"
+							href="https://thavlik.dev"
 							target="_blank"
 							rel="noopener noreferrer"
-							class="citation-link">Sable Crest Labs</a
-						>. All rights reserved.
+							class="citation-link">Thomas Havlik</a
+						>.
 					</p>
 				</div>
 			</div>
