@@ -871,9 +871,13 @@
 								caching, and delivery. Eosin is engineered for future expansion into machine vision,
 								search, and large-scale analysis across the visual manifold of histopathology.
 							</p>
+							<p>
+								This project is open source under the MIT License. Source code, documentation, and issue tracker
+								are available on GitHub: <a href="https://github.com/eosin-platform/eosin" target="_blank" rel="noopener noreferrer">GitHub</a>
+							</p>
 							<p class="setting-hint">
 								© <a
-									href="https://sablecrestlabs.com"
+									href="https://thavlik.dev"
 									target="_blank"
 									rel="noopener noreferrer"
 									class="about-link"
