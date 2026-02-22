@@ -168,6 +168,7 @@ cargo build --workspace
 - [intake/](intake/) — raw WSI intake path (S3 staging → storage), with optional garbage collection
 - [chart/](chart/) — Helm chart for Kubernetes deployment
 - [crds/](crds/) — Kubernetes CRDs used by operators
+- [toy/](toy/) — A trivial WSI viewer written in Python for data validation purposes
 
 ## Contributing
 
