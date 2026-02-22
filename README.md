@@ -4,7 +4,7 @@
 
 # Eosin
 
-<p align="center">
+<p>
   <a href="https://app.eosin.ai/"><img alt="Demo" src="https://img.shields.io/badge/Demo-app.eosin.ai-blue" /></a>
   &nbsp;
   <a href="LICENSE-APACHE-2.0"><img alt="License: Apache-2.0 / MIT" src="https://img.shields.io/badge/License-Apache--2.0%20%2F%20MIT-green" /></a>
