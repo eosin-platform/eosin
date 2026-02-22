@@ -878,8 +878,8 @@
 									rel="noopener noreferrer"
 									class="about-link"
 								>
-									Sable Crest Labs
-								</a> 2026.
+									Thomas Havlik
+								</a> 2026
 							</p>
 						</div>
 					</div>

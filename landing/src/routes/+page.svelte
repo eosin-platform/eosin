@@ -512,10 +512,10 @@
 			© {new Date().getFullYear()}
 			<a
 				class="font-medium text-gray-500 transition-colors hover:text-gray-900"
-				href="https://sablecrestlabs.com"
+				href="https://thavlik.dev"
 				target="_blank"
-				rel="noopener noreferrer">Sable Crest Labs</a
-			>. All rights reserved.
+				rel="noopener noreferrer">Thomas Havlik</a
+			>
 		</div>
 	</div>
 </footer>
