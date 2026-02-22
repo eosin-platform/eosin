@@ -1,0 +1,9 @@
+kind: Secret
+apiVersion: v1
+metadata:
+  name: spaces-cred
+  namespace: eosin
+type: Opaque
+stringData:
+  access_key_id: DO00VZQ9K2XGQ5_ZXYZ
+  secret_access_key: ABCDEF_HIJKLMNOPQRSTUVWXYZ123456

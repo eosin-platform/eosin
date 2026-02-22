@@ -1,0 +1,9 @@
+kind: Secret
+apiVersion: v1
+metadata:
+  name: nats-cred
+  namespace: eosin
+type: Opaque
+stringData:
+  user: myuser
+  password: mypass

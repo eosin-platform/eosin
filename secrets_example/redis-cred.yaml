@@ -1,0 +1,11 @@
+apiVersion: v1
+stringData:
+  host: myredis.db.ondigitalocean.com
+  password: ABCDEF_HIJKLMNOPQRSTUVWXYZ123456
+  port: "25061"
+  username: default
+kind: Secret
+metadata:
+  name: redis-cred
+  namespace: eosin
+type: Opaque

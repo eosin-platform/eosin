@@ -1,0 +1,9 @@
+kind: Secret
+apiVersion: v1
+metadata:
+  name: keycloak-cred
+  namespace: eosin
+type: Opaque
+stringData:
+  clientid: eosin
+  clientsecret: ABCDEFGHIJKLMNOPQRSTUVWXYZ123456
