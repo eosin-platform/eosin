@@ -29,16 +29,16 @@ Conceptually:
 
 ```mermaid
 flowchart LR
-  Browser[WSI Browser (Svelte)] -->|HTTPS| Meta[meta (HTTP API)]
-  Browser -->|WebSocket| Frusta[frusta (WS streaming)]
-  Frusta -->|gRPC| Storage[storage (tile store)]
-  Meta -->|Postgres| PG[(PostgreSQL)]
-  Frusta -->|Redis| R[(Redis)]
-  IAM[iam (HTTP API)] -->|Keycloak| KC[(Keycloak)]
+  Browser["WSI Browser (Svelte)"] -->|HTTPS| Meta["meta (HTTP API)"]
+  Browser -->|WebSocket| Frusta["frusta (WS streaming)"]
+  Frusta -->|gRPC| Storage["storage (tile store)"]
+  Meta -->|Postgres| PG["PostgreSQL"]
+  Frusta -->|Redis| R["Redis"]
+  IAM["iam (HTTP API)"] -->|Keycloak| KC["Keycloak"]
   Meta -->|JWT validation| KC
-  Compiler[compiler (JetStream worker)] -->|NATS JetStream| NATS[(NATS)]
+  Compiler["compiler (JetStream worker)"] -->|NATS JetStream| NATS["NATS"]
   Storage -->|cache-miss events| NATS
-  Compiler -->|S3 / S3-compatible| S3[(Object Storage)]
+  Compiler -->|S3-compatible| S3["Object Storage (S3-compatible)"]
 ```
 
 ## Feature highlights
