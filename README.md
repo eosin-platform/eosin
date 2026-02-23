@@ -10,14 +10,20 @@
   <img alt="Kubernetes" src="https://img.shields.io/badge/Kubernetes-Helm-blueviolet" />
 </p>
 
+Related blog posts:
+- [Eosin I: Origins](https://thavlik.dev/blog/2026-02-20/eosin-i-origins)
+- [Eosin II: Towards a Unified Standard](https://thavlik.dev/blog/2026-02-21/eosin-ii-towards-a-unified-standard)
+- [Eosin III: Ecosystem Holes](https://thavlik.dev/blog/2026-02-22/eosin-iii-ecosystem-holes)
+- [Cyto Vendor Examples](https://thavlik.dev/blog/2026-02-23/cyto-vendor-examples)
+
 Eosin is an open-source, high-performance whole-slide imaging (WSI) platform built for the web.
 It is the foundation of a broader computational pathology ecosystem: interactive viewing and annotation, cloud-native storage and serving, and real-time processing pipelines.
+
+Demo available at https://app.eosin.ai/.
 
 <p align="center">
   <img src="./hero.gif" alt="Eosin demo" width="720">
 </p>
-
-Demo available at https://app.eosin.ai/.
 
 The platform is built around a few non-negotiables:
 
