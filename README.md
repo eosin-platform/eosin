@@ -11,7 +11,6 @@
 </p>
 
 Related blog posts:
-
 - [Eosin I: Origins](https://thavlik.dev/blog/2026-02-20/eosin-i-origins)
 - [Eosin II: Towards a Unified Standard](https://thavlik.dev/blog/2026-02-21/eosin-ii-towards-a-unified-standard)
 - [Eosin III: Ecosystem Holes](https://thavlik.dev/blog/2026-02-22/eosin-iii-ecosystem-holes)
