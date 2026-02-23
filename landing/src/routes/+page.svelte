@@ -1,6 +1,29 @@
 <script lang="ts">
 	let mobileMenuOpen = $state(false);
 
+	const softwareApplicationSchema = {
+		'@context': 'https://schema.org',
+		'@type': 'SoftwareApplication',
+		name: 'Eosin',
+		description:
+			'Open-source whole-slide imaging (WSI) viewer for digital pathology and pathology education, with WSI annotation and shareable slide links for students and educators.',
+		applicationCategory: 'EducationalApplication',
+		operatingSystem: 'Web',
+		url: 'https://eosin.ai',
+		downloadUrl: 'https://github.com/eosin-platform/eosin',
+		publisher: {
+			'@type': 'Organization',
+			name: 'Sable Crest Labs',
+			url: 'https://eosin.ai'
+		},
+		offers: {
+			'@type': 'Offer',
+			price: '0',
+			priceCurrency: 'USD'
+		},
+		sameAs: ['https://github.com/eosin-platform/eosin']
+	};
+
 	function scrollToSection(id: string) {
 		const element = document.getElementById(id);
 		if (element) {
@@ -11,12 +34,15 @@
 </script>
 
 <svelte:head>
-	<title>Eosin – Whole-Slide Image Viewer</title>
+	<title>Eosin – Whole-Slide Imaging (WSI) Viewer for Pathology Education</title>
 	<link rel="icon" href="/favicon.png" />
 	<meta
 		name="description"
-		content="Eosin is a collaborative platform for viewing, annotating, and teaching from pathology slides. Fast whole-slide navigation with collaborative annotation tools."
+		content="Eosin is an open-source whole-slide imaging (WSI) viewer for digital pathology and pathology education. Use WSI annotation and shareable links to teach and study from whole-slide images."
 	/>
+	<script type="application/ld+json">
+{@html JSON.stringify(softwareApplicationSchema)}
+	</script>
 	<link
 		rel="stylesheet"
 		href="https://fonts.googleapis.com/css2?family=Inter:wght@500&display=swap"
@@ -29,8 +55,8 @@
 >
 	<nav class="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 sm:px-6 lg:px-8">
 		<a href="/" class="flex items-center gap-2">
-			<img src="/logo_half.png" alt="EOSIN" class="h-7 w-auto sm:hidden" />
-			<img src="/logo_full.png" alt="EOSIN" class="hidden h-7 w-auto sm:block" />
+			<img src="/logo_half.png" alt="Eosin logo" class="h-7 w-auto sm:hidden" />
+			<img src="/logo_full.png" alt="Eosin logo" class="hidden h-7 w-auto sm:block" />
 			<span
 				class="text-base text-gray-900"
 				style="font-family: 'Inter', sans-serif; font-weight: 500;">EOSIN</span
@@ -154,12 +180,19 @@
 				<!-- Text Content -->
 				<div class="order-2 lg:order-1">
 					<h1 class="mb-4 text-3xl font-semibold tracking-tight text-gray-900 sm:text-4xl">
-						Whole-slide imaging. Without the friction.
+						Whole-slide imaging (WSI) for pathology education
 					</h1>
-					<p class="mb-8 max-w-lg text-base leading-relaxed text-gray-600">
-						Fast navigation. Structured annotation. Collaborative review. Eosin runs wherever you
-						work — desktop or mobile.
-					</p>
+					<div class="mb-8 max-w-lg space-y-3 text-base leading-relaxed text-gray-600">
+						<p>
+							Eosin is an open-source whole-slide imaging viewer for digital pathology under Sable
+							Crest Labs. It’s built for pathology students and educators who need consistent,
+							browser-based access to whole-slide images.
+						</p>
+						<p>
+							Use Eosin to navigate WSI quickly, add structured WSI annotation, and share permalinks
+							that open to a specific field of view for teaching and guided study.
+						</p>
+					</div>
 
 					<div class="flex flex-col gap-3 sm:flex-row">
 						<a
@@ -203,6 +236,8 @@
 							loop
 							muted
 							playsinline
+							aria-label="Screen recording of the Eosin whole-slide imaging (WSI) viewer showing zoom, pan, and WSI annotation"
+							title="Eosin whole-slide imaging (WSI) viewer and annotation UI"
 							class="h-auto w-full"
 							poster="/logo_full.png"
 						>
@@ -219,7 +254,9 @@
 	<section id="features" class="bg-gray-50 py-16 sm:py-20">
 		<div class="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
 			<div class="mb-10 text-center">
-				<h2 class="mb-3 text-2xl font-semibold text-gray-900">Features</h2>
+				<h2 class="mb-3 text-2xl font-semibold text-gray-900">
+					Whole-slide imaging viewer features
+				</h2>
 			</div>
 
 			<div class="grid gap-6 md:grid-cols-3">
@@ -242,8 +279,8 @@
 					</div>
 					<h3 class="mb-2 text-base font-medium text-gray-900">Fast whole-slide navigation</h3>
 					<p class="text-sm leading-relaxed text-gray-600">
-						Move from overview to 40× magnification instantly. Smooth zooming and panning across
-						gigapixel slides, without stalls or redraw lag.
+						Move from overview to 40× magnification quickly. Smooth zooming and panning across
+						gigapixel whole-slide images in the browser.
 					</p>
 				</div>
 
@@ -264,12 +301,10 @@
 							/>
 						</svg>
 					</div>
-					<h3 class="mb-2 text-base font-medium text-gray-900">
-						Structured, collaborative annotation
-					</h3>
+					<h3 class="mb-2 text-base font-medium text-gray-900">WSI annotation for teaching</h3>
 					<p class="text-sm leading-relaxed text-gray-600">
-						Define regions of interest, attach notes, and share precise slide views with colleagues
-						or trainees.
+						Define regions of interest, attach notes, and share precise fields of view for pathology
+						education and review.
 					</p>
 				</div>
 
@@ -290,10 +325,10 @@
 							/>
 						</svg>
 					</div>
-					<h3 class="mb-2 text-base font-medium text-gray-900">Intelligent tooling</h3>
+					<h3 class="mb-2 text-base font-medium text-gray-900">Similarity search (experimental)</h3>
 					<p class="text-sm leading-relaxed text-gray-600">
-						Find morphologically similar regions throughout and across slides, reducing search
-						fatigue.
+						Optionally find visually similar regions across a slide set to support teaching and
+						study. Intended for education and exploration, not diagnosis.
 					</p>
 				</div>
 			</div>
@@ -319,11 +354,12 @@
 						For Educators
 					</div>
 					<h2 class="mb-4 text-2xl font-semibold text-gray-900">
-						Teaching tools for pathology curriculum
+						WSI annotation tools for teaching pathology
 					</h2>
 					<p class="mb-6 text-gray-600">
-						Share curated slide collections with your students. Create permalinks to specific
-						diagnostic regions for lectures and examinations.
+						Use whole-slide imaging in your teaching materials. Share curated slide collections and
+						WSI annotations, and link students to an exact field of view for labs, lectures, and
+						assessments.
 					</p>
 					<ul class="space-y-3">
 						<li class="flex items-start gap-3 text-gray-600">
@@ -340,7 +376,9 @@
 									d="M5 13l4 4L19 7"
 								/>
 							</svg>
-							<span class="text-sm">Create permalinks to exact fields-of-view</span>
+							<span class="text-sm"
+								>Create permalinks to exact fields of view in whole-slide images</span
+							>
 						</li>
 						<li class="flex items-start gap-3 text-gray-600">
 							<svg
@@ -356,7 +394,9 @@
 									d="M5 13l4 4L19 7"
 								/>
 							</svg>
-							<span class="text-sm">Consistent slide access across cohorts</span>
+							<span class="text-sm"
+								>Provide consistent access to digital pathology slides across cohorts</span
+							>
 						</li>
 						<li class="flex items-start gap-3 text-gray-600">
 							<svg
@@ -372,7 +412,8 @@
 									d="M5 13l4 4L19 7"
 								/>
 							</svg>
-							<span class="text-sm">Browser-based access on any device</span>
+							<span class="text-sm">Browser-based viewer for classroom, lab, and at-home study</span
+							>
 						</li>
 					</ul>
 				</div>
@@ -392,10 +433,12 @@
 						</svg>
 						For Students
 					</div>
-					<h2 class="mb-4 text-2xl font-semibold text-gray-900">Learn pathology visually</h2>
+					<h2 class="mb-4 text-2xl font-semibold text-gray-900">
+						Digital pathology study with whole-slide imaging
+					</h2>
 					<p class="mb-6 text-gray-600">
-						Access curated slide collections anytime. Follow instructor-shared links to specific
-						diagnostic regions for guided study.
+						Open curated slide collections anytime. Follow instructor-shared permalinks to the exact
+						field of view, then explore the whole-slide image at your own pace.
 					</p>
 					<ul class="space-y-3">
 						<li class="flex items-start gap-3 text-gray-600">
@@ -412,7 +455,7 @@
 									d="M5 13l4 4L19 7"
 								/>
 							</svg>
-							<span class="text-sm">Study from laptop, tablet, or phone</span>
+							<span class="text-sm">Study whole-slide images from laptop, tablet, or phone</span>
 						</li>
 						<li class="flex items-start gap-3 text-gray-600">
 							<svg
@@ -428,7 +471,9 @@
 									d="M5 13l4 4L19 7"
 								/>
 							</svg>
-							<span class="text-sm">Navigate to shared diagnostic regions</span>
+							<span class="text-sm"
+								>Jump directly to instructor-highlighted regions and annotations</span
+							>
 						</li>
 						<li class="flex items-start gap-3 text-gray-600">
 							<svg
@@ -444,7 +489,9 @@
 									d="M5 13l4 4L19 7"
 								/>
 							</svg>
-							<span class="text-sm">AI-assisted visual explanations (coming soon)</span>
+							<span class="text-sm"
+								>Practice making your own notes and WSI annotations (when enabled)</span
+							>
 						</li>
 					</ul>
 				</div>
@@ -455,7 +502,7 @@
 	<!-- CTA Section -->
 	<section class="bg-gray-50 py-16 sm:py-20">
 		<div class="mx-auto max-w-3xl px-4 text-center sm:px-6 lg:px-8">
-			<h2 class="mb-4 text-2xl font-semibold text-gray-900">Ready to get started?</h2>
+			<h2 class="mb-4 text-2xl font-semibold text-gray-900">Try the whole-slide imaging demo</h2>
 			<p class="mx-auto mb-6 max-w-2xl text-gray-600">
 				Viewer access is unrestricted. Free registration required for annotation/analysis tools.
 			</p>
@@ -484,7 +531,7 @@
 	<div class="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
 		<div class="flex flex-col items-center justify-between gap-4 sm:flex-row">
 			<div class="flex items-center gap-4">
-				<img src="/logo_half.png" alt="Eosin" class="h-5 w-auto opacity-60" />
+				<img src="/logo_half.png" alt="Eosin logo" class="h-5 w-auto opacity-60" />
 			</div>
 			<div class="flex items-center gap-6 text-sm text-gray-500">
 				<a
