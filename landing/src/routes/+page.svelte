@@ -433,9 +433,7 @@
 						</svg>
 						For Students
 					</div>
-					<h2 class="mb-4 text-2xl font-semibold text-gray-900">
-						Digital pathology study with whole-slide imaging
-					</h2>
+					<h2 class="mb-4 text-2xl font-semibold text-gray-900">Digital pathology study tools</h2>
 					<p class="mb-6 text-gray-600">
 						Open curated slide collections anytime. Follow instructor-shared permalinks to the exact
 						field of view, then explore the whole-slide image at your own pace.
