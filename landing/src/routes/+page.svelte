@@ -328,7 +328,7 @@
 					<h3 class="mb-2 text-base font-medium text-gray-900">Similarity search (experimental)</h3>
 					<p class="text-sm leading-relaxed text-gray-600">
 						Optionally find visually similar regions across a slide set to support teaching and
-						study. Intended for education and exploration, not diagnosis.
+						study.
 					</p>
 				</div>
 			</div>
