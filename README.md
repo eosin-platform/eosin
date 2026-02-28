@@ -16,6 +16,7 @@ Related blog posts:
 - [Eosin III: Ecosystem Holes](https://thavlik.dev/blog/2026-02-22/eosin-iii-ecosystem-holes)
 - [Cyto Vendor Examples](https://thavlik.dev/blog/2026-02-23/cyto-vendor-examples)
 - [Eosin IV: Emergent Systems](https://thavlik.dev/blog/2026-02-24/eosin-iv-emergent-systems)
+- [Eosin V: The Registry](https://thavlik.dev/blog/2026-02-28/eosin-v-the-registry)
 
 Eosin is an open-source, high-performance whole-slide imaging (WSI) platform built for the web.
 It is the foundation of a broader computational pathology ecosystem: interactive viewing and annotation, cloud-native storage and serving, and real-time processing pipelines.
