@@ -36,6 +36,8 @@ The platform is built around a few non-negotiables:
 
 This repository contains the "platform core": services, operator, and frontends required to run Eosin.
 
+If you desire a desktop WSI viewer for opening files locally, Eosin's sister project [EOV](https://github.com/eosin-platform/eov) is far better suited. Eosin is the institution-scale counterpart of EOV with a features geared towards collaboration.
+
 ## High-level architecture
 
 Conceptually:
