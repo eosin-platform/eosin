@@ -278,6 +278,7 @@ pub async fn is_level_complete(pool: &Pool, slide_id: Uuid, level: u32) -> Resul
 }
 
 /// Clear all checkpoints for a slide (e.g., when fully complete).
+#[allow(dead_code)]
 pub async fn clear_all_tile_checkpoints(pool: &Pool, slide_id: Uuid) -> Result<()> {
     let client = pool.get().await.context("failed to get db connection")?;
 

@@ -434,6 +434,7 @@ fn row_to_annotation_set(row: &tokio_postgres::Row) -> AnnotationSet {
 // =============================================================================
 
 /// Create a new point annotation.
+#[allow(clippy::too_many_arguments)]
 pub async fn create_point_annotation(
     pool: &Pool,
     annotation_set_id: Uuid,
@@ -484,6 +485,7 @@ pub async fn create_point_annotation(
 }
 
 /// Create a new polygon or polyline annotation.
+#[allow(clippy::too_many_arguments)]
 pub async fn create_polygon_annotation(
     pool: &Pool,
     annotation_set_id: Uuid,
@@ -534,6 +536,7 @@ pub async fn create_polygon_annotation(
 }
 
 /// Create a new ellipse annotation.
+#[allow(clippy::too_many_arguments)]
 pub async fn create_ellipse_annotation(
     pool: &Pool,
     annotation_set_id: Uuid,
@@ -591,6 +594,7 @@ pub async fn create_ellipse_annotation(
 /// at the same tile location (x0_level0, y0_level0) in the same annotation set.
 /// This enforces the invariant: one mask per tile per annotation layer.
 /// Uses a transaction with row-level locking for ACID guarantees.
+#[allow(clippy::too_many_arguments)]
 pub async fn create_mask_annotation(
     pool: &Pool,
     annotation_set_id: Uuid,
@@ -828,10 +832,10 @@ pub async fn list_annotations(
         };
 
         // Apply bbox filter if specified
-        if let Some((x_min, y_min, x_max, y_max)) = bbox {
-            if !geometry_intersects_bbox(&kind, &geometry, x_min, y_min, x_max, y_max) {
-                continue;
-            }
+        if let Some((x_min, y_min, x_max, y_max)) = bbox
+            && !geometry_intersects_bbox(&kind, &geometry, x_min, y_min, x_max, y_max)
+        {
+            continue;
         }
 
         items.push(row_to_annotation_response(&row, geometry));
@@ -1154,15 +1158,15 @@ fn geometry_intersects_bbox(
                 let mut py_max = f64::MIN;
 
                 for point in path {
-                    if let Some(arr) = point.as_array() {
-                        if arr.len() >= 2 {
-                            let x = arr[0].as_f64().unwrap_or(0.0);
-                            let y = arr[1].as_f64().unwrap_or(0.0);
-                            px_min = px_min.min(x);
-                            py_min = py_min.min(y);
-                            px_max = px_max.max(x);
-                            py_max = py_max.max(y);
-                        }
+                    if let Some(arr) = point.as_array()
+                        && arr.len() >= 2
+                    {
+                        let x = arr[0].as_f64().unwrap_or(0.0);
+                        let y = arr[1].as_f64().unwrap_or(0.0);
+                        px_min = px_min.min(x);
+                        py_min = py_min.min(y);
+                        px_max = px_max.max(x);
+                        py_max = py_max.max(y);
                     }
                 }
 

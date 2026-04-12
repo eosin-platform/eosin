@@ -73,7 +73,7 @@ impl MetaClient {
     }
 
     /// Create a new slide in the meta service
-    #[allow(clippy::cast_possible_wrap)]
+    #[allow(clippy::cast_possible_wrap, clippy::too_many_arguments)]
     pub async fn create_slide(
         &self,
         id: Uuid,

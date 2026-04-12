@@ -266,7 +266,7 @@ async fn handle_socket(
             }
             Ok(Message::Binary(data)) => {
                 tracing::debug!("received binary message: {} bytes", data.len());
-                if data.len() < 1 {
+                if data.is_empty() {
                     tracing::error!("binary message too short");
                     continue;
                 }
@@ -302,7 +302,7 @@ async fn handle_message(
 ) -> Result<()> {
     match ty {
         MessageType::Update => {
-            ensure!(data.len() >= 1 + VIEWPORT_SIZE, "Update message too short");
+            ensure!(data.len() > VIEWPORT_SIZE, "Update message too short");
             let slot = data[0];
             let viewport = Viewport::from_slice(&data[1..1 + VIEWPORT_SIZE])?;
             let start = Instant::now();
@@ -329,13 +329,13 @@ async fn handle_message(
         }
         MessageType::Close => {
             tracing::debug!("handling Close message");
-            ensure!(data.len() >= 1, "Close message too short");
+            ensure!(!data.is_empty(), "Close message too short");
             let slot = data[0];
             session.close_slide(slot).context("failed to close slide")
         }
         MessageType::ClearCache => {
             tracing::debug!("handling ClearCache message");
-            ensure!(data.len() >= 1, "ClearCache message too short");
+            ensure!(!data.is_empty(), "ClearCache message too short");
             let slot = data[0];
             session.get_viewport_mut(slot)?.clear_cache();
             Ok(())

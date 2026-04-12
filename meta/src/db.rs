@@ -220,6 +220,7 @@ pub async fn init_schema(pool: &Pool) -> Result<()> {
 }
 
 /// Insert a new slide into the database.
+#[allow(clippy::too_many_arguments)]
 pub async fn insert_slide(
     pool: &Pool,
     id: Uuid,
@@ -311,6 +312,7 @@ pub async fn get_slide(pool: &Pool, id: Uuid) -> Result<Option<Slide>> {
 }
 
 /// Update a slide by its ID. Only provided fields are updated.
+#[allow(clippy::too_many_arguments)]
 pub async fn update_slide(
     pool: &Pool,
     id: Uuid,

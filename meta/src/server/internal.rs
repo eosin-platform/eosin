@@ -990,6 +990,7 @@ fn parse_polygon_geometry(geom: &JsonValue) -> Result<PolygonPath, (StatusCode, 
 fn parse_ellipse_geometry(
     geom: &JsonValue,
 ) -> Result<(f64, f64, f64, f64, f64), (StatusCode, String)> {
+    #![allow(clippy::type_complexity)]
     let cx = geom["cx_level0"].as_f64().ok_or_else(|| {
         (
             StatusCode::BAD_REQUEST,

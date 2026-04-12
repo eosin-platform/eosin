@@ -97,6 +97,7 @@ pub fn build_promotion_decision(
     })
 }
 
+#[cfg(test)]
 pub fn desired_pod_names(cluster_name: &str, shards: u32, replicas_per_shard: u32) -> Vec<String> {
     let mut names = Vec::new();
     for shard in 0..shards {
@@ -107,6 +108,7 @@ pub fn desired_pod_names(cluster_name: &str, shards: u32, replicas_per_shard: u3
     names
 }
 
+#[cfg(test)]
 pub fn topology_diff(desired: &[String], existing: &[String]) -> (Vec<String>, Vec<String>) {
     let desired_set: std::collections::HashSet<_> = desired.iter().cloned().collect();
     let existing_set: std::collections::HashSet<_> = existing.iter().cloned().collect();

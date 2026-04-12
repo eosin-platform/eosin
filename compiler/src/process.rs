@@ -241,6 +241,7 @@ fn slide_identity(dataset_id: Uuid, key: &str) -> String {
 }
 
 /// Handle a `ProcessSlideEvent`: download TIF, insert metadata, extract and upload tiles.
+#[allow(clippy::too_many_arguments)]
 async fn handle_process_slide(
     payload: &[u8],
     download_dir: &str,
@@ -341,6 +342,7 @@ async fn resolve_dataset_source(
 /// Slide metadata is inserted into the meta service first, then tiles are processed
 /// from highest mip level (lowest resolution) to level 0 (full resolution).
 /// This allows the slide to be viewable at low resolution while still processing.
+#[allow(clippy::too_many_arguments)]
 async fn process_downloaded_slide(
     s3_client: &aws_sdk_s3::Client,
     bucket: &str,

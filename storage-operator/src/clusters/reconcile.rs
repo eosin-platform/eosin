@@ -303,36 +303,34 @@ async fn reconcile_from_observations(
             now_ms,
             heartbeat_timeout,
             false,
-        ) {
-            if let Some(promote_ep) = endpoints.get(&decision.promote)
-                && let Some(control_addr) = promote_ep.control_addr.clone()
-                && control
-                    .become_master(&control_addr, shard_id, decision.new_epoch)
-                    .await
-            {
-                if let Some(cluster_addr) = promote_ep.cluster_addr.clone() {
-                    shard_master_cluster_addr.insert(shard_id, cluster_addr.clone());
-                    for replica in &replica_summaries {
-                        if replica.name == decision.promote {
-                            continue;
-                        }
-                        if let Some(rep_ep) = endpoints.get(&replica.name)
-                            && let Some(replica_control_addr) = rep_ep.control_addr.clone()
-                        {
-                            let _ = control
-                                .become_replica(
-                                    &replica_control_addr,
-                                    shard_id,
-                                    decision.new_epoch,
-                                    &cluster_addr,
-                                )
-                                .await;
-                        }
+        ) && let Some(promote_ep) = endpoints.get(&decision.promote)
+            && let Some(control_addr) = promote_ep.control_addr.clone()
+            && control
+                .become_master(&control_addr, shard_id, decision.new_epoch)
+                .await
+        {
+            if let Some(cluster_addr) = promote_ep.cluster_addr.clone() {
+                shard_master_cluster_addr.insert(shard_id, cluster_addr.clone());
+                for replica in &replica_summaries {
+                    if replica.name == decision.promote {
+                        continue;
+                    }
+                    if let Some(rep_ep) = endpoints.get(&replica.name)
+                        && let Some(replica_control_addr) = rep_ep.control_addr.clone()
+                    {
+                        let _ = control
+                            .become_replica(
+                                &replica_control_addr,
+                                shard_id,
+                                decision.new_epoch,
+                                &cluster_addr,
+                            )
+                            .await;
                     }
                 }
-                shard_status.epoch = decision.new_epoch;
-                shard_status.master = Some(decision.promote.clone());
             }
+            shard_status.epoch = decision.new_epoch;
+            shard_status.master = Some(decision.promote.clone());
         }
 
         let ready_replicas = replica_summaries.iter().filter(|r| r.ready).count() as u32;

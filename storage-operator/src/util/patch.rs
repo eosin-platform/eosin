@@ -22,11 +22,7 @@ pub trait Status {
 
 impl Object<ClusterStatus> for Cluster {
     fn mut_status(&mut self) -> &mut ClusterStatus {
-        if self.status.is_some() {
-            return self.status.as_mut().unwrap();
-        }
-        self.status = Some(Default::default());
-        self.status.as_mut().unwrap()
+        self.status.get_or_insert_with(Default::default)
     }
 }
 

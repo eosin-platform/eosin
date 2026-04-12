@@ -33,7 +33,7 @@ impl Bitmask {
     /// Calculate the row stride (bytes per row) for a given width.
     /// This rounds up to the nearest byte.
     pub fn row_stride(width: i32) -> usize {
-        ((width as usize) + 7) / 8
+        (width as usize).div_ceil(8)
     }
 
     /// Calculate the expected data size in bytes for given dimensions.

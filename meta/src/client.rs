@@ -42,6 +42,7 @@ impl MetaClient {
     }
 
     /// Create a new slide.
+    #[allow(clippy::too_many_arguments)]
     pub async fn create_slide(
         &self,
         id: Uuid,
@@ -114,6 +115,7 @@ impl MetaClient {
     }
 
     /// Update a slide by ID.
+    #[allow(clippy::too_many_arguments)]
     pub async fn update_slide(
         &self,
         id: Uuid,

@@ -161,7 +161,6 @@ impl ViewManager {
 
         // Spawn NATS subscription task for tile events
         tokio::spawn({
-            let image = image.clone();
             let work_queue = work_queue.clone();
             let send_tx = send_tx.clone();
             let cancel = nats_cancel.clone();
@@ -471,10 +470,7 @@ impl ViewManager {
         }
 
         // Create a cancellation token for this specific request
-        let cancel = self
-            .cancel_update
-            .clone()
-            .unwrap_or_else(CancellationToken::new);
+        let cancel = self.cancel_update.clone().unwrap_or_default();
 
         let work = RetrieveTileWork {
             slot: self.slot,
@@ -623,6 +619,7 @@ pub fn is_tile_in_viewport(
 /// Background task that subscribes to NATS tile events for a specific slide.
 /// When a tile event is received, checks if it's in the current viewport and
 /// dispatches work to fetch and send it to the client.
+#[allow(clippy::too_many_arguments)]
 async fn tile_subscription_task(
     slot: u8,
     dpi: f32,

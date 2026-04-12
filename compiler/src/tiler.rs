@@ -263,6 +263,7 @@ fn calculate_max_mip_level(width: u32, height: u32) -> u32 {
 ///
 /// Returns the set of tile coordinates that were empty at **this** level so that
 /// the caller can pass it to the next (finer) level.
+#[allow(clippy::too_many_arguments)]
 async fn process_level(
     slide: &OpenSlide,
     metadata: &SlideMetadata,
@@ -722,10 +723,10 @@ async fn process_level(
 
     // Mark this level as complete in the checkpoint table so that on restart
     // we can correctly count its tiles toward overall progress.
-    if let Some(pool) = pg_pool {
-        if let Err(e) = mark_level_complete(pool, slide_id, level, total_tiles).await {
-            tracing::warn!(error = ?e, "failed to mark level as complete");
-        }
+    if let Some(pool) = pg_pool
+        && let Err(e) = mark_level_complete(pool, slide_id, level, total_tiles).await
+    {
+        tracing::warn!(error = ?e, "failed to mark level as complete");
     }
 
     Ok(empty_tiles)
