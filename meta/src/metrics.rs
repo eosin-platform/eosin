@@ -22,7 +22,8 @@ impl LatencyTracker {
 
     pub fn finish(self) {
         let duration = self.start.elapsed().as_secs_f64();
-        histogram!("meta_operation_duration_seconds", "operation" => self.operation).record(duration);
+        histogram!("meta_operation_duration_seconds", "operation" => self.operation)
+            .record(duration);
     }
 
     pub fn finish_with_status(self, success: bool) {
@@ -133,7 +134,8 @@ pub fn annotations_listed(count: usize) {
 
 /// Record a database query.
 pub fn db_query(operation: &str, duration_secs: f64) {
-    histogram!("meta_db_query_duration_seconds", "operation" => operation.to_string()).record(duration_secs);
+    histogram!("meta_db_query_duration_seconds", "operation" => operation.to_string())
+        .record(duration_secs);
     counter!("meta_db_queries_total", "operation" => operation.to_string()).increment(1);
 }
 
@@ -158,7 +160,8 @@ pub fn api_request(method: &str, path: &str, status: u16) {
         "method" => method.to_string(),
         "path" => path.to_string(),
         "status" => status.to_string()
-    ).increment(1);
+    )
+    .increment(1);
 }
 
 /// Record an API request latency.
@@ -167,7 +170,8 @@ pub fn api_latency(method: &str, path: &str, duration_secs: f64) {
         "meta_api_request_duration_seconds",
         "method" => method.to_string(),
         "path" => path.to_string()
-    ).record(duration_secs);
+    )
+    .record(duration_secs);
 }
 
 /// Record authenticated request.

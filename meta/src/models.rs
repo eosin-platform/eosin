@@ -197,4 +197,3 @@ pub struct UpdateSlideProgressRequest {
     pub progress_steps: i32,
     pub progress_total: i32,
 }
-

@@ -1,14 +1,14 @@
 use std::net::SocketAddr;
 
-use hyper::{
-    Body, Request, Response, Server,
-    header::CONTENT_TYPE,
-    service::{make_service_fn, service_fn},
-};
+use http_body_util::Full;
+use hyper::{Request, Response, body::Bytes, header::CONTENT_TYPE, service::service_fn};
+use hyper_util::rt::{TokioExecutor, TokioIo};
+use hyper_util::server::conn::auto::Builder;
 use lazy_static::lazy_static;
 use owo_colors::OwoColorize;
 use prometheus::{Counter, Encoder, Gauge, HistogramVec, TextEncoder};
 use prometheus::{labels, opts, register_counter, register_gauge, register_histogram_vec};
+use tokio::net::TcpListener;
 
 use crate::util::metrics::prefix;
 
@@ -34,7 +34,9 @@ lazy_static! {
 }
 
 /// Handler to serve the prometheus metrics to the request.
-async fn serve_req(_req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
+async fn serve_req(
+    _req: Request<hyper::body::Incoming>,
+) -> Result<Response<Full<Bytes>>, hyper::Error> {
     let encoder = TextEncoder::new();
     HTTP_COUNTER.inc();
     let timer = HTTP_REQ_HISTOGRAM.with_label_values(&["all"]).start_timer();
@@ -45,7 +47,7 @@ async fn serve_req(_req: Request<Body>) -> Result<Response<Body>, hyper::Error> 
     let response = Response::builder()
         .status(200)
         .header(CONTENT_TYPE, encoder.format_type())
-        .body(Body::from(buffer))
+        .body(Full::new(Bytes::from(buffer)))
         .unwrap();
     timer.observe_duration();
     Ok(response)
@@ -59,11 +61,22 @@ pub async fn run_server(port: u16) {
         "📈 Metrics server listening on ".green(),
         addr.to_string().green().dimmed()
     );
-    let serve_future = Server::bind(&addr).serve(make_service_fn(|_| async {
-        Ok::<_, hyper::Error>(service_fn(serve_req))
-    }));
-    if let Err(err) = serve_future.await {
-        panic!("metrics server error: {}", err);
+    let listener = TcpListener::bind(addr)
+        .await
+        .expect("failed to bind metrics server");
+    loop {
+        let (stream, _) = listener
+            .accept()
+            .await
+            .expect("failed to accept connection");
+        let io = TokioIo::new(stream);
+        tokio::spawn(async move {
+            if let Err(err) = Builder::new(TokioExecutor::new())
+                .serve_connection(io, service_fn(serve_req))
+                .await
+            {
+                eprintln!("metrics server connection error: {}", err);
+            }
+        });
     }
-    panic!("metrics server exited");
 }

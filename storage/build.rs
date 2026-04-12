@@ -4,13 +4,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     unsafe {
         std::env::set_var("PROTOC", protobuf_src::protoc());
     }
-    
+
     tonic_prost_build::configure()
         .build_server(true)
         .build_client(true)
-        .compile_protos(
-            &["proto/storage.proto", "proto/cluster.proto"],
-            &["proto/"],
-        )?;
+        .compile_protos(&["proto/storage.proto", "proto/cluster.proto"], &["proto/"])?;
     Ok(())
 }

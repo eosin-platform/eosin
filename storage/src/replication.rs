@@ -286,7 +286,9 @@ impl ShardEngine {
 
     async fn apply_replication_write(&self, entry: TileMutation) -> Result<(), Status> {
         if entry.id.len() != 16 {
-            return Err(Status::invalid_argument("replication entry UUID must be 16 bytes"));
+            return Err(Status::invalid_argument(
+                "replication entry UUID must be 16 bytes",
+            ));
         }
         let mut id = [0_u8; 16];
         id.copy_from_slice(&entry.id);
@@ -324,7 +326,9 @@ impl ShardEngine {
         let entries = snapshot.entries;
         for entry in &entries {
             if entry.id.len() != 16 {
-                return Err(Status::invalid_argument("snapshot entry UUID must be 16 bytes"));
+                return Err(Status::invalid_argument(
+                    "snapshot entry UUID must be 16 bytes",
+                ));
             }
             let mut id = [0_u8; 16];
             id.copy_from_slice(&entry.id);
@@ -508,7 +512,11 @@ impl ShardEngine {
         loop {
             let (epoch, last_offset, still_replica) = {
                 let rt = self.inner.runtime.read().await;
-                (rt.epoch, rt.applied_offset, rt.role == ShardRole::ReadReplica)
+                (
+                    rt.epoch,
+                    rt.applied_offset,
+                    rt.role == ShardRole::ReadReplica,
+                )
             };
             if !still_replica {
                 break;
@@ -530,10 +538,16 @@ impl ShardEngine {
                                     Some(crate::proto::cluster::sync_event::Payload::Reject(_)) => {
                                         break;
                                     }
-                                    Some(crate::proto::cluster::sync_event::Payload::FullSnapshot(snapshot)) => {
+                                    Some(
+                                        crate::proto::cluster::sync_event::Payload::FullSnapshot(
+                                            snapshot,
+                                        ),
+                                    ) => {
                                         let _ = self.apply_full_snapshot(snapshot).await;
                                     }
-                                    Some(crate::proto::cluster::sync_event::Payload::LogBatch(batch)) => {
+                                    Some(crate::proto::cluster::sync_event::Payload::LogBatch(
+                                        batch,
+                                    )) => {
                                         for entry in batch.entries {
                                             let _ = self.apply_replication_write(entry).await;
                                         }
@@ -542,10 +556,13 @@ impl ShardEngine {
                                             rt.known_master_offset.max(batch.current_offset);
                                         rt.last_heartbeat = Some(SystemTime::now());
                                     }
-                                    Some(crate::proto::cluster::sync_event::Payload::Heartbeat(hb)) => {
+                                    Some(
+                                        crate::proto::cluster::sync_event::Payload::Heartbeat(hb),
+                                    ) => {
                                         let mut rt = self.inner.runtime.write().await;
                                         rt.known_master_offset = hb.current_offset;
-                                        rt.current_offset = rt.current_offset.max(hb.current_offset);
+                                        rt.current_offset =
+                                            rt.current_offset.max(hb.current_offset);
                                         rt.last_heartbeat = Some(SystemTime::now());
                                     }
                                     None => {}
@@ -687,23 +704,32 @@ impl ShardEngine {
         let rt = self.inner.runtime.read().await;
         if req.shard_id != self.inner.shard_id {
             return Ok(vec![SyncEvent {
-                payload: Some(crate::proto::cluster::sync_event::Payload::Reject(SyncReject {
-                    reason: "shard_id mismatch".to_string(),
-                })),
+                payload: Some(crate::proto::cluster::sync_event::Payload::Reject(
+                    SyncReject {
+                        reason: "shard_id mismatch".to_string(),
+                    },
+                )),
             }]);
         }
         if rt.role != ShardRole::Master {
             return Ok(vec![SyncEvent {
-                payload: Some(crate::proto::cluster::sync_event::Payload::Reject(SyncReject {
-                    reason: "node is not master".to_string(),
-                })),
+                payload: Some(crate::proto::cluster::sync_event::Payload::Reject(
+                    SyncReject {
+                        reason: "node is not master".to_string(),
+                    },
+                )),
             }]);
         }
         if req.epoch != rt.epoch {
             return Ok(vec![SyncEvent {
-                payload: Some(crate::proto::cluster::sync_event::Payload::Reject(SyncReject {
-                    reason: format!("epoch mismatch requested={} current={}", req.epoch, rt.epoch),
-                })),
+                payload: Some(crate::proto::cluster::sync_event::Payload::Reject(
+                    SyncReject {
+                        reason: format!(
+                            "epoch mismatch requested={} current={}",
+                            req.epoch, rt.epoch
+                        ),
+                    },
+                )),
             }]);
         }
 
@@ -785,7 +811,9 @@ impl ShardEngine {
         req: MigrateTileRequest,
     ) -> Result<MigrateTileResponse, Status> {
         if req.id.len() != 16 {
-            return Err(Status::invalid_argument("migration tile UUID must be 16 bytes"));
+            return Err(Status::invalid_argument(
+                "migration tile UUID must be 16 bytes",
+            ));
         }
 
         let mut id = [0_u8; 16];
@@ -884,7 +912,10 @@ impl ControlService for ControlServiceImpl {
         request: tonic::Request<BecomeReplicaRequest>,
     ) -> Result<tonic::Response<BecomeReplicaResponse>, Status> {
         Ok(tonic::Response::new(
-            self.shard.clone().become_replica(request.into_inner()).await?,
+            self.shard
+                .clone()
+                .become_replica(request.into_inner())
+                .await?,
         ))
     }
 
@@ -948,11 +979,17 @@ fn load_routing_config(data_root: &Path) -> Option<RoutingTable> {
     serde_json::from_slice::<RoutingTable>(&body).ok()
 }
 
-async fn persist_routing_config(data_root: &Path, routing: &RoutingTable) -> Result<(), std::io::Error> {
+async fn persist_routing_config(
+    data_root: &Path,
+    routing: &RoutingTable,
+) -> Result<(), std::io::Error> {
     fs::create_dir_all(data_root).await?;
     let path = routing_config_path(data_root);
-    fs::write(path, serde_json::to_vec(routing).expect("serialize routing"))
-        .await
+    fs::write(
+        path,
+        serde_json::to_vec(routing).expect("serialize routing"),
+    )
+    .await
 }
 
 fn tile_slot(tile: &TileWrite) -> u16 {
@@ -1100,10 +1137,7 @@ mod tests {
         }
     }
 
-    async fn wait_for(
-        timeout: Duration,
-        mut predicate: impl FnMut() -> bool,
-    ) -> bool {
+    async fn wait_for(timeout: Duration, mut predicate: impl FnMut() -> bool) -> bool {
         let start = Instant::now();
         while start.elapsed() < timeout {
             if predicate() {
@@ -1161,12 +1195,18 @@ mod tests {
         let dest = ShardEngine::new(dest_dir.path(), 1, 16);
 
         source
-            .become_master(BecomeMasterRequest { shard_id: 0, epoch: 1 })
+            .become_master(BecomeMasterRequest {
+                shard_id: 0,
+                epoch: 1,
+            })
             .await
             .expect("master");
-        dest.become_master(BecomeMasterRequest { shard_id: 1, epoch: 1 })
-            .await
-            .expect("master");
+        dest.become_master(BecomeMasterRequest {
+            shard_id: 1,
+            epoch: 1,
+        })
+        .await
+        .expect("master");
 
         let addr = free_addr();
         let server_engine = dest.clone();
@@ -1243,12 +1283,18 @@ mod tests {
         let dest = ShardEngine::new(dest_dir.path(), 1, 16);
 
         source
-            .become_master(BecomeMasterRequest { shard_id: 0, epoch: 1 })
+            .become_master(BecomeMasterRequest {
+                shard_id: 0,
+                epoch: 1,
+            })
             .await
             .expect("master");
-        dest.become_master(BecomeMasterRequest { shard_id: 1, epoch: 1 })
-            .await
-            .expect("master");
+        dest.become_master(BecomeMasterRequest {
+            shard_id: 1,
+            epoch: 1,
+        })
+        .await
+        .expect("master");
 
         let addr = free_addr();
         let tile = write([2_u8; 16], "payload");
@@ -1278,7 +1324,10 @@ mod tests {
 
         let src_path = source.tile_path(&id, tile.level, tile.x, tile.y);
         tokio::time::sleep(Duration::from_millis(500)).await;
-        assert!(src_path.exists(), "source tile deleted before successful migration");
+        assert!(
+            src_path.exists(),
+            "source tile deleted before successful migration"
+        );
 
         dest.install_routing_config(routing_with_owner(
             2,
@@ -1316,7 +1365,10 @@ mod tests {
         let source_dir = temp_dir();
         let source = ShardEngine::new(source_dir.path(), 0, 16);
         source
-            .become_master(BecomeMasterRequest { shard_id: 0, epoch: 1 })
+            .become_master(BecomeMasterRequest {
+                shard_id: 0,
+                epoch: 1,
+            })
             .await
             .expect("master");
 
@@ -1347,9 +1399,12 @@ mod tests {
         let dest_dir = temp_dir();
 
         let dest = ShardEngine::new(dest_dir.path(), 1, 16);
-        dest.become_master(BecomeMasterRequest { shard_id: 1, epoch: 5 })
-            .await
-            .expect("master");
+        dest.become_master(BecomeMasterRequest {
+            shard_id: 1,
+            epoch: 5,
+        })
+        .await
+        .expect("master");
 
         let addr = free_addr();
         let server_engine = dest.clone();
@@ -1392,7 +1447,10 @@ mod tests {
 
         let source = ShardEngine::new(source_dir.path(), 0, 16);
         source
-            .become_master(BecomeMasterRequest { shard_id: 0, epoch: 6 })
+            .become_master(BecomeMasterRequest {
+                shard_id: 0,
+                epoch: 6,
+            })
             .await
             .expect("master");
 

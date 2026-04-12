@@ -35,7 +35,6 @@ impl ApiService {
         self.jetstream.send_publish(CACHE_MISS, publish).await?;
         Ok(())
     }
-
 }
 
 #[tonic::async_trait]
@@ -61,32 +60,36 @@ impl StorageApi for ApiService {
             "get_tile request"
         );
 
-        let data = self.shard.read_tile(&id, req.level, req.x, req.y).await.map_err(|e| match e.kind() {
-            std::io::ErrorKind::NotFound => {
-                //metrics::tile_get_not_found(&id_str, level);
-                // Publish cache miss event to JetStream
-                let event = CacheMissEvent {
-                    id,
-                    x: req.x,
-                    y: req.y,
-                    level: req.level,
-                };
-                let service = self.clone();
-                tokio::spawn(async move {
-                    if let Err(e) = service.publish_cache_miss(event).await {
-                        tracing::error!(?e, "failed to publish cache miss event");
-                    } else {
-                        //metrics::cache_miss_published(&id_str_clone, level_clone);
-                    }
-                });
-                Status::not_found("tile not found")
-            }
-            _ => {
-                //metrics::tile_get_error(&id_str, level);
-                tracing::error!(?e, ?path, "failed to read tile");
-                Status::internal("failed to read tile")
-            }
-        })?;
+        let data = self
+            .shard
+            .read_tile(&id, req.level, req.x, req.y)
+            .await
+            .map_err(|e| match e.kind() {
+                std::io::ErrorKind::NotFound => {
+                    //metrics::tile_get_not_found(&id_str, level);
+                    // Publish cache miss event to JetStream
+                    let event = CacheMissEvent {
+                        id,
+                        x: req.x,
+                        y: req.y,
+                        level: req.level,
+                    };
+                    let service = self.clone();
+                    tokio::spawn(async move {
+                        if let Err(e) = service.publish_cache_miss(event).await {
+                            tracing::error!(?e, "failed to publish cache miss event");
+                        } else {
+                            //metrics::cache_miss_published(&id_str_clone, level_clone);
+                        }
+                    });
+                    Status::not_found("tile not found")
+                }
+                _ => {
+                    //metrics::tile_get_error(&id_str, level);
+                    tracing::error!(?e, ?path, "failed to read tile");
+                    Status::internal("failed to read tile")
+                }
+            })?;
 
         let _duration = start.elapsed().as_secs_f64();
         let _size = data.len();

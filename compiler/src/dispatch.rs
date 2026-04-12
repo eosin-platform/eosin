@@ -97,25 +97,26 @@ pub async fn run_dispatch(args: DispatchArgs) -> Result<()> {
         let msg_id = message_id_for_key(args.dataset_id, &key);
 
         // Try to dispatch with publish callback
-        let result = db::try_dispatch_with_publish(&pg_pool, args.dataset_id, &key, current_time, || {
-            let js = js.clone();
-            let payload = payload_bytes.clone();
-            let msg_id = msg_id.clone();
-            async move {
-                // Build message with ID for deduplication
-                let publish = PublishMessage::build().payload(payload).message_id(msg_id);
+        let result =
+            db::try_dispatch_with_publish(&pg_pool, args.dataset_id, &key, current_time, || {
+                let js = js.clone();
+                let payload = payload_bytes.clone();
+                let msg_id = msg_id.clone();
+                async move {
+                    // Build message with ID for deduplication
+                    let publish = PublishMessage::build().payload(payload).message_id(msg_id);
 
-                let ack = js
-                    .send_publish(PROCESS_SLIDE, publish)
-                    .await
-                    .context("failed to publish event")?;
+                    let ack = js
+                        .send_publish(PROCESS_SLIDE, publish)
+                        .await
+                        .context("failed to publish event")?;
 
-                // Wait for acknowledgment
-                ack.await.context("failed to get publish ack")?;
-                Ok(())
-            }
-        })
-        .await?;
+                    // Wait for acknowledgment
+                    ack.await.context("failed to get publish ack")?;
+                    Ok(())
+                }
+            })
+            .await?;
 
         match result {
             DispatchResult::Dispatched => {

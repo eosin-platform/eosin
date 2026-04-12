@@ -3,9 +3,8 @@ use uuid::Uuid;
 
 use crate::args::{
     AddDatasetSourceArgs, CreateDatasetArgs, CreateSlideArgs, DeleteDatasetArgs,
-    DeleteDatasetSourceArgs, DeleteSlideArgs, GetDatasetArgs, GetSlideArgs,
-    ListDatasetSourcesArgs, ListDatasetsArgs, ListSlidesArgs, UpdateDatasetArgs,
-    UpdateSlideArgs,
+    DeleteDatasetSourceArgs, DeleteSlideArgs, GetDatasetArgs, GetSlideArgs, ListDatasetSourcesArgs,
+    ListDatasetsArgs, ListSlidesArgs, UpdateDatasetArgs, UpdateSlideArgs,
 };
 use crate::client::MetaClient;
 
@@ -319,7 +318,10 @@ pub async fn run_delete_dataset_source(args: DeleteDatasetSourceArgs) -> Result<
     let dataset_id: Uuid = args.dataset_id.parse()?;
     let source_id: Uuid = args.source_id.parse()?;
     if client.delete_dataset_source(dataset_id, source_id).await? {
-        println!("Deleted dataset source {} from dataset {}", source_id, dataset_id);
+        println!(
+            "Deleted dataset source {} from dataset {}",
+            source_id, dataset_id
+        );
     } else {
         println!(
             "Dataset source {} not found in dataset {}",

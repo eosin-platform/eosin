@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use clap::Parser;
-use owo_colors::OwoColorize;
 use eosin_common::shutdown::shutdown_signal;
+use owo_colors::OwoColorize;
 use tokio_util::sync::CancellationToken;
 
 use crate::app::App;

@@ -415,7 +415,11 @@ impl MetaClient {
         if !resp.status().is_success() {
             let status = resp.status();
             let body = resp.text().await.unwrap_or_default();
-            bail!("create dataset source failed with status {}: {}", status, body);
+            bail!(
+                "create dataset source failed with status {}: {}",
+                status,
+                body
+            );
         }
 
         resp.json::<DatasetSource>()
@@ -425,7 +429,10 @@ impl MetaClient {
 
     /// Delete a dataset source by dataset and source IDs.
     pub async fn delete_dataset_source(&self, dataset_id: Uuid, source_id: Uuid) -> Result<bool> {
-        let url = format!("{}/dataset/{}/sources/{}", self.base_url, dataset_id, source_id);
+        let url = format!(
+            "{}/dataset/{}/sources/{}",
+            self.base_url, dataset_id, source_id
+        );
 
         let resp = self
             .client
@@ -445,7 +452,11 @@ impl MetaClient {
         if !resp.status().is_success() {
             let status = resp.status();
             let body = resp.text().await.unwrap_or_default();
-            bail!("delete dataset source failed with status {}: {}", status, body);
+            bail!(
+                "delete dataset source failed with status {}: {}",
+                status,
+                body
+            );
         }
 
         Ok(true)
@@ -465,7 +476,11 @@ impl MetaClient {
         if !resp.status().is_success() {
             let status = resp.status();
             let body = resp.text().await.unwrap_or_default();
-            bail!("list dataset sources failed with status {}: {}", status, body);
+            bail!(
+                "list dataset sources failed with status {}: {}",
+                status,
+                body
+            );
         }
 
         resp.json::<Vec<DatasetSource>>()

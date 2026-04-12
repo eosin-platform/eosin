@@ -1,6 +1,6 @@
+use eosin_types::*;
 use kube::CustomResourceExt;
 use std::fs;
-use eosin_types::*;
 
 fn main() {
     unsafe {

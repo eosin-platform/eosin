@@ -104,7 +104,8 @@ pub fn grpc_request(method: &str) {
 
 /// Record a gRPC request latency.
 pub fn grpc_latency(method: &str, duration_secs: f64) {
-    histogram!("storage_grpc_request_duration_seconds", "method" => method.to_string()).record(duration_secs);
+    histogram!("storage_grpc_request_duration_seconds", "method" => method.to_string())
+        .record(duration_secs);
 }
 
 /// Record a gRPC error.

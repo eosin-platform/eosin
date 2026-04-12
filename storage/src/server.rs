@@ -28,11 +28,7 @@ pub async fn run_server(args: ServerArgs) -> Result<()> {
     tracing::info!(%api_addr, "starting API server");
 
     let shard_id = args.shard.unwrap_or(0);
-    let shard = ShardEngine::new(
-        &args.data_root,
-        shard_id,
-        args.backlog_capacity as usize,
-    );
+    let shard = ShardEngine::new(&args.data_root, shard_id, args.backlog_capacity as usize);
 
     if let Some(master) = args.master {
         let _ = shard

@@ -1,4 +1,5 @@
 use super::MANAGER_NAME;
+use eosin_types::*;
 use k8s_openapi::{apimachinery::pkg::apis::meta::v1::Time, jiff::Timestamp};
 use kube::{
     Api, Client, Error,
@@ -7,7 +8,6 @@ use kube::{
 };
 use serde::{Serialize, de::DeserializeOwned};
 use std::{clone::Clone, fmt::Debug};
-use eosin_types::*;
 
 pub trait Object<S: Status> {
     /// Returns a mutable reference to the status object, initializing

@@ -9,13 +9,13 @@ use k8s_openapi::api::core::v1::{
     Container, ContainerPort, EnvVar, PersistentVolumeClaim, PersistentVolumeClaimSpec, Pod,
     PodSpec, Volume, VolumeMount, VolumeResourceRequirements,
 };
-use k8s_openapi::jiff::Timestamp;
 use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
+use k8s_openapi::jiff::Timestamp;
 use kube::api::{DeleteParams, PostParams};
 use kube::client::Client;
-use kube::runtime::controller::Action;
 use kube::runtime::Controller;
+use kube::runtime::controller::Action;
 use kube::{Api, Resource, ResourceExt};
 
 use crate::clusters::planner::{
@@ -80,7 +80,8 @@ trait ControlPlane {
         epoch: u64,
         master_addr: &str,
     ) -> bool;
-    async fn update_routing_config(&self, control_addr: &str, config: ClusterRoutingConfig) -> bool;
+    async fn update_routing_config(&self, control_addr: &str, config: ClusterRoutingConfig)
+    -> bool;
 }
 
 struct GrpcControlPlane;
@@ -101,7 +102,11 @@ impl ControlPlane for GrpcControlPlane {
         become_replica(control_addr, shard_id, epoch, master_addr).await
     }
 
-    async fn update_routing_config(&self, control_addr: &str, config: ClusterRoutingConfig) -> bool {
+    async fn update_routing_config(
+        &self,
+        control_addr: &str,
+        config: ClusterRoutingConfig,
+    ) -> bool {
         update_routing_config(control_addr, config).await
     }
 }
@@ -122,9 +127,13 @@ async fn reconcile(instance: Arc<Cluster>, context: Arc<ContextData>) -> Result<
 
     let observations = collect_observations(&pods, &instance, &name).await?;
     let control = GrpcControlPlane;
-    let computation =
-        reconcile_from_observations(&instance, &observations, instance.status.clone().unwrap_or_default(), &control)
-            .await;
+    let computation = reconcile_from_observations(
+        &instance,
+        &observations,
+        instance.status.clone().unwrap_or_default(),
+        &control,
+    )
+    .await;
 
     actions::patch_cluster_status(
         client,
@@ -369,7 +378,10 @@ async fn reconcile_from_observations(
 
     let mut pushed = 0_u32;
     for target in all_control_targets {
-        if control.update_routing_config(&target, routing.clone()).await {
+        if control
+            .update_routing_config(&target, routing.clone())
+            .await
+        {
             pushed = pushed.saturating_add(1);
         }
     }
@@ -419,7 +431,10 @@ async fn reconcile_pod_topology(
 
     if cluster.spec.gc_orphan_pvcs {
         let existing_pvcs = pvcs
-            .list(&kube::api::ListParams::default().labels(&format!("eosin.io/cluster={cluster_name}")))
+            .list(
+                &kube::api::ListParams::default()
+                    .labels(&format!("eosin.io/cluster={cluster_name}")),
+            )
             .await?;
         for pvc in existing_pvcs.items {
             let pvc_name = pvc.name_any();
@@ -707,7 +722,9 @@ async fn update_routing_config(control_addr: &str, config: ClusterRoutingConfig)
         Err(_) => return false,
     };
     client
-        .update_routing_config(UpdateRoutingConfigRequest { config: Some(config) })
+        .update_routing_config(UpdateRoutingConfigRequest {
+            config: Some(config),
+        })
         .await
         .map(|r| r.into_inner().accepted)
         .unwrap_or(false)
@@ -728,11 +745,11 @@ mod tests {
     use eosin_types::{
         ClusterSpec, ClusterStatus, ClusterTopology, FailoverPolicy, Placement, ReplicaResources,
     };
-    use k8s_openapi::jiff::Timestamp;
     use k8s_openapi::apimachinery::pkg::apis::meta::v1::Time;
+    use k8s_openapi::jiff::Timestamp;
+    use std::collections::{HashMap, HashSet};
     use std::net::TcpListener;
     use std::sync::Arc;
-    use std::collections::{HashMap, HashSet};
     use std::sync::Mutex;
     use tokio::sync::oneshot;
     use tonic::{Request, Response, Status};
@@ -750,10 +767,11 @@ mod tests {
     #[async_trait]
     impl ControlPlane for MockControlPlane {
         async fn become_master(&self, control_addr: &str, shard_id: u32, epoch: u64) -> bool {
-            self.become_master_calls
-                .lock()
-                .expect("lock")
-                .push((control_addr.to_string(), shard_id, epoch));
+            self.become_master_calls.lock().expect("lock").push((
+                control_addr.to_string(),
+                shard_id,
+                epoch,
+            ));
             self.accept_become_master
         }
 
@@ -764,19 +782,20 @@ mod tests {
             epoch: u64,
             master_addr: &str,
         ) -> bool {
-            self.become_replica_calls
-                .lock()
-                .expect("lock")
-                .push((
-                    control_addr.to_string(),
-                    shard_id,
-                    epoch,
-                    master_addr.to_string(),
-                ));
+            self.become_replica_calls.lock().expect("lock").push((
+                control_addr.to_string(),
+                shard_id,
+                epoch,
+                master_addr.to_string(),
+            ));
             self.accept_become_replica
         }
 
-        async fn update_routing_config(&self, control_addr: &str, config: ClusterRoutingConfig) -> bool {
+        async fn update_routing_config(
+            &self,
+            control_addr: &str,
+            config: ClusterRoutingConfig,
+        ) -> bool {
             self.update_calls
                 .lock()
                 .expect("lock")
@@ -899,17 +918,19 @@ mod tests {
         assert_eq!(mounts[0].mount_path, "/var/eosin");
 
         let env = container.env.as_ref().expect("env");
-        assert!(env
-            .iter()
-            .any(|e| e.name == "DATA_ROOT" && e.value.as_deref() == Some("/var/eosin")));
+        assert!(
+            env.iter()
+                .any(|e| e.name == "DATA_ROOT" && e.value.as_deref() == Some("/var/eosin"))
+        );
     }
 
     #[test]
     fn pvc_gc_grace_gate_respects_creation_age() {
         let mut pvc = PersistentVolumeClaim::default();
         let now = Timestamp::now().as_second();
-        pvc.metadata.creation_timestamp =
-            Some(Time::from(Timestamp::new(now - 3600, 0).expect("timestamp")));
+        pvc.metadata.creation_timestamp = Some(Time::from(
+            Timestamp::new(now - 3600, 0).expect("timestamp"),
+        ));
         assert!(pvc_old_enough_for_gc(&pvc, 600));
 
         pvc.metadata.creation_timestamp =
@@ -1532,7 +1553,10 @@ mod tests {
         let cfg = requests[0].config.as_ref().expect("config");
         assert_eq!(cfg.config_epoch, 42);
         assert_eq!(cfg.slot_to_shard, vec![0, 0, 1, 1]);
-        assert_eq!(cfg.shard_masters.get(&1).map(String::as_str), Some("10.0.0.2:4500"));
+        assert_eq!(
+            cfg.shard_masters.get(&1).map(String::as_str),
+            Some("10.0.0.2:4500")
+        );
 
         let _ = shutdown.send(());
         let _ = handle.await;
@@ -1581,8 +1605,18 @@ mod tests {
                 let mut shard_obs = Vec::new();
                 let designated_master = (next_u32(&mut seed) % replicas_per_shard) as u32;
                 for replica_id in 0..replicas_per_shard {
-                    let control_addr = format!("10.{}.{}.{}:4600", case_idx % 200 + 1, shard_id + 1, replica_id + 1);
-                    let cluster_addr = format!("10.{}.{}.{}:4500", case_idx % 200 + 1, shard_id + 1, replica_id + 1);
+                    let control_addr = format!(
+                        "10.{}.{}.{}:4600",
+                        case_idx % 200 + 1,
+                        shard_id + 1,
+                        replica_id + 1
+                    );
+                    let cluster_addr = format!(
+                        "10.{}.{}.{}:4500",
+                        case_idx % 200 + 1,
+                        shard_id + 1,
+                        replica_id + 1
+                    );
                     expected_targets = expected_targets.saturating_add(1);
 
                     let route_ack = (next_u32(&mut seed) % 100) < 70;
@@ -1618,7 +1652,12 @@ mod tests {
                             master_addr: if role == Role::Master {
                                 "".to_string()
                             } else {
-                                format!("10.{}.{}.{}:4500", case_idx % 200 + 1, shard_id + 1, designated_master + 1)
+                                format!(
+                                    "10.{}.{}.{}:4500",
+                                    case_idx % 200 + 1,
+                                    shard_id + 1,
+                                    designated_master + 1
+                                )
                             },
                             config_epoch,
                             migration_queue_len: 0,
@@ -1652,7 +1691,10 @@ mod tests {
 
             assert_eq!(result.applied_shards, shard_count);
             assert_eq!(result.shards.len() as u32, shard_count);
-            assert_eq!(control.update_calls.lock().expect("lock").len() as u32, expected_targets);
+            assert_eq!(
+                control.update_calls.lock().expect("lock").len() as u32,
+                expected_targets
+            );
             let message = result.message.clone().expect("message");
             assert!(message.contains(&format!("pushed_to={expected_accepts}")));
 

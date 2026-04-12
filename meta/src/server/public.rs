@@ -12,8 +12,7 @@ use axum::{
     routing::{get, patch, post, put},
 };
 use axum_keycloak_auth::{
-    KeycloakAuthStatus,
-    PassthroughMode,
+    KeycloakAuthStatus, PassthroughMode,
     decode::ProfileAndEmail,
     instance::{KeycloakAuthInstance, KeycloakConfig},
     layer::KeycloakAuthLayer,
@@ -30,12 +29,10 @@ use crate::{
     annotation_db,
     annotation_models::{AnnotationKind, ListAnnotationsQuery, PolygonPath},
     bitmask::Bitmask,
-    db,
-    metrics,
+    db, metrics,
     models::{
-        CreateDatasetRequest, CreateDatasetSourceRequest, CreateSlideRequest,
-        ListDatasetsRequest, ListSlidesRequest, UpdateDatasetRequest,
-        UpdateSlideProgressRequest, UpdateSlideRequest,
+        CreateDatasetRequest, CreateDatasetSourceRequest, CreateSlideRequest, ListDatasetsRequest,
+        ListSlidesRequest, UpdateDatasetRequest, UpdateSlideProgressRequest, UpdateSlideRequest,
     },
 };
 
@@ -429,10 +426,7 @@ pub async fn list_datasets(
     }
 
     let limit = req.limit.min(1000);
-    let include_private = matches!(
-        auth_status,
-        Some(Extension(KeycloakAuthStatus::Success(_)))
-    );
+    let include_private = matches!(auth_status, Some(Extension(KeycloakAuthStatus::Success(_))));
 
     let response = db::list_datasets(&state.pool, req.offset, limit, include_private)
         .await
@@ -453,14 +447,16 @@ pub async fn get_dataset(
     State(state): State<AppState>,
     Path(dataset_id): Path<Uuid>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    let dataset = db::get_dataset(&state.pool, dataset_id).await.map_err(|e| {
-        metrics::db_error("get_dataset");
-        tracing::error!("failed to get dataset: {:?}", e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("failed to get dataset: {}", e),
-        )
-    })?;
+    let dataset = db::get_dataset(&state.pool, dataset_id)
+        .await
+        .map_err(|e| {
+            metrics::db_error("get_dataset");
+            tracing::error!("failed to get dataset: {:?}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("failed to get dataset: {}", e),
+            )
+        })?;
 
     match dataset {
         Some(d) => Ok(Json(d)),

@@ -20,16 +20,12 @@ use uuid::Uuid;
 
 use crate::{
     annotation_db,
-    annotation_models::{
-        AnnotationKind, ListAnnotationsQuery, PolygonPath,
-    },
+    annotation_models::{AnnotationKind, ListAnnotationsQuery, PolygonPath},
     bitmask::Bitmask,
-    db,
-    metrics,
+    db, metrics,
     models::{
         CreateDatasetRequest, CreateDatasetSourceRequest, CreateSlideRequest, ListDatasetsRequest,
-        ListSlidesRequest, UpdateDatasetRequest,
-        UpdateSlideProgressRequest, UpdateSlideRequest,
+        ListSlidesRequest, UpdateDatasetRequest, UpdateSlideProgressRequest, UpdateSlideRequest,
     },
 };
 
@@ -110,7 +106,9 @@ pub async fn run_server(cancel: CancellationToken, port: u16, state: AppState) -
         .route("/dataset", get(list_datasets).post(create_dataset))
         .route(
             "/dataset/{dataset_id}",
-            get(get_dataset).patch(update_dataset).delete(delete_dataset),
+            get(get_dataset)
+                .patch(update_dataset)
+                .delete(delete_dataset),
         )
         .route(
             "/dataset/{dataset_id}/sources",
@@ -409,14 +407,16 @@ pub async fn get_dataset(
     State(state): State<AppState>,
     Path(dataset_id): Path<Uuid>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    let dataset = db::get_dataset(&state.pool, dataset_id).await.map_err(|e| {
-        metrics::db_error("get_dataset");
-        tracing::error!("failed to get dataset: {:?}", e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("failed to get dataset: {}", e),
-        )
-    })?;
+    let dataset = db::get_dataset(&state.pool, dataset_id)
+        .await
+        .map_err(|e| {
+            metrics::db_error("get_dataset");
+            tracing::error!("failed to get dataset: {:?}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("failed to get dataset: {}", e),
+            )
+        })?;
 
     match dataset {
         Some(d) => Ok(Json(d)),

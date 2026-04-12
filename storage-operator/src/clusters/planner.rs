@@ -161,7 +161,13 @@ mod tests {
     use super::*;
     use eosin_types::{ReplicaSummary, ShardStatus};
 
-    fn replica(name: &str, role: ReplicaRole, ready: bool, hb: u64, lag: Option<u64>) -> ReplicaHealth {
+    fn replica(
+        name: &str,
+        role: ReplicaRole,
+        ready: bool,
+        hb: u64,
+        lag: Option<u64>,
+    ) -> ReplicaHealth {
         ReplicaHealth {
             name: name.to_string(),
             role,
@@ -211,7 +217,10 @@ mod tests {
             replica("m", ReplicaRole::Master, true, now - 100, Some(0)),
             replica("r1", ReplicaRole::ReadReplica, true, now - 100, Some(1)),
         ];
-        assert!(build_promotion_decision(&status(2), &replicas, now, Duration::from_secs(10), false).is_none());
+        assert!(
+            build_promotion_decision(&status(2), &replicas, now, Duration::from_secs(10), false)
+                .is_none()
+        );
     }
 
     #[test]
@@ -222,15 +231,29 @@ mod tests {
             replica("m", ReplicaRole::Master, false, now - 20_000, Some(0)),
             replica("r1", ReplicaRole::ReadReplica, true, now - 100, Some(1)),
         ];
-        assert!(build_promotion_decision(&s, &replicas, now, Duration::from_secs(10), true).is_none());
+        assert!(
+            build_promotion_decision(&s, &replicas, now, Duration::from_secs(10), true).is_none()
+        );
     }
 
     #[test]
     fn stale_master_is_demoted_after_promotion() {
         let now = 100_000;
         let replicas = vec![
-            replica("old-master", ReplicaRole::Master, true, now - 20_000, Some(0)),
-            replica("candidate", ReplicaRole::ReadReplica, true, now - 100, Some(2)),
+            replica(
+                "old-master",
+                ReplicaRole::Master,
+                true,
+                now - 20_000,
+                Some(0),
+            ),
+            replica(
+                "candidate",
+                ReplicaRole::ReadReplica,
+                true,
+                now - 100,
+                Some(2),
+            ),
         ];
         let decision =
             build_promotion_decision(&status(9), &replicas, now, Duration::from_secs(10), false)
@@ -244,7 +267,13 @@ mod tests {
         let now = 100_000;
         let replicas = vec![
             replica("m", ReplicaRole::Master, false, now - 20_000, Some(0)),
-            replica("stale", ReplicaRole::ReadReplica, true, now - 40_000, Some(0)),
+            replica(
+                "stale",
+                ReplicaRole::ReadReplica,
+                true,
+                now - 40_000,
+                Some(0),
+            ),
             replica("fresh", ReplicaRole::ReadReplica, true, now - 100, Some(20)),
         ];
         let decision =
@@ -262,7 +291,10 @@ mod tests {
             "cluster-s9-r9".to_string(),
         ];
         let (create, delete) = topology_diff(&desired, &existing);
-        assert_eq!(create, vec!["cluster-s1-r0".to_string(), "cluster-s1-r1".to_string()]);
+        assert_eq!(
+            create,
+            vec!["cluster-s1-r0".to_string(), "cluster-s1-r1".to_string()]
+        );
         assert_eq!(delete, vec!["cluster-s9-r9".to_string()]);
     }
 
