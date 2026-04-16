@@ -31,6 +31,12 @@
     onAnnotationClick?: (annotation: Annotation, screenX: number, screenY: number) => void;
     /** Callback when an annotation is right-clicked */
     onAnnotationRightClick?: (annotation: Annotation, screenX: number, screenY: number) => void;
+    /** Callback when a point annotation is left-mousedown'd (for drag-to-move) */
+    onPointMouseDown?: (annotation: Annotation, screenX: number, screenY: number) => void;
+    /** Point currently being dragged (to render at drag position) */
+    pointDragAnnotationId?: string | null;
+    /** Current drag position in image coordinates */
+    pointDragImagePos?: { x: number; y: number } | null;
     /** Modification mode state */
     modifyPhase?: 'idle' | 'point-position' | 'multi-point' | 'ellipse-center' | 'ellipse-radii' | 'ellipse-angle' | 'polygon-vertices' | 'polygon-freehand' | 'polygon-edit' | 'mask-paint';
     modifyAnnotationId?: string | null;
@@ -62,6 +68,7 @@
     slideId,
     viewportX, viewportY, viewportZoom, containerWidth, containerHeight, 
     onAnnotationClick, onAnnotationRightClick,
+    onPointMouseDown, pointDragAnnotationId = null, pointDragImagePos = null,
     modifyPhase = 'idle', modifyAnnotationId = null, modifyCenter = null, modifyRadii = null, modifyMousePos = null, modifyAngleOffset = 0, modifyRotation = 0, modifyCenterOffset = null, modifyIsCreating = true, modifyOriginalRadii = null, modifyDragStartPos = null,
     modifyPolygonVertices = null, modifyFreehandPath = null, modifyEditingVertexIndex = null,
     maskPaintData = null, maskTileOrigin = null, maskAllTiles = [], maskBrushSize = 20,
@@ -519,6 +526,18 @@
     }
   }
 
+  // Handle left mousedown on point annotation (for drag-to-move)
+  function handlePointLeftMouseDown(e: MouseEvent, annotation: Annotation) {
+    if (e.button !== 0) return;
+    // Only allow drag-to-move when the point annotation tool is active
+    if (modifyPhase !== 'point-position' && modifyPhase !== 'multi-point') return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (onPointMouseDown) {
+      onPointMouseDown(annotation, e.clientX, e.clientY);
+    }
+  }
+
   // Handle annotation touch for mobile - track touch start position
   let touchStartPos: { x: number; y: number; time: number } | null = null;
   let touchAnnotation: Annotation | null = null;
@@ -834,20 +853,29 @@
 
         {#if annotation.kind === 'point'}
           {@const geo = annotation.geometry as PointGeometry}
-          {@const screen = imageToScreen(geo.x_level0, geo.y_level0)}
+          {@const effectiveX = pointDragAnnotationId === annotation.id && pointDragImagePos ? pointDragImagePos.x : geo.x_level0}
+          {@const effectiveY = pointDragAnnotationId === annotation.id && pointDragImagePos ? pointDragImagePos.y : geo.y_level0}
+          {@const screen = imageToScreen(effectiveX, effectiveY)}
+          {@const isDragging = pointDragAnnotationId === annotation.id}
+          {@const isPointToolActive = modifyPhase === 'point-position' || modifyPhase === 'multi-point'}
           <!-- svelte-ignore a11y_click_events_have_key_events -->
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <g 
             class="annotation-point"
             class:highlighted={isHighlighted}
             class:selected={isSelected}
+            class:dragging={isDragging}
             onclick={(e) => handleClick(e, annotation)}
-            onmousedown={(e) => handleRightMouseDown(e, annotation)}
+            onmousedown={(e) => {
+              if (e.button === 0) handlePointLeftMouseDown(e, annotation);
+              else handleRightMouseDown(e, annotation);
+            }}
             oncontextmenu={handleContextMenu}
             onmouseenter={() => handleMouseEnter(annotation)}
             onmouseleave={handleMouseLeave}
             ontouchstart={(e) => handleAnnotationTouchStart(e, annotation)}
             ontouchend={(e) => handleAnnotationTouchEnd(e, annotation)}
+            style={isPointToolActive ? 'cursor: crosshair' : undefined}
           >
             <title>{setName}</title>
             <!-- Invisible larger touch target -->
@@ -1312,6 +1340,10 @@
     pointer-events: auto;
     cursor: pointer;
     transition: opacity 0.15s;
+  }
+
+  .annotation-point.dragging {
+    cursor: grabbing;
   }
 
   .annotation-point:hover,

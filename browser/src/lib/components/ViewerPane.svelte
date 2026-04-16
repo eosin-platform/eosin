@@ -351,6 +351,22 @@
   // Track annotation right-click start for threshold detection (same as viewport context menu)
   let annotationRightClickStart = $state<{ annotation: Annotation; x: number; y: number } | null>(null);
 
+  // Point drag state (click-and-drag to move point annotations)
+  let pointDragState = $state<{
+    annotation: Annotation;
+    startScreenX: number;
+    startScreenY: number;
+    startImagePos: { x: number; y: number };
+    currentImagePos: { x: number; y: number };
+    hasMoved: boolean;
+  } | null>(null);
+
+  // Point tap context menu (left-click tap on point shows delete option)
+  let pointTapMenuVisible = $state(false);
+  let pointTapMenuX = $state(0);
+  let pointTapMenuY = $state(0);
+  let pointTapMenuAnnotation = $state<Annotation | null>(null);
+
   // Annotation modification mode state
   type ModifyPhase = 'idle' | 'point-position' | 'multi-point' | 'ellipse-center' | 'ellipse-radii' | 'ellipse-angle' | 'polygon-vertices' | 'polygon-freehand' | 'polygon-edit' | 'mask-paint';
   let modifyMode = $state<{
@@ -876,6 +892,9 @@
     }
     // Escape closes help and cancels measurement, ROI, and modify mode
     if (e.key === 'Escape') {
+      if (pointTapMenuVisible) {
+        handlePointTapMenuClose();
+      }
       if ($helpMenuOpen) {
         helpMenuOpen.set(false);
       }
@@ -1651,6 +1670,17 @@
 
   // Mouse event handlers
   function handleMouseDown(e: MouseEvent) {
+    // Close point tap menu on any mousedown
+    if (pointTapMenuVisible) {
+      // Check if the click is inside the menu itself
+      const menu = container?.querySelector('.point-tap-menu');
+      if (menu && menu.contains(e.target as Node)) {
+        // Let the menu button handle it
+        return;
+      }
+      handlePointTapMenuClose();
+    }
+
     // Handle annotation modification mode clicks
     if (modifyMode.phase !== 'idle' && e.button === 0) {
       // For polygon-edit mode, check if we're clicking on a vertex or inside polygon
@@ -1882,6 +1912,20 @@
   }
 
   function handleMouseMove(e: MouseEvent) {
+    // Handle point annotation drag-to-move
+    if (pointDragState) {
+      const imagePos = screenToImage(e.clientX, e.clientY);
+      const dx = e.clientX - pointDragState.startScreenX;
+      const dy = e.clientY - pointDragState.startScreenY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      pointDragState = {
+        ...pointDragState,
+        currentImagePos: imagePos,
+        hasMoved: dist > 5,
+      };
+      return;
+    }
+
     // Handle mask brush size adjustment via middle-mouse drag
     if (modifyMode.phase === 'mask-paint' && maskBrushDragStart !== null) {
       const deltaY = maskBrushDragStart.y - e.clientY; // Up = increase, down = decrease
@@ -2021,6 +2065,31 @@
   }
 
   function handleMouseUp(e?: MouseEvent) {
+    // Handle point annotation drag end
+    if (e && e.button === 0 && pointDragState) {
+      if (pointDragState.hasMoved) {
+        // Dragged - update annotation position
+        const imagePos = screenToImage(e.clientX, e.clientY);
+        annotationStore.updateAnnotation(pointDragState.annotation.id, {
+          geometry: {
+            x_level0: imagePos.x,
+            y_level0: imagePos.y,
+          },
+        }).catch((err) => {
+          console.error('Failed to move point:', err);
+          toastStore.error('Failed to move point annotation');
+        });
+      } else {
+        // Tapped - show point context menu with Delete option
+        pointTapMenuX = e.clientX;
+        pointTapMenuY = e.clientY;
+        pointTapMenuAnnotation = pointDragState.annotation;
+        pointTapMenuVisible = true;
+      }
+      pointDragState = null;
+      return;
+    }
+
     // End mask brush size adjustment
     if (e && e.button === 1 && maskBrushDragStart !== null) {
       maskBrushDragStart = null;
@@ -2591,7 +2660,7 @@
     
     // Only prevent default (blocking click events) when dragging/panning or context menu is visible
     // This allows synthetic clicks to reach annotations for selection
-    if (wasDragging || contextMenuVisible || annotationMenuVisible) {
+    if (wasDragging || contextMenuVisible || annotationMenuVisible || pointTapMenuVisible) {
       e.preventDefault();
     }
   }
@@ -2660,6 +2729,35 @@
   function handleAnnotationMenuClose() {
     annotationMenuVisible = false;
     annotationMenuTarget = null;
+  }
+
+  // Point drag-to-move: mousedown on a point annotation
+  function handlePointMouseDown(annotation: Annotation, screenX: number, screenY: number) {
+    const imagePos = screenToImage(screenX, screenY);
+    pointDragState = {
+      annotation,
+      startScreenX: screenX,
+      startScreenY: screenY,
+      startImagePos: imagePos,
+      currentImagePos: imagePos,
+      hasMoved: false,
+    };
+  }
+
+  function handlePointTapMenuClose() {
+    pointTapMenuVisible = false;
+    pointTapMenuAnnotation = null;
+  }
+
+  async function handlePointTapDelete() {
+    if (!pointTapMenuAnnotation) return;
+    try {
+      await annotationStore.deleteAnnotation(pointTapMenuAnnotation.id);
+    } catch (err) {
+      console.error('Failed to delete point:', err);
+      toastStore.error('Failed to delete point annotation');
+    }
+    handlePointTapMenuClose();
   }
 
   function handleAnnotationModify(annotation: Annotation) {
@@ -3923,6 +4021,7 @@
   class:measuring-toggle={measurement.active && (measurement.mode === 'placing' || measurement.mode === 'toggle' || measurement.mode === 'pending' || measurement.mode === 'confirmed')}
   class:roi-active={roi.active}
   class:modifying={modifyMode.phase !== 'idle'}
+  class:point-dragging={pointDragState?.hasMoved}
   bind:this={container}
   onmousedown={handleMouseDown}
   onmousemove={handleMouseMove}
@@ -3960,6 +4059,9 @@
       containerWidth={presentedViewport.width}
       containerHeight={presentedViewport.height}
       onAnnotationRightClick={handleAnnotationRightClick}
+      onPointMouseDown={handlePointMouseDown}
+      pointDragAnnotationId={pointDragState?.annotation.id ?? null}
+      pointDragImagePos={pointDragState?.currentImagePos ?? null}
       modifyPhase={modifyMode.phase}
       modifyAnnotationId={modifyMode.annotation?.id ?? null}
       modifyCenter={modifyMode.tempCenter ?? null}
@@ -4094,6 +4196,30 @@
     onModify={handleAnnotationModify}
   />
 
+  <!-- Point tap context menu (left-click tap on point annotation) -->
+  {#if pointTapMenuVisible && pointTapMenuAnnotation}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div
+      class="point-tap-menu"
+      style="left: {Math.min(pointTapMenuX, (typeof window !== 'undefined' ? window.innerWidth : 9999) - 160)}px; top: {Math.min(pointTapMenuY, (typeof window !== 'undefined' ? window.innerHeight : 9999) - 60)}px;"
+      role="menu"
+    >
+      <button
+        class="point-tap-menu-item delete"
+        role="menuitem"
+        onclick={handlePointTapDelete}
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="3 6 5 6 21 6"></polyline>
+          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+          <line x1="10" y1="11" x2="10" y2="17"></line>
+          <line x1="14" y1="11" x2="14" y2="17"></line>
+        </svg>
+        <span>Delete Point</span>
+      </button>
+    </div>
+  {/if}
+
   <!-- Export modal dialog -->
   <ExportModal />
 </div>
@@ -4153,6 +4279,11 @@
   /* Panning state - always show grabbing cursor (right-click pan, etc.)
      Must come after tool-specific cursors to override them */
   .viewer-container.panning {
+    cursor: grabbing;
+  }
+
+  /* Point annotation drag-to-move cursor */
+  .viewer-container.point-dragging {
     cursor: grabbing;
   }
 
@@ -4539,5 +4670,50 @@
       font-size: 0.625rem;
       padding: 0.0625rem 0.25rem;
     }
+  }
+
+  /* Point tap context menu */
+  .point-tap-menu {
+    position: fixed;
+    z-index: 10000;
+    background: #222;
+    border: 1px solid #444;
+    border-radius: 6px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+    padding: 4px 0;
+    min-width: 140px;
+    animation: pointTapMenuFadeIn 0.1s ease-out;
+    user-select: none;
+  }
+
+  .point-tap-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 6px 12px;
+    border: none;
+    background: none;
+    color: #eee;
+    font-size: 13px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .point-tap-menu-item:hover {
+    background: #333;
+  }
+
+  .point-tap-menu-item.delete {
+    color: #f87171;
+  }
+
+  .point-tap-menu-item.delete:hover {
+    background: rgba(239, 68, 68, 0.15);
+  }
+
+  @keyframes pointTapMenuFadeIn {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
   }
 </style>
