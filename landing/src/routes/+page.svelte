@@ -548,9 +548,7 @@
 				>
 					GitHub
 				</a>
-				<a href="mailto:sablecrestlabs@protonmail.com" class="transition-colors hover:text-gray-900"
-					>Contact</a
-				>
+				<a href="mailto:info@eosin.io" class="transition-colors hover:text-gray-900">Contact</a>
 			</div>
 		</div>
 		<div class="mt-6 border-t border-gray-100 pt-6 text-center text-sm text-gray-400">
@@ -561,6 +559,15 @@
 				target="_blank"
 				rel="noopener noreferrer">Thomas Havlik</a
 			>
+			•
+			<a
+				href="https://sablecrest.io"
+				target="_blank"
+				rel="noopener noreferrer"
+				class="font-medium text-gray-500 transition-colors hover:text-gray-900"
+			>
+				Sable Crest Labs
+			</a>
 		</div>
 	</div>
 </footer>
