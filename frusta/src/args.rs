@@ -27,6 +27,6 @@ pub struct ServerArgs {
     #[command(flatten)]
     pub nats: NatsArgs,
 
-    #[command(flatten)]
-    pub redis: RedisArgs,
+    //#[command(flatten)]
+    //pub redis: RedisArgs,
 }

@@ -42,7 +42,7 @@ pub struct AppState {
     pub storage_endpoint: String,
     pub work_queue: PriorityWorkQueue,
     pub nats_client: NatsClient,
-    pub rate_limiter: RateLimiter,
+    pub rate_limiter: Option<RateLimiter>,
 }
 
 /// Run the frusta WebSocket server.
@@ -56,20 +56,21 @@ pub async fn run_server(args: ServerArgs) -> Result<()> {
     tracing::info!(url = %args.nats.nats_url, "connected to NATS");
 
     // Initialize Redis for rate limiting
-    let redis_pool = init_redis(&args.redis).await;
-    let rate_limiter = RateLimiter::new(
-        redis_pool,
-        RateLimiterConfig {
-            // 1,000 requests per minute (short window)
-            burst_limit: 1_000,
-            burst_window_ms: 60_000,
-            // 10,000 requests per 10 minutes (long window)
-            long_limit: 10_000,
-            long_window_ms: 600_000,
-            max_list_size: 10_000,
-            key_prefix: "frusta:tile:".into(),
-        },
-    );
+    //let redis_pool = init_redis(&args.redis).await;
+    let rate_limiter = None;
+    //let rate_limiter = RateLimiter::new(
+    //    redis_pool,
+    //    RateLimiterConfig {
+    //        // 1,000 requests per minute (short window)
+    //        burst_limit: 1_000,
+    //        burst_window_ms: 60_000,
+    //        // 10,000 requests per 10 minutes (long window)
+    //        long_limit: 10_000,
+    //        long_window_ms: 600_000,
+    //        max_list_size: 10_000,
+    //        key_prefix: "frusta:tile:".into(),
+    //    },
+    //);
     tracing::info!("rate limiter initialized: 1000 req/min, 10000 req/10min");
 
     let cancel = CancellationToken::new();
@@ -358,21 +359,23 @@ async fn handle_message(
             // Rate limit tile requests by client IP
             if let Some(ref ip) = session.client_ip {
                 let key = format!("ip:{}", ip);
-                if !session.rate_limiter.check(&key).await {
-                    tracing::warn!(ip = %ip, "rate limited tile request");
-                    // Enter 5-second cooldown: silently drop all tile requests
-                    session.rate_limit_until = Some(Instant::now() + Duration::from_secs(5));
-                    // Notify the client at most once every 10 seconds
-                    let should_notify = match session.last_rate_limit_notify {
-                        Some(last) => last.elapsed() >= Duration::from_secs(10),
-                        None => true,
-                    };
-                    if should_notify {
-                        session.last_rate_limit_notify = Some(Instant::now());
-                        let payload = MessageBuilder::rate_limited();
-                        let _ = send_tx.try_send(Message::Binary(payload));
+                if let Some(ref limiter) = session.rate_limiter {
+                    if !limiter.check(&key).await {
+                        tracing::warn!(ip = %ip, "rate limited tile request");
+                        // Enter 5-second cooldown: silently drop all tile requests
+                        session.rate_limit_until = Some(Instant::now() + Duration::from_secs(5));
+                        // Notify the client at most once every 10 seconds
+                        let should_notify = match session.last_rate_limit_notify {
+                            Some(last) => last.elapsed() >= Duration::from_secs(10),
+                            None => true,
+                        };
+                        if should_notify {
+                            session.last_rate_limit_notify = Some(Instant::now());
+                            let payload = MessageBuilder::rate_limited();
+                            let _ = send_tx.try_send(Message::Binary(payload));
+                        }
+                        return Ok(());
                     }
-                    return Ok(());
                 }
             }
             ensure!(
@@ -493,7 +496,7 @@ pub struct Session {
     viewports: Vec<Option<ViewManager>>,
     send_tx: async_channel::Sender<Bytes>,
     nats_client: NatsClient,
-    rate_limiter: RateLimiter,
+    rate_limiter: Option<RateLimiter>,
     client_ip: Option<String>,
     /// Last time we sent a RateLimited notification to the client.
     /// Throttled to at most once per 10 seconds.
@@ -508,7 +511,7 @@ impl Session {
         work_queue: PriorityWorkQueue,
         send_tx: async_channel::Sender<Bytes>,
         nats_client: NatsClient,
-        rate_limiter: RateLimiter,
+        rate_limiter: Option<RateLimiter>,
         client_ip: Option<String>,
     ) -> Self {
         Self {
