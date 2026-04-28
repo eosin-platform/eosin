@@ -144,7 +144,7 @@ browser:
   metaPublicEndpoint: https://api.eosin.ai
   resources:
     limits:
-      memory: "256Mi"
+      memory: "64Mi"
 
 landing:
   image: thavlik/eosin-landing:latest
@@ -153,7 +153,7 @@ landing:
   logLevel: warning
   resources:
     limits:
-      memory: "256Mi"
+      memory: "64Mi"
 
 compiler:
   enabled: true
