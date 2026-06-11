@@ -35,6 +35,10 @@ pub struct S3Args {
     /// S3 region
     #[arg(long, env = "S3_REGION", default_value = "us-east-1")]
     pub region: String,
+
+    /// Disable S3 request signing (for public buckets)
+    #[arg(long, env = "S3_NO_SIGN_REQUEST", default_value = "false")]
+    pub no_sign_request: bool,
 }
 
 #[derive(Parser, Debug, Clone)]

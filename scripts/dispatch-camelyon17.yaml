@@ -13,32 +13,32 @@ spec:
       - eosin-compiler
       - dispatch
       - --max-dispatch
-      - "60"
+      - "3"
     env:
     - name: RUST_LOG
       value: info
     - name: S3_BUCKET
-      value: camelyon17
+      value: camelyon-dataset
     - name: DATASET_ID
       value: 43cf6aae-08cf-4c29-9bf2-f926a71b8fa5
     - name: S3_PATH_PREFIX
-      value: "images/"
-    - name: S3_ENDPOINT
-      value: https://nyc3.digitaloceanspaces.com
+      value: "CAMELYON17/images/"
     - name: S3_REGION
-      value: nyc3
+      value: us-west-2
+    - name: S3_NO_SIGN_REQUEST
+      value: "true"
     - name: STREAM_NAME
       value: eosin
-    - name: AWS_ACCESS_KEY_ID
-      valueFrom:
-        secretKeyRef:
-          name: spaces-cred
-          key: access_key_id
-    - name: AWS_SECRET_ACCESS_KEY
-      valueFrom:
-        secretKeyRef:
-          name: spaces-cred
-          key: secret_access_key
+    #- name: AWS_ACCESS_KEY_ID
+    #  valueFrom:
+    #    secretKeyRef:
+    #      name: spaces-cred
+    #      key: access_key_id
+    #- name: AWS_SECRET_ACCESS_KEY
+    #  valueFrom:
+    #    secretKeyRef:
+    #      name: spaces-cred
+    #      key: secret_access_key
     - name: NATS_URL
       value: nats://nats.nats.svc.cluster.local:4222
     - name: POSTGRES_HOST

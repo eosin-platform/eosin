@@ -16,28 +16,30 @@ keycloak:
   endpoint: "http://keycloak-service.keycloak.svc.cluster.local:8080"
 
 redis:
-  username:
-    valueFrom:
-      secretKeyRef:
-        name: redis-cred
-        key: username
-  password:
-    valueFrom:
-      secretKeyRef:
-        name: redis-cred
-        key: password
+  #username:
+  #  valueFrom:
+  #    secretKeyRef:
+  #      name: redis-cred
+  #      key: username
+  #password:
+  #  valueFrom:
+  #    secretKeyRef:
+  #      name: redis-cred
+  #      key: password
   host:
-    valueFrom:
-      secretKeyRef:
-        name: redis-cred
-        key: host
+    value: redis.redis.svc.cluster.local
+  #  valueFrom:
+  #    secretKeyRef:
+  #      name: redis-cred
+  #      key: host
   port:
-    valueFrom:
-      secretKeyRef:
-        name: redis-cred
-        key: port
+    value: "6379"
+  #  valueFrom:
+  #    secretKeyRef:
+  #      name: redis-cred
+  #      key: port
   proto:
-    value: rediss
+    value: redis
 
 s3:
   accessKeyId:

@@ -204,16 +204,16 @@ pub async fn init_annotation_schema(pool: &Pool) -> Result<()> {
         .context("failed to create annotation_masks table")?;
 
     // Create spatial index for mask bounding boxes
-    client
-        .execute(
-            r#"
-            CREATE INDEX IF NOT EXISTS idx_annotation_masks_bbox 
-            ON annotation_masks (x0_level0, y0_level0)
-            "#,
-            &[],
-        )
-        .await
-        .context("failed to create annotation_masks bbox index")?;
+    //client
+    //    .execute(
+    //        r#"
+    //        CREATE INDEX IF NOT EXISTS idx_annotation_masks_bbox 
+    //        ON annotation_masks (x0_level0, y0_level0)
+    //        "#,
+    //        &[],
+    //    )
+    //    .await
+    //    .context("failed to create annotation_masks bbox index")?;
 
     // Add annotation_set_id column to annotation_masks for unique constraint enforcement
     // This is denormalized but necessary for DB-level uniqueness guarantee
@@ -247,16 +247,16 @@ pub async fn init_annotation_schema(pool: &Pool) -> Result<()> {
     //     .context("failed to add annotation_set_id to annotation_masks")?;
 
     // Create unique index to enforce one mask per tile per annotation set
-    client
-        .execute(
-            r#"
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_annotation_masks_unique_tile 
-            ON annotation_masks (annotation_set_id, x0_level0, y0_level0)
-            "#,
-            &[],
-        )
-        .await
-        .context("failed to create unique tile index on annotation_masks")?;
+    //client
+    //    .execute(
+    //        r#"
+    //        CREATE UNIQUE INDEX IF NOT EXISTS idx_annotation_masks_unique_tile 
+    //        ON annotation_masks (annotation_set_id, x0_level0, y0_level0)
+    //        "#,
+    //        &[],
+    //    )
+    //    .await
+    //    .context("failed to create unique tile index on annotation_masks")?;
 
     tracing::info!("annotation database schema initialized");
     Ok(())

@@ -178,7 +178,7 @@ impl ShardEngine {
                 shard_id,
                 backlog_capacity: backlog_capacity.max(1),
                 runtime: RwLock::new(ShardRuntime {
-                    role: ShardRole::ReadReplica,
+                    role: ShardRole::Master, // FIXME: should be determined by environment
                     epoch: 0,
                     current_offset: 0,
                     applied_offset: 0,

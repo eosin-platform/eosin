@@ -8,6 +8,7 @@ use tonic::transport::Server;
 
 use crate::api::ApiService;
 use crate::args::ServerArgs;
+use crate::proto::cluster::BecomeMasterRequest;
 use crate::proto::cluster::{
     control_service_server::ControlServiceServer,
     replication_service_server::ReplicationServiceServer,
@@ -39,6 +40,11 @@ pub async fn run_server(args: ServerArgs) -> Result<()> {
                 master_addr: master.to_string(),
             })
             .await;
+    } else {
+        shard.clone().become_master(BecomeMasterRequest {
+            epoch: 1,
+            shard_id,
+        }).await?;
     }
 
     // Build the API server with graceful shutdown

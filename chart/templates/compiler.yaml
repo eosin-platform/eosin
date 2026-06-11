@@ -23,11 +23,11 @@ spec:
       imagePullSecrets:
 {{ toYaml .Values.imagePullSecrets | indent 10 }}
     {{- end }}
-      tolerations:
-        - key: eosin
-          operator: Equal
-          value: "true"
-          effect: NoSchedule
+      #tolerations:
+      #  - key: eosin
+      #    operator: Equal
+      #    value: "true"
+      #    effect: NoSchedule
       #nodeSelector:
       #  eosin: "true"
       containers:

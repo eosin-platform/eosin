@@ -13,7 +13,7 @@ const FLUSH_THRESHOLD: usize = 8 * 1024 * 1024; // 8 MB
 
 /// Create an S3 client from the provided arguments.
 pub async fn create_s3_client(args: &S3Args) -> Result<S3Client> {
-    create_s3_client_with_params(args.endpoint.as_deref(), &args.region, true).await
+    create_s3_client_with_params(args.endpoint.as_deref(), &args.region, !args.no_sign_request).await
 }
 
 /// Create an S3 client from a dataset source record.
@@ -31,6 +31,8 @@ async fn create_s3_client_with_params(
     region: &str,
     requires_credentials: bool,
 ) -> Result<S3Client> {
+    tracing::info!(endpoint = ?endpoint, region = %region, requires_credentials, "creating S3 client");
+
     let mut config_loader = aws_config::defaults(aws_config::BehaviorVersion::latest())
         .region(Region::new(region.to_string()));
 
@@ -39,9 +41,9 @@ async fn create_s3_client_with_params(
     }
 
     if !requires_credentials {
-        let creds = Credentials::new("", "", None, None, "anonymous");
-        config_loader = config_loader.credentials_provider(SharedCredentialsProvider::new(creds));
-    }
+        //let creds = Credentials::new("", "", None, None, "anonymous");
+        config_loader = config_loader.no_credentials(); //config_loader.credentials_provider(SharedCredentialsProvider::new(creds));
+    } 
 
     let config = config_loader.load().await;
     let client = S3Client::new(&config);
