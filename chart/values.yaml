@@ -82,7 +82,7 @@ postgres:
 iam:
   image: thavlik/eosin-iam:latest
   imagePullPolicy: Always
-  replicas: 0
+  replicas: 1
   logLevel: debug
   resources:
     requests: 
@@ -150,10 +150,10 @@ landing:
       memory: "64Mi"
 
 compiler:
-  enabled: true
+  enabled: false
   image: thavlik/eosin-compiler:latest
   imagePullPolicy: Always
-  replicas: 1
+  replicas: 0
   logLevel: debug
   streamName: eosin
   consumerName: compiler
