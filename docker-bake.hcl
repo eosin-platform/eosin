@@ -6,6 +6,10 @@ variable "REGISTRY_USERNAME" {
   default = "thavlik"
 }
 
+variable "TAG" {
+  default = "latest"
+}
+
 group "default" {
   targets = [
     "storage",
@@ -22,21 +26,21 @@ group "default" {
 target "base" {
   context    = "./"
   dockerfile = "Dockerfile.base"
-  tags       = ["${REGISTRY}${REGISTRY_USERNAME}/eosin-base:latest"]
+  tags       = ["${REGISTRY}${REGISTRY_USERNAME}/eosin-base:${TAG}"]
   push       = false
 }
 
 target "browser" {
   context    = "./"
   dockerfile = "browser/Dockerfile"
-  tags       = ["${REGISTRY}${REGISTRY_USERNAME}/eosin-browser:latest"]
+  tags       = ["${REGISTRY}${REGISTRY_USERNAME}/eosin-browser:${TAG}"]
   push       = true
 }
 
 target "landing" {
   context    = "./"
   dockerfile = "landing/Dockerfile"
-  tags       = ["${REGISTRY}${REGISTRY_USERNAME}/eosin-landing:latest"]
+  tags       = ["${REGISTRY}${REGISTRY_USERNAME}/eosin-landing:${TAG}"]
   push       = true
 }
 
@@ -45,7 +49,7 @@ target "storage" {
   context    = "./"
   dockerfile = "storage/Dockerfile"
   args       = { BASE_IMAGE = "base_context" }
-  tags       = ["${REGISTRY}${REGISTRY_USERNAME}/eosin-storage:latest"]
+  tags       = ["${REGISTRY}${REGISTRY_USERNAME}/eosin-storage:${TAG}"]
   push       = true
   cache-from = ["type=local,src=.buildx-cache/eosin-storage"]
   cache-to   = ["type=local,dest=.buildx-cache/eosin-storage,mode=min"]
@@ -56,7 +60,7 @@ target "storage-operator" {
   context    = "./"
   dockerfile = "storage-operator/Dockerfile"
   args       = { BASE_IMAGE = "base_context" }
-  tags       = ["${REGISTRY}${REGISTRY_USERNAME}/eosin-storage-operator:latest"]
+  tags       = ["${REGISTRY}${REGISTRY_USERNAME}/eosin-storage-operator:${TAG}"]
   push       = true
   cache-from = ["type=local,src=.buildx-cache/eosin-storage-operator"]
   cache-to   = ["type=local,dest=.buildx-cache/eosin-storage-operator,mode=min"]
@@ -67,7 +71,7 @@ target "iam" {
   context    = "./"
   dockerfile = "iam/Dockerfile"
   args       = { BASE_IMAGE = "base_context" }
-  tags       = ["${REGISTRY}${REGISTRY_USERNAME}/eosin-iam:latest"]
+  tags       = ["${REGISTRY}${REGISTRY_USERNAME}/eosin-iam:${TAG}"]
   push       = true
   cache-from = ["type=local,src=.buildx-cache/eosin-iam"]
   cache-to   = ["type=local,dest=.buildx-cache/eosin-iam,mode=min"]
@@ -78,7 +82,7 @@ target "frusta" {
   context    = "./"
   dockerfile = "frusta/Dockerfile"
   args       = { BASE_IMAGE = "base_context" }
-  tags       = ["${REGISTRY}${REGISTRY_USERNAME}/eosin-frusta:latest"]
+  tags       = ["${REGISTRY}${REGISTRY_USERNAME}/eosin-frusta:${TAG}"]
   push       = true
   cache-from = ["type=local,src=.buildx-cache/eosin-frusta"]
   cache-to   = ["type=local,dest=.buildx-cache/eosin-frusta,mode=min"]
@@ -89,7 +93,7 @@ target "meta" {
   context    = "./"
   dockerfile = "meta/Dockerfile"
   args       = { BASE_IMAGE = "base_context" }
-  tags       = ["${REGISTRY}${REGISTRY_USERNAME}/eosin-meta:latest"]
+  tags       = ["${REGISTRY}${REGISTRY_USERNAME}/eosin-meta:${TAG}"]
   push       = true
   cache-from = ["type=local,src=.buildx-cache/eosin-meta"]
   cache-to   = ["type=local,dest=.buildx-cache/eosin-meta,mode=min"]
@@ -100,7 +104,7 @@ target "compiler" {
   context    = "./"
   dockerfile = "compiler/Dockerfile"
   args       = { BASE_IMAGE = "base_context" }
-  tags       = ["${REGISTRY}${REGISTRY_USERNAME}/eosin-compiler:latest"]
+  tags       = ["${REGISTRY}${REGISTRY_USERNAME}/eosin-compiler:${TAG}"]
   push       = true
   cache-from = ["type=local,src=.buildx-cache/eosin-compiler"]
   cache-to   = ["type=local,dest=.buildx-cache/eosin-compiler,mode=min"]
