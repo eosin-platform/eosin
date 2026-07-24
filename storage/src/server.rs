@@ -20,7 +20,7 @@ use crate::replication::{ControlServiceImpl, ReplicationServiceImpl, ShardEngine
 pub async fn run_server(args: ServerArgs) -> Result<()> {
     // Connect to NATS
     let nats = args.nats.connect().await?;
-    tracing::info!(url = %args.nats.nats_url, "connected to NATS");
+    tracing::info!(url = %args.nats.nats_url, user = %args.nats.nats_user, "connected to NATS");
 
     // Create JetStream context
     let jetstream = jetstream::new(nats);

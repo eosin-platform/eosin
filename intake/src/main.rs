@@ -36,7 +36,7 @@ async fn handle_cache_miss(payload: &[u8]) -> Result<()> {
 async fn run_consumer(args: ConsumerArgs) -> Result<()> {
     // Connect to NATS
     let nats = args.nats.connect().await?;
-    tracing::info!(url = %args.nats.nats_url, "connected to NATS");
+    tracing::info!(url = %args.nats.nats_url, user = %args.nats.nats_user, "connected to NATS");
 
     // Create JetStream context
     let jetstream = jetstream::new(nats);

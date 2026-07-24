@@ -53,7 +53,7 @@ pub async fn run_server(args: ServerArgs) -> Result<()> {
 
     // Connect to NATS
     let nats_client = args.nats.connect().await?;
-    tracing::info!(url = %args.nats.nats_url, "connected to NATS");
+    tracing::info!(url = %args.nats.nats_url, user = %args.nats.nats_user, "connected to NATS");
 
     // Initialize Redis for rate limiting
     //let redis_pool = init_redis(&args.redis).await;

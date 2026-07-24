@@ -77,7 +77,7 @@ pub async fn run_process(args: ProcessArgs) -> Result<()> {
     // Connect to NATS
     let nats = args.nats.connect().await?;
     let nats_core = nats.clone(); // Keep a reference for core NATS publishing
-    tracing::info!(url = %args.nats.nats_url, "connected to NATS");
+    tracing::info!(url = %args.nats.nats_url, user = %args.nats.nats_user, "connected to NATS");
 
     // Create JetStream context
     let jetstream = jetstream::new(nats);
